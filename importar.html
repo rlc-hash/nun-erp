@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NUN · Importar XML del SAT</title>
+<style>
+  :root{ --ink:#0A0A0A; --line:#DcDcDc; --bg:#fff; --bg2:#F6F6F6; --green:#0a7d33; --greenbg:#e7f6ec; --red:#c0392b; --redbg:#fdeceb; --amber:#8a6d00; --amberbg:#fff6db; }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg2);color:var(--ink);line-height:1.5}
+  .wrap{max-width:820px;margin:0 auto;padding:28px 20px}
+  h1{font-size:22px;margin:0 0 2px} .sub{color:#666;font-size:13px;margin-bottom:20px}
+  .card{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:16px}
+  .drop{border:2px dashed #bbb;border-radius:12px;padding:38px 20px;text-align:center;cursor:pointer;transition:.15s;background:var(--bg)}
+  .drop:hover{border-color:var(--ink);background:#fafafa}
+  .drop b{font-size:15px}
+  .btn{background:var(--ink);color:#fff;border:0;border-radius:8px;padding:12px 20px;font-size:14px;font-weight:600;cursor:pointer}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn.sec{background:#fff;color:var(--ink);border:1px solid var(--line)}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0}
+  .kpi{background:var(--bg2);border-radius:10px;padding:12px}
+  .kpi .l{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.03em} .kpi .v{font-size:22px;font-weight:700}
+  .log{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:#0d0d0d;color:#c8f7c8;border-radius:10px;padding:14px;max-height:280px;overflow:auto;white-space:pre-wrap;margin-top:12px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+  input[type=text]{border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:13px;width:100%;font-family:ui-monospace,monospace}
+  .pill{display:inline-block;padding:2px 9px;border-radius:100px;font-size:11px;font-weight:600}
+  .pill.g{background:var(--greenbg);color:var(--green)} .pill.a{background:var(--amberbg);color:var(--amber)} .pill.r{background:var(--redbg);color:var(--red)}
+  .bar{height:10px;background:var(--line);border-radius:100px;overflow:hidden;margin-top:10px}
+  .bar>i{display:block;height:100%;background:var(--green);width:0;transition:.2s}
+  label{font-size:12px;color:#666;display:block;margin-bottom:5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Importar XML del SAT → NUN ERP</h1>
+  <div class="sub">Sube tus CFDI (XML) timbrados. Se guardan en el backend y se completan las facturas por UUID.</div>
+
+  <div class="card">
+    <label>Backend (endpoint /exec)</label>
+    <input type="text" id="url" value="https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec">
+    <div class="row">
+      <div style="flex:1;min-width:180px"><label>Código de acceso</label><input type="text" id="code" value="RAFA-2026" style="width:auto;min-width:150px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="drop" id="drop" onclick="document.getElementById('fileDir').click()">
+      <b>📁 Arrastra la carpeta de XMLs aquí</b><br>
+      <span style="color:#666;font-size:13px">o haz clic para elegir la carpeta · también puedes soltar archivos .xml sueltos</span>
+    </div>
+    <div class="row">
+      <button class="btn sec" onclick="document.getElementById('fileDir').click()">Elegir carpeta</button>
+      <button class="btn sec" onclick="document.getElementById('fileFiles').click()">Elegir archivos .xml</button>
+    </div>
+    <input type="file" id="fileDir" accept=".xml,text/xml" multiple webkitdirectory style="display:none">
+    <input type="file" id="fileFiles" accept=".xml,text/xml" multiple style="display:none">
+  </div>
+
+  <div id="panel" style="display:none">
+    <div class="card">
+      <div class="kpis">
+        <div class="kpi"><div class="l">Facturas (I)</div><div class="v" id="kI">0</div></div>
+        <div class="kpi"><div class="l">Notas cred. (E)</div><div class="v" id="kE">0</div></div>
+        <div class="kpi"><div class="l">Pagos (P)</div><div class="v" id="kP">0</div></div>
+        <div class="kpi"><div class="l">Cruzan c/ERP</div><div class="v" id="kM">0</div></div>
+      </div>
+      <button class="btn" id="go" onclick="subir()">💾 Guardar todo en el ERP</button>
+      <div class="bar"><i id="bar"></i></div>
+      <div class="log" id="log">Esperando archivos…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+let PARSED = [];
+const $ = id => document.getElementById(id);
+const log = m => { const l=$('log'); l.textContent += '\n'+m; l.scrollTop=l.scrollHeight; };
+const setBar = p => $('bar').style.width = Math.round(p*100)+'%';
+
+async function api(payload){
+  const body = Object.assign({ codigo: $('code').value.trim() }, payload);
+  const r = await fetch($('url').value.trim(), { method:'POST', body: JSON.stringify(body), headers:{'Content-Type':'text/plain;charset=utf-8'} });
+  return await r.json();
+}
+
+function parseXML(txt, name){
+  try{
+    const doc = new DOMParser().parseFromString(txt, 'text/xml');
+    const comp = doc.documentElement;
+    const A = (el,a)=> el ? (el.getAttribute(a) || el.getAttribute(a.toLowerCase()) || '') : '';
+    // buscar nodos sin depender del prefijo del namespace
+    const byLocal = ln => Array.from(doc.getElementsByTagName('*')).find(e => e.localName===ln);
+    const emisor = byLocal('Emisor'), receptor = byLocal('Receptor');
+    let uuid='';
+    Array.from(doc.getElementsByTagName('*')).forEach(e=>{ if(e.localName==='TimbreFiscalDigital') uuid = (e.getAttribute('UUID')||'').toUpperCase(); });
+    const items = Array.from(doc.getElementsByTagName('*')).filter(e=>e.localName==='Concepto').map(c=>({
+      sku:A(c,'NoIdentificacion'), descripcion:A(c,'Descripcion'), cantidad:parseFloat(A(c,'Cantidad'))||0,
+      precio_unitario:parseFloat(A(c,'ValorUnitario'))||0, clave_sat:A(c,'ClaveProdServ'), unidad:A(c,'Unidad')||A(c,'ClaveUnidad')
+    }));
+    return {
+      name, uuid, error: uuid?'':'sin UUID',
+      folio:A(comp,'Folio'), serie:A(comp,'Serie'), fecha:(A(comp,'Fecha')||'').substring(0,10),
+      total:parseFloat(A(comp,'Total'))||0, subtotal:parseFloat(A(comp,'SubTotal'))||0,
+      tipo:A(comp,'TipoDeComprobante'),
+      rfc_emisor:A(emisor,'Rfc'), receptor: receptor?(A(receptor,'Nombre')||''):'', rfc_receptor:A(receptor,'Rfc'),
+      items, xml: txt
+    };
+  }catch(e){ return { name, error:String(e), uuid:'' }; }
+}
+
+async function leer(files){
+  files = files.filter(f=>/\.xml$/i.test(f.name));
+  if(!files.length){ alert('No encontré archivos .xml'); return; }
+  $('panel').style.display='block';
+  $('log').textContent = '⏳ Leyendo '+files.length+' XMLs…';
+  PARSED = [];
+  for(let i=0;i<files.length;i++){ PARSED.push(parseXML(await files[i].text(), files[i].name)); setBar((i+1)/files.length*0.5); }
+  const ok = PARSED.filter(c=>c.uuid);
+  const I = ok.filter(c=>c.tipo==='I'), E = ok.filter(c=>c.tipo==='E'), P = ok.filter(c=>c.tipo==='P');
+  $('kI').textContent=I.length; $('kE').textContent=E.length; $('kP').textContent=P.length;
+  log('✓ '+ok.length+' XML válidos ('+ (PARSED.length-ok.length) +' con problema)');
+  log('Dale a "Guardar todo en el ERP" para subirlos.');
+  setBar(0);
+  window._OK = ok;
+}
+
+async function subir(){
+  const ok = window._OK||[]; if(!ok.length){ alert('Primero carga los XMLs'); return; }
+  $('go').disabled=true; log('\n── Subiendo al backend ──');
+  // 1) traer facturas del ERP para cruzar por UUID
+  log('Leyendo facturas del ERP…');
+  let facs=[];
+  try{ const r=await api({accion:'erp_listar', tabla:'facturas'}); facs=r.items||[]; }catch(e){ log('⚠ no pude leer facturas: '+e); }
+  const porUuid={}; facs.forEach(f=>{ if(f.uuid_sat) porUuid[String(f.uuid_sat).toUpperCase()]=f; });
+
+  // 2) subir XMLs completos en lotes de 15
+  const docs = ok.map(c=>({uuid:c.uuid, xml:c.xml, fecha:c.fecha, total:c.total, cliente:c.receptor, tipo:c.tipo}));
+  let sub=0;
+  for(let i=0;i<docs.length;i+=15){
+    const lote=docs.slice(i,i+15);
+    try{ const r=await api({accion:'cfdi_xml_guardar', docs:lote}); sub += (r&&r.ok)?(r.guardados||lote.length):0; }
+    catch(e){ log('⚠ lote '+i+': '+e); }
+    setBar(0.1 + (i/docs.length)*0.6); log('  XMLs guardados: '+sub+'/'+docs.length);
+  }
+
+  // 3) completar/actualizar las facturas (tipo I) que cruzan por UUID
+  const facturasI = ok.filter(c=>c.tipo==='I');
+  let act=0, creadas=0, nocruce=0;
+  for(let i=0;i<facturasI.length;i++){
+    const c=facturasI[i];
+    const f=porUuid[c.uuid];
+    if(f){
+      f.uuid_sat=c.uuid; f.xml_url='local:'+c.uuid; f.estatus='timbrada';
+      if(c.subtotal){ f.subtotal=+c.subtotal.toFixed(2); f.iva=+(c.total-c.subtotal).toFixed(2); f.total=c.total; }
+      if(c.items&&c.items.length) f.items_json=JSON.stringify(c.items);
+      try{ await api({accion:'erp_actualizar', tabla:'facturas', item:f}); act++; }catch(e){ log('⚠ '+c.folio+': '+e); }
+    } else { nocruce++; }
+    setBar(0.7 + ((i+1)/facturasI.length)*0.3);
+    if((i+1)%10===0) log('  facturas completadas: '+act+'/'+facturasI.length);
+  }
+  setBar(1);
+  log('\n════════ LISTO ════════');
+  log('XMLs guardados en backend: '+sub);
+  log('Facturas completadas (con su XML): '+act);
+  log('Facturas del XML sin cruce en ERP: '+nocruce+' (nuevas, no estaban)');
+  log('\nAbre el ERP y revisa: el aviso de "faltan XMLs" debe desaparecer.');
+  $('go').disabled=false;
+}
+
+$('fileDir').addEventListener('change', e=>leer(Array.from(e.target.files||[])));
+$('fileFiles').addEventListener('change', e=>leer(Array.from(e.target.files||[])));
+const dz=$('drop');
+dz.addEventListener('dragover', e=>{e.preventDefault(); dz.style.borderColor='#0A0A0A';});
+dz.addEventListener('dragleave', ()=>dz.style.borderColor='#bbb');
+dz.addEventListener('drop', e=>{ e.preventDefault(); dz.style.borderColor='#bbb';
+  const fs=[]; if(e.dataTransfer.items){ for(const it of e.dataTransfer.items){ const f=it.getAsFile&&it.getAsFile(); if(f) fs.push(f); } } else { for(const f of e.dataTransfer.files) fs.push(f); }
+  leer(fs);
+});
+</script>
+</body>
+</html>

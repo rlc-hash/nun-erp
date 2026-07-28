@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.56 · CFDI + seguridad ✓</span>
+    <span class="rwd-version">v3.57 · comisiones alineadas + sin códigos expuestos ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2089,7 +2089,7 @@ body.dark .app-main iframe {
    Arquitectura: AppShell + componentes core + módulos
    ============================================================ */
 
-const VERSION = 'v3.56.0';
+const VERSION = 'v3.57.0';
 
 /* ============================================================
    v3.20.0 — Oracle Cloud ERP Edition · NUN
@@ -4371,7 +4371,7 @@ function abrirDrawerCobranza(idDoc) {
             <div class="timeline-desc">${escapeHTML(p.notas||'')}</div>
             <div class="timeline-meta">por ${escapeHTML(p.usuario||'')} · ${fmtFecha(p.timestamp)}</div>
           </div>
-          ${State.sesion.codigo === 'RAFA-2026' ? `<button class="btn btn-sm btn-danger" onclick="eliminarPagoManual('${p.timestamp}','${idDoc}')">Eliminar</button>` : ''}
+          ${esSesionDueno() ? `<button class="btn btn-sm btn-danger" onclick="eliminarPagoManual('${p.timestamp}','${idDoc}')">Eliminar</button>` : ''}
         </div>
       `).join('')
   }</div>`;
@@ -4423,8 +4423,15 @@ async function ejecutarPagoCliente(idDoc) {
     toast('✓ Pago registrado · ' + fmtFull(monto));
   } catch(e) { toast('Error: ' + e.message, { type:'error' }); }
 }
+// v3.57 — sin códigos en texto plano: el dueño es el admin cuyo código empieza con RAFA.
+// (El candado real vive en el backend; esto solo controla la UI.)
+function esSesionDueno() {
+  const s = State.sesion || {};
+  const u = s.usuario || {};
+  return u.rol === 'admin' && /^RAFA/i.test(String(s.codigo || ''));
+}
 async function eliminarPagoManual(timestamp, idDoc) {
-  if (State.sesion.codigo !== 'RAFA-2026') { toast('Solo RAFA-2026 puede eliminar pagos', { type:'error' }); return; }
+  if (!esSesionDueno()) { toast('Solo el dueño (Rafa) puede eliminar pagos', { type:'error' }); return; }
   const ok = await confirmDialog({
     title:'¿Eliminar pago?', message:'Se restará el monto del cobrado, se sumará al pendiente, y se eliminará la fila de Ingresos. Esta acción queda registrada en bitácora.',
     ok:'Eliminar', danger:true
@@ -5549,10 +5556,10 @@ function abrirSyncBindWebUI() {
 // v3.30 — Esquema CONFIRMADO por Rafa (jun 2026) · base: lo COBRADO del periodo
 const COMISIONES_CFG = {
   RAFA:    { propio: 0,    global: 0.04 },                              // 4% del total cobrado
-  YADAH:   { propio: 0.05, global: 0.04 },                              // 5% sus clientes + 4% del total
-  EDGAR:   { propio: 0.06, override: { LUIS: 0.01, YADAH: 0.03 } },     // 6% + 1% Luis + 3% Yadah
+  YADAH:   { propio: 0,    global: 0.04 },                              // SOLO 4% del total (confirmado Rafa jul 2026)
+  EDGAR:   { propio: 0.06, override: { LUIS: 0.01, YADAH: 0.03, ESTEBAN: 0.01 } }, // 6% + 3% Yadah + 1% de los demás vendedores
   LUIS:    { propio: 0.05 },
-  ESTEBAN: { propio: 0.05, inactivo: true },
+  ESTEBAN: { propio: 0.05 },
   YAZMIN:  { fijo: 15000 }                                              // sueldo fijo mensual
 };
 const VENDEDORES = ['EDGAR','LUIS','ESTEBAN','YADAH'];          // los que traen docs con su nombre
@@ -5702,7 +5709,7 @@ function renderComisiones() {
 
   return `
     <div class="page-title">
-      <div><h1>Comisiones</h1><div class="sub">Sobre lo cobrado · Rafa 4% global · Yadah 5% + 4% global · Edgar 6% + 1% Luis + 3% Yadah · Luis 5% · Esteban 5% (inactivo) · Yazmin $15K/mes</div></div>
+      <div><h1>Comisiones</h1><div class="sub">Sobre lo cobrado · Rafa 4% global · Yadah 4% global · Edgar 6% + 3% Yadah + 1% Luis + 1% Esteban · Luis 5% · Esteban 5% · Yazmin $15K/mes</div></div>
       <div class="actions">
         <select onchange="comCambiarAnio(this.value)" style="padding:7px 28px 7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
           <option value="todos" ${_comFiltroAnio==='todos'?'selected':''}>Todos los años</option>
@@ -7042,7 +7049,7 @@ function abrirWizardImplementacion(){
          <button class="btn btn-primary" style="font-size:12px" onclick="wizardConectar()">Conectar y crear tablas</button>
          <div id="wizConectarStatus" style="margin-top:8px;font-size:12px"></div>`)}
       ${paso(4, 'Identidad de la empresa',
-        `Entra con el código maestro <code>MASTER-NUN-ERP-2026</code>, ve a <strong>Configuración</strong> y llena: datos fiscales + <strong>Marca blanca</strong> (nombre y logo del cliente). El ERP completo cambia de identidad.`)}
+        `Entra con el código maestro (lo tiene el administrador — no se publica aquí por seguridad), ve a <strong>Configuración</strong> y llena: datos fiscales + <strong>Marca blanca</strong> (nombre y logo del cliente). El ERP completo cambia de identidad.`)}
       ${paso(5, 'Crear los usuarios',
         `En <strong>Usuarios</strong>, crea el código del dueño (rol admin) y de su equipo (rol cobranza/vendedor/contador). Cada quien entra con su código desde su compu.`)}
       ${paso(6, 'Entregar',
@@ -8855,10 +8862,10 @@ function sembrarDatosDemo() {
     { id:'demo_rec_3', fecha_objetivo:daysAgo(1), tipo:'Email', cliente:'Palacio de Hierro', descripcion:'Recordatorio vencido — saldo 75 días', asignado_a:'Edgar', completado:false }
   ];
   State.data.usuarios = [
-    { codigo:'RAFA-2026', nombre:'Rafa', rol:'admin', activo:true },
-    { codigo:'YAZMIN-2026', nombre:'Yazmin', rol:'cobranza', activo:true },
-    { codigo:'EDGAR-2026', nombre:'Edgar', rol:'cobranza', activo:true },
-    { codigo:'LUIS-2026', nombre:'Luis', rol:'vendedor', vendedor_asignado:'LUIS', activo:true }
+    { codigo:'DEMO-ADMIN', nombre:'Admin Demo', rol:'admin', activo:true },
+    { codigo:'DEMO-COBRANZA', nombre:'Cobranza Demo', rol:'cobranza', activo:true },
+    { codigo:'DEMO-EDGAR', nombre:'Edgar Demo', rol:'cobranza', activo:true },
+    { codigo:'DEMO-LUIS', nombre:'Luis Demo', rol:'vendedor', vendedor_asignado:'LUIS', activo:true }
   ];
   return true;
 }

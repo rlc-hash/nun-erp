@@ -10657,29 +10657,44 @@ window.erpEspejoSync = async function(manual){
   _espejoCorriendo = true;
   if (manual) erpToast('⇄ Sincronizando espejo con el ERP...', 'ok');
   let pushI=0, pushG=0, pullI=0, pullG=0;
+  // v1.9 — llave de NEGOCIO para deduplicar (no el id): mismo cliente+monto+fecha = mismo pago
+  const _kIng = x => String(x.cliente||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim() + '|' + (Math.round((+x.monto||0)*100)/100) + '|' + String(x.fecha||'').substring(0,10);
+  const _kGas = x => String(x.concepto||'').toUpperCase().replace(/\s+/g,' ').trim() + '|' + (Math.round((+x.monto||0)*100)/100) + '|' + String(x.fecha||'').substring(0,10);
   try {
-    // SUBIR: lo capturado en el CRM → ERP (el ERP ignora los que ya tiene, por id)
-    if (Array.isArray(ingresos) && ingresos.length) {
-      const r = await erpApi({ accion:'erp_bulk_crear', tabla:'ingresos', items: ingresos });
-      pushI = (r && r.insertados) || 0;
-    }
-    if (Array.isArray(gastos) && gastos.length) {
-      const items = gastos.map(g => ({ id:g.id, fecha:g.fecha, concepto:g.concepto, descripcion:g.descripcion||'', categoria:g.categoria, metodo:g.metodo, responsable:g.registrado_por||'', monto:g.monto }));
-      const r = await erpApi({ accion:'erp_bulk_crear', tabla:'gastos', items });
-      pushG = (r && r.insertados) || 0;
-    }
-    // BAJAR: lo que esté en el ERP y no en el CRM
+    // Leer PRIMERO lo que hay en el ERP, para comparar por llave de negocio
     const ri = await erpApi({ accion:'erp_listar', tabla:'ingresos' });
-    const idsI = new Set((ingresos||[]).map(x => String(x.id)));
-    const nuevosI = ((ri && ri.items) || []).filter(x => x.id && !idsI.has(String(x.id))).map(x => Object.assign({}, x, { fecha: String(x.fecha||'').substring(0,10) }));
+    const erpIngItems = (ri && ri.items) || [];
+    const erpKeysI = new Set(erpIngItems.map(_kIng));
+    const locKeysI = new Set((ingresos||[]).map(_kIng));
+
+    // SUBIR: solo lo del CRM que NO exista en el ERP (por llave de negocio)
+    if (Array.isArray(ingresos) && ingresos.length) {
+      const paraSubir = ingresos.filter(x => !erpKeysI.has(_kIng(x)));
+      if (paraSubir.length) {
+        const r = await erpApi({ accion:'erp_bulk_crear', tabla:'ingresos', items: paraSubir });
+        pushI = (r && r.insertados) || 0;
+      }
+    }
+    const rgPre = await erpApi({ accion:'erp_listar', tabla:'gastos' });
+    const erpGasItems = (rgPre && rgPre.items) || [];
+    const erpKeysG = new Set(erpGasItems.map(_kGas));
+    const locKeysG = new Set((gastos||[]).map(g => _kGas({ concepto:g.concepto, monto:g.monto, fecha:g.fecha })));
+    if (Array.isArray(gastos) && gastos.length) {
+      const items = gastos.filter(g => !erpKeysG.has(_kGas({ concepto:g.concepto, monto:g.monto, fecha:g.fecha })))
+        .map(g => ({ id:g.id, fecha:g.fecha, concepto:g.concepto, descripcion:g.descripcion||'', categoria:g.categoria, metodo:g.metodo, responsable:g.registrado_por||'', monto:g.monto }));
+      if (items.length) {
+        const r = await erpApi({ accion:'erp_bulk_crear', tabla:'gastos', items });
+        pushG = (r && r.insertados) || 0;
+      }
+    }
+    // BAJAR: lo del ERP que NO exista en el CRM (por llave de negocio, no por id)
+    const nuevosI = erpIngItems.filter(x => !locKeysI.has(_kIng(x))).map(x => Object.assign({}, x, { fecha: String(x.fecha||'').substring(0,10) }));
     if (nuevosI.length) {
       const resp = await fetch(urlScript, { method:'POST', body: JSON.stringify({ accion:'importar_ingresos_batch', tabla:'ingresos', items: nuevosI, codigo: sesionActual.codigo }), headers:{'Content-Type':'text/plain;charset=utf-8'} });
       const d = await resp.json();
       if (d && d.ok) pullI = nuevosI.length;
     }
-    const rg = await erpApi({ accion:'erp_listar', tabla:'gastos' });
-    const idsG = new Set((gastos||[]).map(x => String(x.id)));
-    const nuevosG = ((rg && rg.items) || []).filter(x => x.id && !idsG.has(String(x.id)))
+    const nuevosG = erpGasItems.filter(x => !locKeysG.has(_kGas(x)))
       .map(g => ({ id:g.id, fecha:String(g.fecha||'').substring(0,10), concepto:g.concepto, monto:g.monto, categoria:g.categoria||'', metodo:g.metodo||'', registrado_por:g.responsable||'ERP' }));
     // v1.8: una sola llamada batch (antes: 1 fetch por gasto, con tope de 150 → lento e incompleto)
     if (nuevosG.length) {
@@ -10755,9 +10770,10 @@ document.addEventListener('DOMContentLoaded', function(){
     // si ya hay sesión al cargar, re-aplicar
     setTimeout(() => { try { aplicarPermisos(); } catch(e){} }, 400);
   }
-  // Espejo automático: 10s después de cargar y luego cada 5 min
-  setTimeout(() => erpEspejoSync(false), 10000);
-  setInterval(() => erpEspejoSync(false), 300000);
+  // v1.9 — Espejo automático APAGADO: duplicaba pagos (dedupe por id con esquemas
+  // de id distintos: bind_pag_... vs ING-...). ERP y CRM ya comparten UNA base, el
+  // espejo sobra. Se deja solo el botón manual (⇄), que ahora deduplica por
+  // cliente+monto+fecha, no por id.
 });
 })();
 

@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.3.9</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.3.9</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -10337,7 +10337,7 @@ async function renderERPPedidos(force){
             <td style="${erpTdStyle}"><span style="padding:2px 8px;border-radius:100px;border:1px solid var(--line,#333);font-size:11px">${erpEsc(p.estatus||'—')}</span></td>
             <td style="${erpTdStyle}">${docTag}</td>
             <td style="${erpTdStyle};text-align:right;font-family:monospace">${erpFmt(p.total)}</td>
-            <td style="${erpTdStyle}">${m ? '' : `<button class="btn" style="font-size:11px;padding:4px 10px" onclick="event.stopPropagation();erpFacturarPedido('${erpEsc(p.id)}','${erpEsc(p.folio||'')}')">→ Facturar</button>`}</td>
+            <td style="${erpTdStyle}">${m ? '' : `<button class="btn" style="font-size:11px;padding:4px 10px" onclick="event.stopPropagation();erpElegirConversion('${erpEsc(p.id)}','${erpEsc(p.folio||'')}')">→ Remisión / Factura</button>`}</td>
           </tr>`; }).join('') || '<tr><td colspan="7" style="padding:30px;text-align:center;color:var(--mute)">' + (filtro==='sindoc' ? '🎉 Todos tus pedidos tienen remisión o factura' : 'Aún no tienes pedidos') + '</td></tr>'}</tbody>
       </table></div>`;
     } else {
@@ -10439,7 +10439,7 @@ window.erpVerPedido = function(id){
       </div>`
     : `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border:1px solid rgba(224,82,82,0.4);border-radius:10px">
         <span style="color:#e05252;font-weight:600">⚠ Este pedido no tiene remisión ni factura</span>
-        <button class="btn primary" style="font-size:12px" onclick="document.getElementById('erpModalDetalle').remove();erpFacturarPedido('${erpEsc(p.id)}','${erpEsc(p.folio||'')}')">→ Facturar ahora</button>
+        <button class="btn primary" style="font-size:12px" onclick="document.getElementById('erpModalDetalle').remove();erpElegirConversion('${erpEsc(p.id)}','${erpEsc(p.folio||'')}')">→ Convertir a remisión / factura</button>
       </div>`}
   `);
 };
@@ -10522,6 +10522,10 @@ window.erpAbrirNuevoPedido = async function(){
       <div style="font-size:12px;color:var(--mute);margin-bottom:6px">Productos</div>
       <div id="erpPedLineas"></div>
       <button class="btn" style="margin-top:8px" onclick="erpAgregarLinea()">+ Agregar producto</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding:10px 12px;border:1px solid var(--line,#333);border-radius:10px">
+        <input type="checkbox" id="erpPedConIVA" checked onchange="erpActualizarTotales()" style="width:16px;height:16px;cursor:pointer">
+        <label for="erpPedConIVA" style="font-size:13px;cursor:pointer">La venta lleva <strong>IVA 16%</strong> — desmárcalo si va <strong>sin IVA</strong> (sin factura)</label>
+      </div>
       <div id="erpPedTotales" style="text-align:right;margin-top:14px;font-size:14px"></div>
       <label style="font-size:12px;color:var(--mute);display:block;margin-top:10px">Notas (opcional)</label>
       <input id="erpPedNotas" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--line,#333);background:transparent;color:inherit;margin-top:4px;box-sizing:border-box">
@@ -10563,9 +10567,11 @@ function erpRenderLineas(){
 function erpActualizarTotales(){
   const t = document.getElementById('erpPedTotales');
   if (!t) return;
+  const chk = document.getElementById('erpPedConIVA');
+  const conIVA = !chk || chk.checked; // v1.9: IVA opcional
   const sub = erpLineas.reduce((s,l)=>s+(l.cantidad||0)*(l.precio||0),0);
-  const iva = sub*0.16;
-  t.innerHTML = `Subtotal: <strong>${erpFmt(sub)}</strong> · IVA 16%: <strong>${erpFmt(iva)}</strong> · Total: <strong style="font-size:16px">${erpFmt(sub+iva)}</strong>`;
+  const iva = conIVA ? sub*0.16 : 0;
+  t.innerHTML = `Subtotal: <strong>${erpFmt(sub)}</strong> · IVA ${conIVA?'16%':'<span style="color:#e0a052">0% (sin IVA)</span>'}: <strong>${erpFmt(iva)}</strong> · Total: <strong style="font-size:16px">${erpFmt(sub+iva)}</strong>`;
 }
 
 window.erpGuardarPedido = async function(){
@@ -10579,18 +10585,22 @@ window.erpGuardarPedido = async function(){
     let folio = '';
     try { const f = await erpApi({ accion:'siguiente_folio', tipo_documento:'pedido' }); folio = (f && (f.folio || f.siguiente)) || ''; } catch(e){}
     if (!folio) folio = 'PED-' + new Date().toISOString().substring(2,10).replace(/-/g,'') + '-' + Math.random().toString(36).substring(2,5).toUpperCase();
+    const chkIVA = document.getElementById('erpPedConIVA');
+    const conIVA = !chkIVA || chkIVA.checked; // v1.9: IVA opcional (sin IVA = sin factura)
     const items = lineas.map(l => {
       const p = erpData.productos.find(x => String(x.sku).toUpperCase() === String(l.sku).toUpperCase());
-      return { sku: l.sku, descripcion: (p && p.descripcion) || l.sku, cantidad: l.cantidad, precio_unitario: l.precio, descuento_pct: 0, iva_pct: 16 };
+      return { sku: l.sku, descripcion: (p && p.descripcion) || l.sku, cantidad: l.cantidad, precio_unitario: l.precio, descuento_pct: 0, iva_pct: conIVA ? 16 : 0 };
     });
     const subtotal = items.reduce((s,it)=>s+it.cantidad*it.precio_unitario,0);
+    const ivaMonto = conIVA ? subtotal*0.16 : 0;
     const item = {
       id: 'crm_ped_' + Date.now() + '_' + Math.random().toString(36).substring(2,6),
       folio, fecha: new Date().toISOString().substring(0,10),
       cliente, vendedor: erpNombre(),
-      subtotal: +subtotal.toFixed(2), iva: +(subtotal*0.16).toFixed(2), total: +(subtotal*1.16).toFixed(2),
+      subtotal: +subtotal.toFixed(2), iva: +ivaMonto.toFixed(2), total: +(subtotal+ivaMonto).toFixed(2),
+      sin_iva: !conIVA,
       estatus: 'borrador', items_json: JSON.stringify(items), sin_entregar: true,
-      notas: (document.getElementById('erpPedNotas')?.value||'') + ' · Capturado desde CRM',
+      notas: (document.getElementById('erpPedNotas')?.value||'') + (conIVA ? '' : ' · SIN IVA') + ' · Capturado desde CRM',
       creado_por: erpCodigo()
     };
     const r = await erpApi({ accion:'erp_crear', tabla:'pedidos', item });
@@ -10606,18 +10616,39 @@ window.erpGuardarPedido = async function(){
   }
 };
 
-/* ============ FACTURAR PEDIDO (conversión en el ERP) ============ */
-window.erpFacturarPedido = async function(id, folio){
-  if (!confirm('¿Convertir el pedido ' + (folio||id) + ' en factura dentro del ERP?\n\nLa factura queda como borrador en el ERP (el timbrado fiscal se hace después, vía Bind).')) return;
+/* ============ CONVERTIR PEDIDO → REMISIÓN o FACTURA (v1.9) ============ */
+// El vendedor elige qué se genera; el pedido queda LIGADO (pedido_origen) al documento nuevo.
+window.erpElegirConversion = function(id, folio){
+  let m = document.getElementById('erpModalConvertir');
+  if (m) m.remove();
+  m = document.createElement('div');
+  m.id = 'erpModalConvertir';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:8100;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `
+    <div style="background:var(--bg,#fff);color:inherit;border-radius:16px;max-width:440px;width:100%;padding:22px;box-shadow:0 24px 64px rgba(0,0,0,0.35)">
+      <h3 style="margin:0 0 6px">Convertir pedido <span style="font-family:monospace">${erpEsc(folio||id)}</span></h3>
+      <div style="font-size:13px;color:var(--mute);margin-bottom:16px">Elige qué se genera. El pedido queda ligado al documento nuevo.</div>
+      <button class="btn primary" style="width:100%;padding:13px;font-weight:700;margin-bottom:8px;text-align:left" onclick="document.getElementById('erpModalConvertir').remove();erpConvertirPedido('${erpEsc(id)}','${erpEsc(folio||'')}','remisiones')">📦 Remisión — sale de almacén (descuenta inventario)</button>
+      <button class="btn primary" style="width:100%;padding:13px;font-weight:700;margin-bottom:8px;text-align:left" onclick="document.getElementById('erpModalConvertir').remove();erpConvertirPedido('${erpEsc(id)}','${erpEsc(folio||'')}','facturas')">🧾 Factura — borrador para timbrar (entra a Cobranza)</button>
+      <button class="btn" style="width:100%;padding:10px" onclick="document.getElementById('erpModalConvertir').remove()">Cancelar</button>
+    </div>`;
+  document.body.appendChild(m);
+};
+window.erpConvertirPedido = async function(id, folio, destino){
+  const nombre = destino === 'remisiones' ? 'remisión' : 'factura';
   try {
-    const r = await erpApi({ accion:'convertir_documento', tabla_origen:'pedidos', id_origen:id, tabla_destino:'facturas', usuario: erpCodigo() });
+    const r = await erpApi({ accion:'convertir_documento', tabla_origen:'pedidos', id_origen:id, tabla_destino:destino, usuario: erpCodigo() });
     if (r && r.ok) {
-      erpToast('✓ Pedido convertido a factura en el ERP', 'ok');
-      erpCargado['pedidos'] = false; erpCargado['facturas'] = false;
+      const folioNuevo = (r.item && r.item.folio) ? (' ' + r.item.folio) : '';
+      const extra = destino === 'remisiones' ? ' · inventario descontado' : ' · ya aparece en Cobranza';
+      erpToast('✓ Pedido ' + (folio||id) + ' → ' + nombre + folioNuevo + extra, 'ok');
+      erpCargado['pedidos'] = false; erpCargado[destino] = false;
       renderERPTab(tabActiva, true);
     } else throw new Error((r && r.error) || 'el ERP no pudo convertirlo');
   } catch(e){ erpToast('✗ ' + e.message, 'error'); }
 };
+// Compatibilidad: el botón viejo ahora abre el selector
+window.erpFacturarPedido = function(id, folio){ erpElegirConversion(id, folio); };
 
 /* ============ ESPEJO INGRESOS/GASTOS CRM ↔ ERP ============ */
 let _espejoCorriendo = false;

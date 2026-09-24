@@ -2574,6 +2574,17 @@ function slaInitPeriodos(){
 slaInitPeriodos();
 const URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 
+// Migración automática: si el navegador traía guardado el backend VIEJO (hoja real), se reapunta solo.
+const URLS_OBSOLETAS = [
+  'https://script.google.com/macros/s/AKfycbz9oHWEUDUfgFKYXvy8DxsjWuyN7ZoJoEB7eE03BP-nkdIJE_Yc6heolkv8v2J8wwmL/exec'
+];
+(function migrarBackend(){
+  try {
+    const g = localStorage.getItem('nun_erp_url');
+    if (g && URLS_OBSOLETAS.indexOf(g.trim()) >= 0) { localStorage.setItem('nun_erp_url', URL_DEFAULT); console.warn('[NUN] backend obsoleto reapuntado'); }
+  } catch(e){}
+})();
+
 // Estado global
 const State = {
   url: localStorage.getItem('nun_erp_url') || URL_DEFAULT,
@@ -10724,74 +10735,105 @@ function cfdiMostrarResultado(){
     </div>`;
 }
 
+// v3.52 — Guardado POR LOTES y resiliente. Antes actualizaba 146 facturas con 146
+// llamadas seguidas → el navegador se ahogaba y tronaba a media tarea. Ahora todo va
+// en bloques (facturas/NC de 40, XMLs de 8) con reintento y progreso visible.
+let _cfdiGuardando = false;
+async function _cfdiBatch(tabla, items, tam){
+  let ok=0, err=0;
+  for (let i=0; i<items.length; i+=tam){
+    const lote = items.slice(i, i+tam);
+    let intento=0, hecho=false;
+    while (intento<2 && !hecho){
+      try {
+        const r = await api({ accion:'erp_upsert_batch', tabla, items: lote });
+        if (r && r.ok){ ok += lote.length; hecho=true; }
+        else intento++;
+      } catch(e){ intento++; }
+      if (!hecho && intento<2) await new Promise(res=>setTimeout(res,800));
+    }
+    if (!hecho) err += lote.length;
+    toast(`Guardando ${tabla}… ${Math.min(i+tam,items.length)}/${items.length}`, { type:'info', duration:1500 });
+  }
+  return { ok, err };
+}
 async function cfdiGuardarTodo(){
+  if (_cfdiGuardando){ toast('Ya se está guardando, espera…', { type:'info' }); return; }
   const ok = _cfdiParsed.filter(c => !c.error && c.uuid);
   if (!ok.length) return;
-  const timbres = cfdiGetTimbres();
-  const xmlsBackend = []; // v3.37 — XMLs van al backend (Sheets), no al navegador
-  let factActualizadas=0, factCreadas=0, ncCreadas=0, ncCruzadas=0, pagosGuardados=0;
-  const facsUpd = [], facsNew = [], reporte = [];
-  for (const c of ok){
-    const td = cfdiTimbreData(c.xml); if (td) timbres[c.uuid] = td; // timbre compacto (QR) → navegador, ligero
-    xmlsBackend.push({ uuid:c.uuid, xml:c.xml, fecha:c.fecha, total:c.total, cliente:c.receptorNombre, tipo:c.tipo }); // XML completo → backend
-    if (c.tipo==='I' && c._match){
-      // EXISTE: el XML es la fuente de verdad → sobrescribe con datos del CFDI
-      const f = c._match.f;
-      f.uuid_sat = c.uuid;
-      f.xml_url = 'local:'+c.uuid;
-      if (c.items && c.items.length) f.items_json = JSON.stringify(c.items);
-      f.subtotal = +c.subtotal.toFixed(2);
-      f.iva = +(c.total - c.subtotal).toFixed(2);
-      f.total = c.total;
-      if (c.fecha) f.fecha = c.fecha;
-      f.cliente = c.receptorNombre || f.cliente;
-      f.estatus = 'timbrada';
-      facsUpd.push(f);
-      factActualizadas++;
-      reporte.push({ tipo:'Factura', folio:c.folio, cliente:c.receptorNombre, total:c.total, accion:'actualizada ('+c._match.via+')', ok:true });
-    } else if (c.tipo==='I' && !c._match){
-      // NO EXISTE: crear la factura completa desde el XML
-      const item = {
-        id: 'cfdi_fac_'+c.uuid.substring(0,8),
-        folio: (c.serie||'')+(c.folio||''), fecha: c.fecha, cliente: c.receptorNombre,
-        subtotal: +c.subtotal.toFixed(2), iva: +(c.total-c.subtotal).toFixed(2), total: c.total,
-        estatus: 'timbrada', uuid_sat: c.uuid, xml_url: 'local:'+c.uuid,
-        items_json: JSON.stringify(c.items||[]), forma_pago:'', uso_cfdi:'',
-        notas: 'Creada desde XML SAT', creado_por: State.sesion.codigo
-      };
-      try {
-        await api({ accion:'erp_crear', tabla:'facturas', item });
+  _cfdiGuardando = true;
+  try {
+    const timbres = cfdiGetTimbres();
+    const xmlsBackend = []; // XMLs completos → backend (Sheets)
+    let factActualizadas=0, factCreadas=0, ncCreadas=0, ncCruzadas=0, pagosGuardados=0;
+    const facsUpd = [], facsNew = [], ncsUpd = [], ncsNew = [], reporte = [];
+    // ---- 1) Recorrer TODO en memoria (sin llamadas al backend) ----
+    for (const c of ok){
+      const td = cfdiTimbreData(c.xml); if (td) timbres[c.uuid] = td; // timbre compacto (QR)
+      xmlsBackend.push({ uuid:c.uuid, xml:c.xml, fecha:c.fecha, total:c.total, cliente:c.receptorNombre, tipo:c.tipo });
+      if (c.tipo==='I' && c._match){
+        const f = c._match.f;
+        f.uuid_sat = c.uuid; f.xml_url = 'local:'+c.uuid;
+        if (c.items && c.items.length) f.items_json = JSON.stringify(c.items);
+        f.subtotal = +c.subtotal.toFixed(2);
+        f.iva = +(c.total - c.subtotal).toFixed(2);
+        f.total = c.total;
+        if (c.fecha) f.fecha = c.fecha;
+        f.cliente = c.receptorNombre || f.cliente;
+        f.estatus = 'timbrada';
+        facsUpd.push(f); factActualizadas++;
+        reporte.push({ tipo:'Factura', folio:c.folio, cliente:c.receptorNombre, total:c.total, accion:'actualizada ('+c._match.via+')', ok:true });
+      } else if (c.tipo==='I' && !c._match){
+        const item = {
+          id: 'cfdi_fac_'+c.uuid.substring(0,8),
+          folio: (c.serie||'')+(c.folio||''), fecha: c.fecha, cliente: c.receptorNombre,
+          subtotal: +c.subtotal.toFixed(2), iva: +(c.total-c.subtotal).toFixed(2), total: c.total,
+          estatus: 'timbrada', uuid_sat: c.uuid, xml_url: 'local:'+c.uuid,
+          items_json: JSON.stringify(c.items||[]), forma_pago:'', uso_cfdi:'',
+          notas: 'Creada desde XML SAT', creado_por: State.sesion.codigo
+        };
         (State.data.facturas = State.data.facturas||[]).push(item);
         facsNew.push(item); factCreadas++;
         reporte.push({ tipo:'Factura', folio:c.folio, cliente:c.receptorNombre, total:c.total, accion:'CREADA nueva', ok:true });
-      } catch(e){ reporte.push({ tipo:'Factura', folio:c.folio, cliente:c.receptorNombre, total:c.total, accion:'error al crear', ok:false }); }
-    } else if (c.tipo==='E'){
-      const ncFolio = (c.serie||'')+(c.folio||'');
-      const existente = (State.data.notascredito||[]).find(n => n.uuid_sat===c.uuid || String(n.folio||'').replace(/\D/g,'')===String(c.folio||'').replace(/\D/g,''));
-      if (existente){
-        existente.uuid_sat = c.uuid; existente.xml_url='local:'+c.uuid; existente.total=c.total; existente.estatus='timbrada';
-        if (c.items&&c.items.length) existente.items_json=JSON.stringify(c.items);
-        try { await api({ accion:'erp_actualizar', tabla:'notascredito', item:existente }); } catch(e){}
-        ncCruzadas++;
-        reporte.push({ tipo:'Nota crédito', folio:c.folio, cliente:c.receptorNombre, total:c.total, accion:'actualizada', ok:true });
-      } else {
-        const item = { id:'cfdi_nc_'+c.uuid.substring(0,8), folio:ncFolio, fecha:c.fecha, tipo:'cliente', contraparte:c.receptorNombre, subtotal:+c.subtotal.toFixed(2), iva:+(c.total-c.subtotal).toFixed(2), total:c.total, motivo:'Importada de XML SAT', estatus:'timbrada', uuid_sat:c.uuid, xml_url:'local:'+c.uuid, items_json:JSON.stringify(c.items||[]), notas:'CFDI importado', creado_por:State.sesion.codigo };
-        try { await api({ accion:'erp_crear', tabla:'notascredito', item }); (State.data.notascredito=State.data.notascredito||[]).push(item); ncCreadas++; reporte.push({ tipo:'Nota crédito', folio:c.folio, cliente:c.receptorNombre, total:c.total, accion:'CREADA nueva', ok:true }); }
-        catch(e){ reporte.push({ tipo:'Nota crédito', folio:c.folio, cliente:c.receptorNombre, total:c.total, accion:'error', ok:false }); }
+      } else if (c.tipo==='E'){
+        const ncFolio = (c.serie||'')+(c.folio||'');
+        const existente = (State.data.notascredito||[]).find(n => n.uuid_sat===c.uuid || String(n.folio||'').replace(/\D/g,'')===String(c.folio||'').replace(/\D/g,''));
+        if (existente){
+          existente.uuid_sat = c.uuid; existente.xml_url='local:'+c.uuid; existente.total=c.total; existente.estatus='timbrada';
+          if (c.items&&c.items.length) existente.items_json=JSON.stringify(c.items);
+          ncsUpd.push(existente); ncCruzadas++;
+          reporte.push({ tipo:'Nota crédito', folio:c.folio, cliente:c.receptorNombre, total:c.total, accion:'actualizada', ok:true });
+        } else {
+          const item = { id:'cfdi_nc_'+c.uuid.substring(0,8), folio:ncFolio, fecha:c.fecha, tipo:'cliente', contraparte:c.receptorNombre, subtotal:+c.subtotal.toFixed(2), iva:+(c.total-c.subtotal).toFixed(2), total:c.total, motivo:'Importada de XML SAT', estatus:'timbrada', uuid_sat:c.uuid, xml_url:'local:'+c.uuid, items_json:JSON.stringify(c.items||[]), notas:'CFDI importado', creado_por:State.sesion.codigo };
+          (State.data.notascredito=State.data.notascredito||[]).push(item);
+          ncsNew.push(item); ncCreadas++;
+          reporte.push({ tipo:'Nota crédito', folio:c.folio, cliente:c.receptorNombre, total:c.total, accion:'CREADA nueva', ok:true });
+        }
+      } else if (c.tipo==='P'){ pagosGuardados++; }
+    }
+    cfdiSetTimbres(timbres); // QR garantizado en el navegador
+    // ---- 2) Guardar TODO por lotes ----
+    toast('⏳ Guardando '+ok.length+' CFDI por lotes…', { type:'info', duration:2500 });
+    let xmlErr=0;
+    for (let i=0; i<xmlsBackend.length; i+=8){
+      const lote = xmlsBackend.slice(i, i+8);
+      let intento=0, hecho=false;
+      while (intento<2 && !hecho){
+        try { const r = await api({ accion:'cfdi_xml_guardar', docs: lote }); if (r && r.ok){ hecho=true; } else intento++; }
+        catch(e){ intento++; }
+        if (!hecho && intento<2) await new Promise(res=>setTimeout(res,800));
       }
-    } else if (c.tipo==='P'){ pagosGuardados++; }
+      if (!hecho) xmlErr += lote.length;
+      toast(`Subiendo XML… ${Math.min(i+8,xmlsBackend.length)}/${xmlsBackend.length}`, { type:'info', duration:1500 });
+    }
+    const rF = await _cfdiBatch('facturas', facsUpd.concat(facsNew), 40);
+    const rN = (ncsUpd.length+ncsNew.length) ? await _cfdiBatch('notascredito', ncsUpd.concat(ncsNew), 40) : { ok:0, err:0 };
+    const fallos = xmlErr + rF.err + rN.err;
+    toast(`✓ ${factActualizadas} facturas actualizadas · ${factCreadas} nuevas · ${ncCreadas+ncCruzadas} NC · ${pagosGuardados} pagos`+(fallos?` · ⚠ ${fallos} con problema`:''), { type: fallos?'error':'success', duration:7000 });
+    cfdiMostrarReporteFinal(reporte, { factActualizadas, factCreadas, ncCreadas, ncCruzadas, pagosGuardados });
+  } finally {
+    _cfdiGuardando = false;
   }
-  cfdiSetTimbres(timbres); // compacto en el navegador (QR garantizado, ligero)
-  // v3.37 — subir los XML completos al backend (Sheets) en lotes de 15, así el navegador no se llena
-  let xmlSubidos = 0;
-  for (let i=0; i<xmlsBackend.length; i+=15){
-    const lote = xmlsBackend.slice(i, i+15);
-    try { const r = await api({ accion:'cfdi_xml_guardar', docs: lote }); if (r && r.ok) xmlSubidos += (r.guardados||lote.length); } catch(e){}
-  }
-  // persistir facturas actualizadas en backend
-  for (const f of facsUpd){ try { await api({ accion:'erp_actualizar', tabla:'facturas', item:f }); } catch(e){} }
-  toast(`✓ ${factActualizadas} facturas actualizadas · ${factCreadas} creadas nuevas · ${ncCreadas+ncCruzadas} NC · ${pagosGuardados} pagos`, { type:'success', duration:6000 });
-  cfdiMostrarReporteFinal(reporte, { factActualizadas, factCreadas, ncCreadas, ncCruzadas, pagosGuardados });
 }
 
 // Reporte detallado tras guardar — incluye los que tuvieron problema
@@ -11204,7 +11246,7 @@ function facturaACfdiFacturama(doc){
   // v3.48 — Público en General requiere el nodo Información Global (factura global diaria)
   let globalInfo;
   if (cli.publico) {
-    const f = new Date((doc.fecha||new Date().toISOString().substring(0,10)) + 'T12:00:00');
+    const f = new Date(String(doc.fecha||new Date().toISOString()).substring(0,10) + 'T12:00:00'); // fix: fecha ISO completa daba Year NaN
     globalInfo = { Periodicity:'01', Months: String(f.getMonth()+1).padStart(2,'0'), Year: String(f.getFullYear()) };
   }
   return {

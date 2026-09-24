@@ -83,7 +83,29 @@ async function api(payload){
   return await r.json();
 }
 
-function parseXML(txt, name){
+// Timbre compacto para el QR del PDF (copia exacta de la función del ERP)
+function cfdiTimbreData(xmlText){
+  try {
+    const xdoc = new DOMParser().parseFromString(xmlText, 'text/xml');
+    const all = Array.from(xdoc.getElementsByTagName('*'));
+    const find = (ln) => all.find(n => n.localName === ln);
+    const comp = xdoc.documentElement, tfd = find('TimbreFiscalDigital'), emi = find('Emisor'), rec = find('Receptor');
+    if (!tfd) return null;
+    return {
+      uuid: tfd.getAttribute('UUID')||'',
+      ft: tfd.getAttribute('FechaTimbrado')||'',
+      sc: (tfd.getAttribute('SelloCFD')||comp.getAttribute('Sello')||'').substring(0,180),
+      fe: (tfd.getAttribute('SelloCFD')||comp.getAttribute('Sello')||'').slice(-8),
+      ss: (tfd.getAttribute('SelloSAT')||'').substring(0,180),
+      nc: comp.getAttribute('NoCertificado')||'',
+      ns: tfd.getAttribute('NoCertificadoSAT')||'',
+      pac: tfd.getAttribute('RfcProvCertif')||'',
+      re: emi ? (emi.getAttribute('Rfc')||'') : '',
+      rr: rec ? (rec.getAttribute('Rfc')||'') : '',
+      tt: comp.getAttribute('Total')||''
+    };
+  } catch(e){ return null; }
+}function parseXML(txt, name){
   try{
     const doc = new DOMParser().parseFromString(txt, 'text/xml');
     const comp = doc.documentElement;
@@ -143,9 +165,24 @@ async function subir(){
     setBar(0.1 + (i/docs.length)*0.6); log('  XMLs guardados: '+sub+'/'+docs.length);
   }
 
-  // 3) completar/actualizar las facturas (tipo I) que cruzan por UUID
+  // 2.5) TIMBRES DEL QR → llave compartida del backend (nun_cfdi_timbres). Sin esto el PDF no muestra QR.
+  log('Generando timbres del QR…');
+  const nuevosT = {};
+  ok.forEach(c => { const td = cfdiTimbreData(c.xml); if (td) { [c.uuid, td.uuid, String(td.uuid).toUpperCase(), String(td.uuid).toLowerCase()].forEach(k => { if (k) nuevosT[k] = td; }); } });
+  try {
+    const kr = await api({ accion:'kv_leer' });
+    let actuales = {};
+    try { actuales = JSON.parse((kr && kr.valores && kr.valores.nun_cfdi_timbres) || '{}'); } catch(e) { actuales = {}; }
+    const antes = Object.keys(actuales).length;
+    Object.assign(actuales, nuevosT);
+    const kg = await api({ accion:'kv_guardar', pares:{ nun_cfdi_timbres: JSON.stringify(actuales) } });
+    if (kg && kg.ok) { try { localStorage.setItem('nun_cfdi_timbres', JSON.stringify(actuales)); } catch(e){} log('  ✓ timbres QR guardados en backend: '+antes+' → '+Object.keys(actuales).length); }
+    else log('  ⚠ no pude guardar timbres QR: '+JSON.stringify(kg).slice(0,120));
+  } catch(e) { log('  ⚠ timbres QR: '+e); }
+
+  // 3) completar/actualizar las facturas (tipo I) que cruzan por UUID — POR LOTES de 40
   const facturasI = ok.filter(c=>c.tipo==='I');
-  let act=0, creadas=0, nocruce=0;
+  let act=0, creadas=0, nocruce=0; const aGuardar=[];
   for(let i=0;i<facturasI.length;i++){
     const c=facturasI[i];
     const f=porUuid[c.uuid];
@@ -153,10 +190,19 @@ async function subir(){
       f.uuid_sat=c.uuid; f.xml_url='local:'+c.uuid; f.estatus='timbrada';
       if(c.subtotal){ f.subtotal=+c.subtotal.toFixed(2); f.iva=+(c.total-c.subtotal).toFixed(2); f.total=c.total; }
       if(c.items&&c.items.length) f.items_json=JSON.stringify(c.items);
-      try{ await api({accion:'erp_actualizar', tabla:'facturas', item:f}); act++; }catch(e){ log('⚠ '+c.folio+': '+e); }
+      aGuardar.push(f);
     } else { nocruce++; }
-    setBar(0.7 + ((i+1)/facturasI.length)*0.3);
-    if((i+1)%10===0) log('  facturas completadas: '+act+'/'+facturasI.length);
+  }
+  for(let i=0;i<aGuardar.length;i+=40){
+    const lote=aGuardar.slice(i,i+40); let hecho=false;
+    for(let intento=0; intento<2 && !hecho; intento++){
+      try{ const r=await api({accion:'erp_upsert_batch', tabla:'facturas', items:lote}); if(r&&r.ok){ act+=lote.length; hecho=true; } }
+      catch(e){ log('⚠ lote facturas '+i+': '+e); }
+      if(!hecho) await new Promise(res=>setTimeout(res,800));
+    }
+    if(!hecho) log('⚠ lote facturas '+i+' falló (se puede reintentar)');
+    setBar(0.7 + (Math.min(i+40,aGuardar.length)/Math.max(aGuardar.length,1))*0.3);
+    log('  facturas completadas: '+act+'/'+aGuardar.length);
   }
   setBar(1);
   log('\n════════ LISTO ════════');

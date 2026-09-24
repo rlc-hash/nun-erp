@@ -3093,7 +3093,8 @@ async function guardarPagoCobranza() {
         cuenta: cuenta,
         notas: notas,
         usuario: sesionActual.usuario.nombre,
-        codigo_usuario: sesionActual.codigo
+        codigo_usuario: sesionActual.codigo,
+        codigo: sesionActual.codigo
       }),
       headers: {'Content-Type': 'text/plain;charset=utf-8'}
     });
@@ -4339,7 +4340,8 @@ async function enviarAccion(tabla, accion, payload) {
   if (!urlScript) { alert('Configura la URL primero'); return false; }
   setSync('sync', 'Guardando...');
   try {
-    const r = await fetch(urlScript, { method: 'POST', body: JSON.stringify({tabla, accion, ...payload}), headers: {'Content-Type': 'text/plain;charset=utf-8'} });
+    const codigo = (typeof sesionActual!=='undefined' && sesionActual && sesionActual.codigo) ? sesionActual.codigo : undefined;
+    const r = await fetch(urlScript, { method: 'POST', body: JSON.stringify({tabla, accion, codigo, ...payload}), headers: {'Content-Type': 'text/plain;charset=utf-8'} });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error);
     setSync('ok', `Guardado · ${new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}`);
@@ -5433,7 +5435,9 @@ function renderTopDeudores(filtrados) {
     porCli[c.cliente] = (porCli[c.cliente]||0) + c.pendiente;
   });
   const top = Object.entries(porCli).sort((a,b)=>b[1]-a[1]).slice(0,15);
-  document.getElementById('topDeudores').innerHTML = top.map(([n,v]) => `<div class="rank"><span class="name">${n}</span><span class="v pending">${fmtFull(v)}</span></div>`).join('') || '<div style="color:var(--mute);padding:14px 0">Sin deudores</div>';
+  const elTop = document.getElementById('topDeudores');
+  if (!elTop) return; // el panel no existe en el HTML actual
+  elTop.innerHTML = top.map(([n,v]) => `<div class="rank"><span class="name">${n}</span><span class="v pending">${fmtFull(v)}</span></div>`).join('') || '<div style="color:var(--mute);padding:14px 0">Sin deudores</div>';
 }
 
 /* DASHBOARD */
@@ -5901,7 +5905,8 @@ async function cargarAplazamientos() {
       method: 'POST',
       body: JSON.stringify({ 
         accion: 'listar_aplazamientos',
-        codigo_usuario: sesionActual.codigo
+        codigo_usuario: sesionActual.codigo,
+        codigo: sesionActual.codigo
       }),
       headers: {'Content-Type': 'text/plain;charset=utf-8'}
     });
@@ -5948,6 +5953,7 @@ async function aplazarAlerta(alertaId, dias) {
       body: JSON.stringify({
         accion: 'guardar_aplazamiento',
         codigo_usuario: sesionActual.codigo,
+        codigo: sesionActual.codigo,
         alerta_id: alertaId,
         expira: expira.toISOString(),
         dias: dias
@@ -6055,6 +6061,7 @@ async function reactivarAlerta(alertaId) {
       body: JSON.stringify({
         accion: 'eliminar_aplazamiento',
         codigo_usuario: sesionActual.codigo,
+        codigo: sesionActual.codigo,
         alerta_id: alertaId
       }),
       headers: {'Content-Type': 'text/plain;charset=utf-8'}
@@ -6568,15 +6575,17 @@ setTimeout(() => {
 const FECHA_INICIO_COMISIONES = '2025-08-01';  // Inicio del negocio (vendedores)
 const FECHA_INICIO_SOCIOS = '2026-04-01';      // v1.2.4 FIX: Socios (Rafa/Yadah) desde abril 2026
 
+// Reglas VALIDADAS vs Excel de Rafa (backend v0.9.4). Mismas en backend, ERP y CRM.
 const COMISIONES_CONFIG = {
-  EDGAR: { propia: 0.06, otros: 0.01, sobre: ['LUIS'] }, // Solo de Luis (Esteban ya no)
+  EDGAR: { propia: 0.06, sobre: { LUIS: 0.01, YADAH: 0.03, ESTEBAN: 0.01 } }, // 6% + 1% Luis + 3% Yadah + 1% Esteban
   LUIS: { propia: 0.05 },
+  ESTEBAN: { propia: 0.05 },
   YADAH: { propia: 0, sobre_todos: 0.04 },  // 4% sobre todo lo cobrado
   RAFA: { propia: 0, sobre_todos: 0.04 }    // 4% sobre todo lo cobrado
 };
 
 // Yazmin no tiene comisión
-const SIN_COMISION = ['YAZMIN', 'ESTEBAN'];
+const SIN_COMISION = ['YAZMIN']; // Yazmin = sueldo fijo; Esteban sí comisiona 5%
 
 function rangoPeriodo(periodo) {
   const hoy = new Date();
@@ -6753,10 +6762,13 @@ function calcularComision(vendedor, datosVendedores) {
   }
   
   // Comisión sobre otros (Edgar 1% de Luis/Esteban)
-  if (config.sobre && config.otros) {
-    config.sobre.forEach(otroVend => {
+  if (config.sobre) {
+    const mapa = Array.isArray(config.sobre)
+      ? Object.fromEntries(config.sobre.map(v => [v, config.otros || 0]))
+      : config.sobre;
+    Object.entries(mapa).forEach(([otroVend, pct]) => {
       const datos = datosVendedores.find(d => d.vendedor === otroVend);
-      if (datos) comisionOtros += datos.cobrado * config.otros;
+      if (datos && pct) comisionOtros += datos.cobrado * pct;
     });
   }
   

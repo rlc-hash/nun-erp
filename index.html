@@ -7750,10 +7750,13 @@ function renderMigradorFooter() {
 
 async function bindFetch(endpoint, query) {
   // v3.10.1 — Proxy AppsScript prueba múltiples headers (apiKey, Bearer, X-API-Key) en cascada.
-  const key = bindImportState.apiKey || document.getElementById('bindKey')?.value;
-  if (!key) throw new Error('API Key vacía');
+  // v3.58 — la llave de Bind vive en el SERVIDOR. Si el navegador no tiene una, el backend usa la suya.
+  const keyNav = bindImportState.apiKey || document.getElementById('bindKey')?.value || '';
+  const key = (keyNav && keyNav !== 'SERVIDOR') ? keyNav : '';
   if (!State.url) throw new Error('Necesitas configurar la URL del Apps Script en Configuración primero');
-  const data = await api({ accion:'bind_proxy', endpoint, query, apiKey: key });
+  const payloadBind = { accion:'bind_proxy', endpoint, query };
+  if (key) payloadBind.apiKey = key;
+  const data = await api(payloadBind);
   if (!data) throw new Error('Sin respuesta del proxy');
   console.log('[Bind proxy] response:', data);
   if (data.header_usado) {
@@ -8246,13 +8249,82 @@ function reiniciarSyncTimer() {
   console.log(`[Sync] Auto-sync activado cada ${min} min`);
 }
 
+// v3.58 — Completa facturas/remisiones NUEVAS traídas de Bind: partidas (productos), vendedor,
+// y para facturas timbradas su XML ORIGINAL + timbre del QR (compartido en el backend).
+async function enriquecerNuevosBind(facturasNuevas, remisionesNuevas, cobranzaNueva, silencioso){
+  const docs = [].concat(facturasNuevas||[], remisionesNuevas||[]);
+  if (!docs.length) return;
+  const U = s => String(s||'').toUpperCase();
+  const xmls = [], timbres = {};
+  // vendedor habitual de cada cliente según el historial (cobranza, pedidos, docs y catálogo)
+  const normC = s => String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+  const conteo = {};
+  [].concat(State.data.cobranza||[], State.data.pedidos||[], State.data.facturas||[], State.data.remisiones||[]).forEach(x => {
+    const c = normC(x.cliente), v = String(x.vendedor||'').trim();
+    if (c && v) { conteo[c] = conteo[c] || {}; conteo[c][v] = (conteo[c][v]||0) + 1; }
+  });
+  (State.data.clientes||[]).forEach(x => {
+    const c = normC(x.razon_social || x.nombre_comercial), v = String(x.vendedor||'').trim();
+    if (c && v) { conteo[c] = conteo[c] || {}; conteo[c][v] = (conteo[c][v]||0) + 5; }
+  });
+  const vendDe = cli => { const m = conteo[normC(cli)]; return m ? Object.entries(m).sort((a,b)=>b[1]-a[1])[0][0] : ''; };
+  for (let i=0; i<docs.length; i++){
+    const d = docs[i];
+    const bid = String(d.id).replace(/^bind_rem_/,'').replace(/^bind_/,'');
+    if (!silencioso) toast('Completando desde Bind… '+(i+1)+'/'+docs.length, { type:'info', duration:1200 });
+    // a) partidas
+    try {
+      const det = await bindFetch('/api/Invoices/'+bid);
+      const prods = (det && det.Products) || [];
+      if (prods.length) d.items_json = JSON.stringify(prods.map(p => ({
+        sku: p.Code || '', descripcion: p.Name || '', cantidad: +p.Qty || 0,
+        precio_unitario: +p.Price || 0, descuento_pct: 0,
+        iva_pct: Math.round((+p.VATRate || 0) * 100), unidad: p.Unit || 'pieza'
+      })));
+    } catch(e) { console.warn('[Bind] sin partidas para', d.folio, e.message); }
+    // b) vendedor
+    try { if (!d.vendedor && typeof buscarVendedorReal === 'function') { const v = buscarVendedorReal(d); if (v) d.vendedor = v; } } catch(e){}
+    if (!d.vendedor) { const v = vendDe(d.cliente); if (v) d.vendedor = v; }
+    // c) XML original + QR (solo facturas timbradas y no canceladas)
+    if (d.uuid_sat && d.estatus !== 'cancelada' && !String(d.id).startsWith('bind_rem_')) {
+      try {
+        const xml = await bindFetch('/api/Invoices/'+bid+'/XML');
+        const td = (typeof xml === 'string' && typeof cfdiTimbreData === 'function') ? cfdiTimbreData(xml) : null;
+        if (td && U(td.uuid) === U(d.uuid_sat)) {
+          xmls.push({ uuid:U(td.uuid), xml, fecha:d.fecha, total:d.total, cliente:d.cliente, tipo:'I' });
+          [d.uuid_sat, U(d.uuid_sat), String(d.uuid_sat).toLowerCase()].forEach(k => { timbres[k] = td; });
+          d.xml_url = 'local:' + U(td.uuid);
+        }
+      } catch(e) { console.warn('[Bind] sin XML para', d.folio, e.message); }
+    }
+  }
+  // vendedor también en la cobranza nueva
+  const vendPorOrigen = {}; docs.forEach(d => { if (d.vendedor) vendPorOrigen[d.id] = d.vendedor; });
+  (cobranzaNueva||[]).forEach(c => {
+    if (!c.vendedor && vendPorOrigen[c.factura_origen]) c.vendedor = vendPorOrigen[c.factura_origen];
+    if (!c.vendedor) { const v = vendDe(c.cliente); if (v) c.vendedor = v; }
+  });
+  // guardar XMLs en lotes
+  for (let i=0; i<xmls.length; i+=8) {
+    try { await api({ accion:'cfdi_xml_guardar', docs: xmls.slice(i,i+8) }); } catch(e) { console.warn('[Bind] XML lote', i, e.message); }
+  }
+  // timbres del QR: fusionar con los del backend (nunca borrar los existentes)
+  if (Object.keys(timbres).length) {
+    try {
+      const kv = await api({ accion:'kv_leer' });
+      let actuales = {}; try { actuales = JSON.parse((kv && kv.valores && kv.valores.nun_cfdi_timbres) || '{}'); } catch(e){}
+      Object.assign(actuales, timbres);
+      await api({ accion:'kv_guardar', pares:{ nun_cfdi_timbres: JSON.stringify(actuales) } });
+      try { localStorage.setItem('nun_cfdi_timbres', JSON.stringify(actuales)); } catch(e){}
+    } catch(e) { console.warn('[Bind] timbres QR:', e.message); }
+  }
+  console.log('[Sync] enriquecidos '+docs.length+' docs · '+xmls.length+' XML · '+Object.keys(timbres).length/3+' QR');
+}
+
 async function sincronizarConBindAhora(esAutomatico) {
   if (_syncEnCurso) { console.warn('[Sync] ya en curso, ignorando'); return; }
-  const apiKey = localStorage.getItem('nun_bind_api_key') || bindImportState.apiKey;
-  if (!apiKey || apiKey.length < 50) {
-    if (!esAutomatico) toast('Pega tu API key de Bind en Migrar desde Bind primero', { type:'error', duration:5000 });
-    return;
-  }
+  // v3.58 — sin llave en el navegador se usa la del servidor (más seguro).
+  const apiKey = localStorage.getItem('nun_bind_api_key') || bindImportState.apiKey || 'SERVIDOR';
   bindImportState.apiKey = apiKey;
   _syncEnCurso = true;
   const inicio = Date.now();
@@ -8306,6 +8378,9 @@ async function sincronizarConBindAhora(esAutomatico) {
     const facturasNuevas = detectarNuevos(facturasMap, 'facturas');
     const remisionesNuevas = detectarNuevos(remisionesMap, 'remisiones');
     const cobranzaNueva = detectarNuevos(cobranzaMap, 'cobranza');
+    // v3.58 — completar lo nuevo: partidas, vendedor, XML original y QR
+    try { await enriquecerNuevosBind(facturasNuevas, remisionesNuevas, cobranzaNueva, esAutomatico); }
+    catch(e) { console.warn('[Sync] enriquecer falló (se guardan igual los encabezados):', e); }
 
     // 3. Push nuevos al backend + State
     const tareas = [];

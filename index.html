@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.57 · comisiones alineadas + sin códigos expuestos ✓</span>
+    <span class="rwd-version">v3.63 · cuadre Bind + reportes ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -12106,8 +12106,10 @@ window.facturamaGuardarCred = facturamaGuardarCred;
 async function facturamaRefrescarEstado(){
   const el = document.getElementById('factEstado'); if (!el) return;
   try { const r = await api({ accion:'facturama_estado' });
+    // v3.63 — el selector muestra el modo REAL guardado en el backend (antes siempre decía "Pruebas")
+    try { const sel = document.getElementById('factModo'); if (sel && r && r.modo && /produc/i.test(r.modo)) sel.value = 'produccion'; else if (sel && r && r.modo) sel.value = 'sandbox'; } catch(e){}
     el.innerHTML = r && r.tiene_credenciales
-      ? '<span style="color:var(--green)">✓ Conectado · modo <strong>'+escapeHTML(r.modo)+'</strong></span>'
+      ? '<span style="color:var(--green)">✓ Conectado · modo <strong>'+escapeHTML(r.modo)+'</strong> · usuario y contraseña ya guardados (por seguridad no se muestran)</span>'
       : '<span style="color:var(--ink-3)">Sin credenciales aún</span>';
   } catch(e){}
 }

@@ -2750,6 +2750,8 @@ function abrirDrawer(opts) {
     const tabsEl = $('#drawerTabs');
     tabsEl.classList.remove('hidden');
     tabsEl.innerHTML = opts.tabs.map((t,i) => `<button class="${i===0?'active':''}" data-tab="${t.key}" onclick="drawerCambiarTab('${t.key}')">${escapeHTML(t.label)}</button>`).join('');
+    // v3.61 — todas las pestañas se pintan UNA vez y solo se ocultan (no se pierde lo capturado)
+    $('#drawerBody').innerHTML = opts.tabs.map(t => `<div class="drawer-pane" data-pane="${t.key}" style="display:none">${t.body || ''}</div>`).join('');
     drawerCambiarTab(opts.tabs[0].key);
   } else {
     $('#drawerTabs').classList.add('hidden');
@@ -2774,7 +2776,9 @@ function drawerCambiarTab(key) {
   if (!drawerCtx || !drawerCtx.tabs) return;
   $$('.drawer-tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === key));
   const tab = drawerCtx.tabs.find(t => t.key === key);
-  if (tab) $('#drawerBody').innerHTML = tab.body || '';
+  const panes = document.querySelectorAll('#drawerBody > .drawer-pane');
+  if (panes.length) panes.forEach(p => { p.style.display = p.dataset.pane === key ? '' : 'none'; }); // v3.61
+  else if (tab) $('#drawerBody').innerHTML = tab.body || '';
   if (tab && tab.onShow) try { tab.onShow(); } catch(e){}
 }
 
@@ -2964,7 +2968,14 @@ function nunPermisosDefinidos(){
   const p = (State.sesion && State.sesion.permisos) || {};
   return Object.keys(p).length > 0;
 }
+// v3.61 — GASTOS: solo el dueño (Rafa) y el código maestro. Ni otros admins.
+const NUN_DUENOS_GASTOS = ['RAFA-2026','MASTER-NUN-ERP-2026'];
+function nunEsDuenoGastos(){
+  const c = String((State.sesion && (State.sesion.codigo || (State.sesion.usuario||{}).codigo)) || '').toUpperCase().trim();
+  return NUN_DUENOS_GASTOS.includes(c);
+}
 function moduloPermitido(mod){
+  if (mod === 'gastos' && !nunEsDuenoGastos()) return false; // v3.61 — solo Rafa
   if (NUN_MODULOS_OCULTOS.has(mod)) return false; // v3.56 — maqueta oculta para todos
   if (nunEsAdmin()) return true;                  // admin ve todo
   if (!nunPermisosDefinidos()) return true;       // usuario sin permisos configurados → no bloquear
@@ -3650,6 +3661,7 @@ function afterRenderGenerico(modKey) {
   if (mount) mount.innerHTML = html;
 }
 function abrirFormGenerico(modKey, id) {
+  if (modKey === 'gastos' && !nunEsDuenoGastos()) { toast('Gastos solo lo maneja Rafa', { type:'error' }); return; } // v3.61
   // v3.2 — Vista enriquecida para clientes
   if (modKey === 'clientes' && id) return abrirDetalleCliente(id);
 
@@ -3957,6 +3969,7 @@ const SCHEMAS_IMPORTABLES = {
 const csvImportState = { step:1, tabla:null, raw:'', headers:[], rows:[], mapping:{}, valid:[], invalid:[] };
 
 function abrirImportadorCSV(tabla) {
+  if (tabla === 'gastos' && !nunEsDuenoGastos()) { toast('Gastos solo lo maneja Rafa', { type:'error' }); return; } // v3.61 imp
   csvImportState.step = 1;
   csvImportState.tabla = tabla;
   csvImportState.raw = '';
@@ -4368,9 +4381,10 @@ function abrirDrawerCobranza(idDoc) {
     <div class="field"><label>Número</label><input type="text" id="edNumero" value="${escapeHTML(doc.numero||'')}"></div>
     <div class="field"><label>Total</label><input type="number" id="edTotal" step="0.01" value="${doc.total||0}"></div>
     <div class="field"><label>Fecha entrega</label><input type="date" id="edFechaEntrega" value="${(doc.fecha_entrega||'').substring(0,10)}"></div>
-    <div class="field"><label>Vendedor</label><select id="edVendedor">${(State.data.vendedores||[]).map(v=>`<option ${doc.vendedor===v.nombre?'selected':''}>${escapeHTML(v.nombre)}</option>`).join('')}</select></div>
+    <div class="field"><label>Vendedor</label><select id="edVendedor">${(() => { const ns = (State.data.vendedores||[]).map(v=>v.nombre); const act = doc.vendedor||''; const lista = (act && !ns.includes(act)) ? [act].concat(ns) : ns; return '<option value="">— Sin vendedor —</option>' + lista.map(n=>`<option ${act===n?'selected':''}>${escapeHTML(n)}</option>`).join(''); })()}</select></div>
     <div class="field full"><label>Descripción</label><textarea id="edDescripcion">${escapeHTML(doc.descripcion||'')}</textarea></div>
-  </div>`;
+  </div>
+  <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn btn-primary" id="edGuardarBtn" onclick="guardarEdicionCobranza('${idDoc}')">Guardar cambios</button></div>`;
   const tabHistorial = `<div id="histPagos">${
     pagos.length === 0
       ? '<div class="dt-empty"><div class="empty-title">Sin pagos manuales</div><div class="empty-sub">Los pagos capturados aquí o desde el botón de arriba aparecerán en esta lista.</div></div>'
@@ -4404,7 +4418,40 @@ function abrirDrawerCobranza(idDoc) {
     `
   });
 }
+// v3.61 — Guardar la pestaña "Editar" de Cobranza (antes no se guardaba)
+async function guardarEdicionCobranza(idDoc) {
+  const doc = (State.data.cobranza||[]).find(c => c.id === idDoc);
+  if (!doc) { toast('No encontré el documento', { type:'error' }); return; }
+  const v = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const total = parseFloat(v('edTotal'));
+  const cobrado = +doc.cobrado || 0;
+  if (!String(v('edCliente')).trim()) { toast('El cliente es obligatorio', { type:'error' }); return; }
+  if (!(total >= 0)) { toast('Total inválido', { type:'error' }); return; }
+  if (total + 0.01 < cobrado) { toast('El total no puede ser menor a lo ya cobrado (' + fmtFull(cobrado) + ')', { type:'error', duration:5000 }); return; }
+  const item = {
+    id: idDoc,
+    cliente: String(v('edCliente')).trim(),
+    tipo: v('edTipo'),
+    numero: String(v('edNumero')).trim(),
+    total: +total.toFixed(2),
+    pendiente: +Math.max(0, total - cobrado).toFixed(2),
+    fecha_entrega: v('edFechaEntrega'),
+    vendedor: v('edVendedor'),
+    descripcion: v('edDescripcion')
+  };
+  const btn = document.getElementById('edGuardarBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  try {
+    const r = await api({ accion:'erp_actualizar', tabla:'cobranza', item });
+    if (!r || !r.ok) { toast('No se guardó: ' + ((r && r.error) || 'sin respuesta'), { type:'error', duration:6000 }); return; }
+    Object.assign(doc, item);
+    await cargarTabla('cobranza');
+    renderCurrent(); cerrarDrawer();
+    toast('✓ Documento actualizado');
+  } catch(e) { toast('No se guardó: ' + e.message, { type:'error', duration:6000 }); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios'; } }
+}
 function solicitarConfirmPago(idDoc) {
+  try { if (drawerCtx && drawerCtx.tabs && drawerCtx.tabs.some(t=>t.key==='pago')) drawerCambiarTab('pago'); } catch(e){} // v3.61
   const monto = parseFloat(document.getElementById('pcMonto').value);
   const cuenta = document.getElementById('pcCuenta').value;
   if (!monto || monto <= 0) { toast('Monto inválido', { type:'error' }); return; }
@@ -5576,8 +5623,177 @@ const COMISIONES_CFG = {
 const VENDEDORES = ['EDGAR','LUIS','ESTEBAN','YADAH'];          // los que traen docs con su nombre
 const COM_PERSONAS = ['RAFA','YADAH','EDGAR','LUIS','ESTEBAN','YAZMIN'];
 
-function calcularComisiones(filtroAnio) {
+// ============================================================
+// v3.61 — INGRESOS SIN DUPLICADOS + CUADRE CON COBRANZA + COMISIONES POR FECHA DE PAGO
+// ============================================================
+function nunSepararIngresos(){
+  const todos = (State.data.ingresos||[]).concat(State.data.ingresosDuplicados||[]);
+  const corte = todos.filter(i => String(i.id||'').startsWith('bind_pag_')).map(i => String(i.fecha||'').slice(0,10)).sort().pop() || '';
+  const esDup = i => /^(CANCELADO|DUPLICADO)/i.test(String(i.tipo||'')) || (corte && /^ING-/.test(String(i.id||'')) && /^(PAGO|AJUSTE)$/i.test(String(i.tipo||'')) && String(i.fecha||'').slice(0,10) <= corte);
+  State.data.ingresos = todos.filter(i => !esDup(i));
+  State.data.ingresosDuplicados = todos.filter(esDup);
+  State.data._corteIngresosBind = corte;
+}
+const _nunNumDoc = x => String(x||'').toUpperCase().replace(/^F-/, '').replace(/[^A-Z0-9]/g,'').replace(/^([A-Z]*)0+(\d)/, '$1$2');
+const _nunNormCli = s => String(s||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+function nunVendedorDeDoc(c){
+  let v = String(c && c.vendedor || '').toUpperCase().trim();
+  if (!v && typeof vendedorDeClienteCat === 'function' && typeof _catClientes !== 'undefined' && _catClientes.length) v = String(vendedorDeClienteCat(c.cliente)||'').toUpperCase().trim();
+  return v;
+}
+// Índices para ligar un ingreso con su documento de cobranza
+function _nunIndicesCobranza(){
+  const porNum = {}, porCli = {};
+  (State.data.cobranza||[]).forEach(c => {
+    const n = _nunNumDoc(c.numero); if (n) porNum[n] = c;
+    const k = _nunNormCli(c.cliente); if (k) (porCli[k] = porCli[k] || []).push(c);
+  });
+  return { porNum, porCli };
+}
+function nunVendedorDeIngreso(i, idx){
+  idx = idx || _nunIndicesCobranza();
+  const f = String(i.factura||'').split(/[,;/]/)[0];
+  const d = idx.porNum[_nunNumDoc(f)];
+  if (d) { const v = nunVendedorDeDoc(d); if (v) return { v, doc:d }; }
+  const docs = idx.porCli[_nunNormCli(i.cliente)] || [];
+  const cuenta = {}; docs.forEach(c => { const v = nunVendedorDeDoc(c); if (v) cuenta[v] = (cuenta[v]||0) + 1; });
+  let v = Object.entries(cuenta).sort((a,b)=>b[1]-a[1])[0]; v = v ? v[0] : '';
+  if (!v && typeof vendedorDeClienteCat === 'function' && typeof _catClientes !== 'undefined' && _catClientes.length) v = String(vendedorDeClienteCat(i.cliente)||'').toUpperCase().trim();
+  return { v, doc: d || null };
+}
+// v3.61 — Notas de crédito desde el respaldo de Bind (completa cliente, factura origen y estatus; agrega las que faltan)
+async function nunImportarNCBind(P){
+  const fac = x => String(x||'').replace(/\s+/g,'');
+  const items = P.map(n => ({ id:'bind_nc_'+n[0], folio:n[2], fecha:n[1], tipo:'cliente', contraparte:n[3], documento_origen:fac(n[7]),
+    subtotal:+n[5], iva:+(n[4]-n[5]).toFixed(2), total:+n[4], motivo:n[9]||'', estatus: /^cancel/i.test(n[6]) ? 'cancelada' : 'timbrada' }));
+  const existentes = new Set((State.data.notascredito||[]).map(x => x.id));
+  const nuevas = items.filter(i => !existentes.has(i.id)).length;
+  const ok = await confirmDialog({ title:'¿Cargar notas de crédito de Bind?', message:`${items.length} notas en el respaldo: se agregarán ${nuevas} que faltan y se completarán cliente, factura de origen y estatus de las demás. No se borra nada.`, ok:'Sí, cargar' });
+  if (!ok) return;
+  let bien = 0;
+  for (let i = 0; i < items.length; i += 40) { try { const r = await api({ accion:'erp_upsert_batch', tabla:'notascredito', items: items.slice(i,i+40) }); if (r && r.ok) bien += Math.min(40, items.length - i); } catch(e){} }
+  try { localStorage.removeItem('nun_cache_notascredito'); } catch(e){}
+  await cargarTabla('notascredito'); renderCurrent();
+  toast(bien === items.length ? ('✓ Notas de crédito al día con Bind (' + bien + ')') : ('⚠ Se cargaron ' + bien + ' de ' + items.length + ' — vuelve a intentar'), { type: bien === items.length ? 'success' : 'error', duration:8000 });
+}
+// v3.61 — Cuadrar Ingresos con el respaldo de pagos de Bind (lo ejecuta Rafa con un clic; pide confirmación)
+// v3.63 — Altas de saldos (pedidos sin documentar) y cancelaciones acordadas, desde archivo
+async function nunImportarAltasCobranza(P){
+  const hoy = new Date().toISOString().slice(0,10);
   const cob = State.data.cobranza || [];
+  const existe = new Set(cob.map(c => c.id));
+  const altas = (P.altas||[]).filter(a => a && a.id && +a.total > 0).map(a => ({
+    id: a.id, fecha_emision: a.fecha, fecha_entrega: a.fecha, fecha_vencimiento: a.fecha, cliente: a.cliente, tipo: a.tipo || 'Remisión',
+    numero: a.numero || '', estatus: '', vendedor: String(a.vendedor||'').toUpperCase(), descripcion: a.descripcion || '', credito: '',
+    total: +(+a.total).toFixed(2), cobrado: 0, pendiente: +(+a.total).toFixed(2), dias_vencido: Math.max(0, Math.floor((Date.parse(hoy) - Date.parse(a.fecha)) / 86400000)),
+    sin_entregar: false, folio_fiscal: '', factura_origen: 'alta_manual' }));
+  const nuevasAltas = altas.filter(a => !existe.has(a.id));
+  const canc = [], avisos = [];
+  (P.cancelar||[]).forEach(x => {
+    const c = cob.find(d => d.id === 'bind_cob_' + x.bind_id);
+    if (!c) { avisos.push((x.folio||x.bind_id) + ': no está en la cobranza (¿ya sincronizaste con Bind?)'); return; }
+    if (/^cancelad/i.test(c.estatus||'')) return;
+    if ((+c.cobrado||0) > 0) { avisos.push((x.folio||c.numero) + ': tiene pagos, no se cancela'); return; }
+    canc.push({ id: c.id, estatus: 'cancelado', pendiente: 0, descripcion: ((c.descripcion ? c.descripcion + ' · ' : '') + 'CANCELADA: ' + (x.motivo||'')).slice(0, 250) });
+  });
+  const factCanc = (P.cancelar||[]).map(x => (State.data.facturas||[]).find(f => f.id === 'bind_' + x.bind_id)).filter(f => f && !/cancel/i.test(f.estatus||'')).map(f => ({ id: f.id, estatus: 'cancelada' }));
+  const sumaAltas = nuevasAltas.reduce((s,a)=>s+a.total,0);
+  const ok = await confirmDialog({ title:'¿Cargar altas y cancelaciones?',
+    message: `Se darán de alta ${nuevasAltas.length} saldo(s) por cobrar (${fmtFull(sumaAltas)}) como remisión, y se cancelarán ${canc.length} documento(s) en cobranza.` + (avisos.length ? ' Avisos: ' + avisos.join(' · ') : '') + ' No se borra nada.',
+    ok:'Sí, cargar' });
+  if (!ok) return;
+  let bien = true;
+  try {
+    if (nuevasAltas.length) { const r = await api({ accion:'erp_upsert_batch', tabla:'cobranza', items: nuevasAltas }); bien = bien && !!(r && r.ok); }
+    if (canc.length) { const r = await api({ accion:'erp_upsert_batch', tabla:'cobranza', items: canc }); bien = bien && !!(r && r.ok); }
+    if (factCanc.length) { try { await api({ accion:'erp_upsert_batch', tabla:'facturas', items: factCanc }); } catch(e){} }
+  } catch(e) { bien = false; }
+  try { localStorage.removeItem('nun_cache_cobranza'); localStorage.removeItem('nun_cache_facturas'); } catch(e){}
+  await Promise.all([cargarTabla('cobranza'), cargarTabla('facturas')]); renderCurrent();
+  toast(bien ? ('✓ Listo · ' + nuevasAltas.length + ' altas · ' + canc.length + ' cancelaciones') : '⚠ Algo no se guardó — vuelve a darle al botón (no duplica)', { type: bien ? 'success' : 'error', duration:9000 });
+}
+function nunCuadrarIngresosConBind(){
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0]; if (!f) return;
+    let P; try { P = JSON.parse(await f.text()); } catch(e) { toast('El archivo no es JSON válido', { type:'error' }); return; }
+    if (P && !Array.isArray(P) && P.tipo === 'nun_altas_cobranza') return nunImportarAltasCobranza(P); // v3.63
+    if (!Array.isArray(P) || !P.length || !Array.isArray(P[0]) || P[0].length < 7) { toast('Ese archivo no es un respaldo de Bind', { type:'error', duration:6000 }); return; }
+    if (typeof P[0][6] === 'string') return nunImportarNCBind(P); // respaldo de NOTAS DE CRÉDITO
+    const I = (State.data.ingresos||[]).concat(State.data.ingresosDuplicados||[]);
+    const ids = new Set(I.map(i => i.id)); const pid = {}; P.forEach(p => pid[p[0]] = p);
+    const fac = x => String(x||'').replace(/^F-/,'').replace(/\s+/g,'');
+    const nuevos = P.filter(p => +p[6] === 0 && !ids.has('bind_pag_'+p[0])).map(p => ({ id:'bind_pag_'+p[0], fecha:p[1], cliente:p[2], factura:fac(p[3]), cuenta:p[4], tipo:'cobro', monto:+p[5], comentarios:'Pago de Bind · '+(p[7]||'')+(p[9]?' · ref '+p[9]:''), registrado_por:p[8]||'' }));
+    const cancel = I.filter(i => String(i.id).startsWith('bind_pag_') && pid[i.id.slice(9)] && +pid[i.id.slice(9)][6] !== 0 && !/^CANCELADO/i.test(i.tipo||'')).map(i => ({ id:i.id, tipo:'CANCELADO_BIND', comentarios:'Pago CANCELADO en Bind — no cuenta' }));
+    const bindKey = i => _nunNormCli(i.cliente).split(' ')[0] + '|' + Math.round(+i.monto||0);
+    const activosBind = new Set(P.filter(p => +p[6] === 0).map(p => _nunNormCli(p[2]).split(' ')[0] + '|' + Math.round(+p[5]||0)));
+    const manualesDup = I.filter(i => /^ing_man_/.test(String(i.id)) && !/^DUPLICADO/i.test(i.tipo||'') && (activosBind.has(bindKey(i)) || /CRUZ AZUL/i.test(i.cliente||''))).map(i => ({ id:i.id, tipo:'DUPLICADO_BIND', comentarios:'Duplicado de un pago de Bind — no cuenta' }));
+    const completar = I.filter(i => String(i.id).startsWith('bind_pag_') && pid[i.id.slice(9)] && +pid[i.id.slice(9)][6] === 0 && !i.factura).map(i => ({ id:i.id, factura:fac(pid[i.id.slice(9)][3]), cuenta: i.cuenta || pid[i.id.slice(9)][4], tipo: i.tipo || 'cobro' }));
+    const suma = nuevos.reduce((s,n)=>s+n.monto,0);
+    const ok = await confirmDialog({ title:'¿Cuadrar Ingresos con Bind?',
+      message: `Se agregarán ${nuevos.length} pagos de Bind que faltan (${fmtFull(suma)}), se marcarán ${cancel.length} pagos cancelados en Bind y ${manualesDup.length} capturas manuales duplicadas para que NO sumen, y se completará factura/cuenta en ${completar.length} pagos. No se borra nada.`,
+      ok:'Sí, cuadrar' });
+    if (!ok) return;
+    const todo = nuevos.concat(cancel, manualesDup, completar); let hechos = 0, fallos = 0;
+    for (let i = 0; i < todo.length; i += 40) {
+      const lote = todo.slice(i, i+40); let bien = false;
+      for (let intento = 0; intento < 2 && !bien; intento++) { try { const r = await api({ accion:'erp_upsert_batch', tabla:'ingresos', items: lote }); bien = !!(r && r.ok); } catch(e){} }
+      if (bien) hechos += lote.length; else fallos += lote.length;
+      toast('Cuadrando ingresos… ' + Math.min(i+40, todo.length) + '/' + todo.length, { type:'info', duration:1200 });
+    }
+    try { localStorage.removeItem('nun_cache_ingresos'); } catch(e){}
+    State.data.ingresos = []; State.data.ingresosDuplicados = [];
+    await cargarTabla('ingresos'); renderCurrent();
+    toast(fallos ? ('⚠ ' + hechos + ' listos, ' + fallos + ' fallaron — vuelve a darle al botón (no duplica)') : ('✓ Ingresos cuadrados con Bind · ' + hechos + ' cambios'), { type: fallos ? 'error' : 'success', duration:9000 });
+  };
+  inp.click();
+}
+function nunCuadreIngresosCobranza(){
+  const cob = (State.data.cobranza||[]);
+  const ing = (State.data.ingresos||[]);
+  const totCob = cob.reduce((s,c)=>s+(+c.cobrado||0),0);
+  const totIng = ing.reduce((s,i)=>s+(+i.monto||0),0);
+  const tok = s => _nunNormCli(s).split(' ').slice(0,2).join(' ');
+  const p = {};
+  cob.forEach(c => { const k = tok(c.cliente); if (!k) return; p[k] = p[k] || { cliente:c.cliente, cob:0, ing:0 }; p[k].cob += +c.cobrado||0; });
+  ing.forEach(i => { const k = tok(i.cliente); if (!k) return; p[k] = p[k] || { cliente:i.cliente, cob:0, ing:0 }; p[k].ing += +i.monto||0; });
+  const difs = Object.values(p).map(x => ({ ...x, d: x.cob - x.ing })).filter(x => Math.abs(x.d) >= 1).sort((a,b)=>Math.abs(b.d)-Math.abs(a.d));
+  return { totCob, totIng, dif: totCob - totIng, difs, clientes: Object.keys(p).length, dup: (State.data.ingresosDuplicados||[]), corte: State.data._corteIngresosBind||'' };
+}
+function nunPanelCuadreIngresos(){
+  const q = nunCuadreIngresosCobranza();
+  const ok = Math.abs(q.dif) < 1;
+  const dupM = q.dup.reduce((s,i)=>s+(+i.monto||0),0);
+  return `<div class="dt-wrap" id="nunCuadreIng" style="padding:14px 18px;margin-bottom:14px;border-left:4px solid ${ok?'var(--green)':'var(--accent)'}">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div><div style="font-weight:700">⚖️ Cuadre Ingresos ↔ Cobranza ${ok?'<span class="tag green">CUADRA</span>':'<span class="tag red">NO CUADRA</span>'}</div>
+      <div style="font-size:12px;color:var(--ink-3)">Todo lo cobrado en Cobranza debe estar en Ingresos, y viceversa.</div></div>
+      <div style="display:flex;gap:18px;font-size:13px">
+        <div>Cobrado en Cobranza<br><b class="mono">${fmtFull(q.totCob)}</b></div>
+        <div>Ingresos<br><b class="mono">${fmtFull(q.totIng)}</b></div>
+        <div>Diferencia<br><b class="mono" style="color:${ok?'var(--green)':'var(--accent)'}">${fmtFull(q.dif)}</b></div>
+      </div>
+    </div>
+    ${q.dup.length ? `<div style="font-size:12px;margin-top:8px;color:var(--ink-3)">ℹ ${q.dup.length} registros del Excel/export de Bind (${fmtFull(dupM)}) repetían pagos que ya estaban importados de Bind hasta el ${escapeHTML(q.corte)}. <b>No se borraron</b>, solo ya no suman.</div>` : ''}
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-secondary btn-sm" onclick="nunCuadrarIngresosConBind()">📥 Cargar respaldo de Bind (pagos, notas de crédito o altas)</button><span style="font-size:11.5px;color:var(--ink-3);align-self:center">Archivos en la carpeta RESPALDOS_28sep2026: <b>Bind_pagos_clientes.json</b> y <b>Bind_notas_credito.json</b>. Agrega lo que falta y marca cancelados/duplicados. No borra nada.</span></div>
+    ${q.difs.length ? `<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12.5px">Ver ${q.difs.length} cliente(s) que no cuadran</summary>
+      <table style="width:100%;font-size:12px;margin-top:6px"><thead><tr><th style="text-align:left">Cliente</th><th class="right">Cobrado (cobranza)</th><th class="right">Ingresos</th><th class="right">Falta en ingresos</th></tr></thead><tbody>
+      ${q.difs.slice(0,60).map(x=>`<tr><td>${escapeHTML(x.cliente)}</td><td class="right mono">${fmtFull(x.cob)}</td><td class="right mono">${fmtFull(x.ing)}</td><td class="right mono" style="color:${x.d>0?'var(--accent)':'var(--ink-3)'}">${fmtFull(x.d)}</td></tr>`).join('')}
+      </tbody></table></details>` : ''}
+  </div>`;
+}
+let _comBase = 'pago'; // v3.61 — 'pago' = por fecha de pago (Ingresos) · 'doc' = por documento (Cobranza)
+function nunFilasComision(){
+  if (_comBase !== 'pago') return (State.data.cobranza||[]).map(c => Object.assign({}, c, { vendedor: nunVendedorDeDoc(c) }));
+  const idx = _nunIndicesCobranza();
+  return (State.data.ingresos||[]).filter(i => (+i.monto||0) > 0).map(i => {
+    const r = nunVendedorDeIngreso(i, idx);
+    return { numero: i.factura || (r.doc && r.doc.numero) || '', cliente: i.cliente, fecha_emision: i.fecha, fecha: i.fecha,
+             cobrado: +i.monto||0, total: 0, vendedor: r.v, _ingreso: true };
+  });
+}
+function calcularComisiones(filtroAnio) {
+  const cob = nunFilasComision(); // v3.61
   const porVendedor = {};
   VENDEDORES.forEach(v => porVendedor[v] = { cobrado:0, ventas:0, count:0, docs:[] });
 
@@ -5596,6 +5812,14 @@ function calcularComisiones(filtroAnio) {
     porVendedor[v].docs.push(c);
   }
   const nMeses = Math.max(1, mesesSet.size);
+  // v3.61 — en base "por fecha de pago", lo VENDIDO sale de los documentos emitidos en el periodo
+  if (_comBase === 'pago') {
+    VENDEDORES.forEach(v => porVendedor[v].ventas = 0);
+    (State.data.cobranza||[]).forEach(c => {
+      if (filtroAnio && filtroAnio !== 'todos' && !String(c.fecha_emision||c.fecha||'').startsWith(filtroAnio)) return;
+      const v = nunVendedorDeDoc(c); if (porVendedor[v]) porVendedor[v].ventas += (+c.total||0);
+    });
+  }
 
   const comisiones = {};
   for (const v of COM_PERSONAS) {
@@ -5649,7 +5873,7 @@ function dibujarComisionesPorMes() {
 
   // Agrupar cobrado por mes y vendedor
   const datos = {}; // { 'YYYY-MM': { EDGAR: 0, LUIS: 0, ... } }
-  for (const c of (State.data.cobranza||[])) {
+  for (const c of nunFilasComision()) { // v3.61 misma base que la tabla
     const v = (c.vendedor||'').toUpperCase();
     if (!VENDEDORES.includes(v)) continue;
     const mes = (c.fecha_emision||c.fecha||'').substring(0,7);
@@ -5711,12 +5935,19 @@ function dibujarComisionesPorMes() {
 
 function renderComisiones() {
   const c = calcularComisiones(_comFiltroAnio);
-  const totalCobrado = Object.values(c).reduce((s,x)=>s+x.cobrado, 0);
+  // v3.61 — total cobrado = TODO lo cobrado del periodo (base del 4% de Rafa/Yadah), no solo lo asignado a vendedores
+  const totalCobrado = (c.RAFA && c.RAFA.overrideDetalle && c.RAFA.overrideDetalle['TOTAL COBRADO']) ? c.RAFA.overrideDetalle['TOTAL COBRADO'].cobrado : Object.values(c).reduce((s,x)=>s+x.cobrado, 0);
   const totalComision = Object.values(c).reduce((s,x)=>s+x.comisionTotal, 0);
 
   // Anios disponibles
   const aniosSet = new Set((State.data.cobranza||[]).map(c => (c.fecha_emision||c.fecha||'').substring(0,4)).filter(Boolean));
   const anios = [...aniosSet].sort().reverse();
+  // v3.61 — meses disponibles + catálogo de vendedores para deducir el vendedor
+  const _filas = nunFilasComision();
+  const meses = [...new Set(_filas.map(r => String(r.fecha_emision||r.fecha||'').slice(0,7)).filter(m => /^\d{4}-\d{2}$/.test(m)))].sort().reverse();
+  const _sinVend = _filas.filter(r => (+r.cobrado||0) > 0 && !r.vendedor);
+  if (typeof _catClientes !== 'undefined' && !_catClientes.length && typeof cargarCatalogoVendedores === 'function' && !window._nunCatPedido) { window._nunCatPedido = true; cargarCatalogoVendedores().then(n => { if (n) renderCurrent(); }); }
+  const _mesTxt = m => { const [a,mm] = m.split('-'); return ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][+mm-1] + ' ' + a; };
 
   return `
     <div class="page-title">
@@ -5724,11 +5955,17 @@ function renderComisiones() {
       <div class="actions">
         <select onchange="comCambiarAnio(this.value)" style="padding:7px 28px 7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
           <option value="todos" ${_comFiltroAnio==='todos'?'selected':''}>Todos los años</option>
-          ${anios.map(a => `<option value="${a}" ${_comFiltroAnio===a?'selected':''}>${a}</option>`).join('')}
+          <optgroup label="Año">${anios.map(a => `<option value="${a}" ${_comFiltroAnio===a?'selected':''}>${a}</option>`).join('')}</optgroup>
+          <optgroup label="Mes">${meses.map(m => `<option value="${m}" ${_comFiltroAnio===m?'selected':''}>${_mesTxt(m)}</option>`).join('')}</optgroup>
+        </select>
+        <select onchange="_comBase=this.value; renderCurrent()" title="Sobre qué se calcula" style="padding:7px 28px 7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
+          <option value="pago" ${_comBase==='pago'?'selected':''}>Por fecha de pago (Ingresos)</option>
+          <option value="doc" ${_comBase==='doc'?'selected':''}>Por documento (Cobranza)</option>
         </select>
       </div>
     </div>
 
+    ${_sinVend.length ? `<div class="dt-wrap" style="padding:10px 14px;margin-bottom:12px;border-left:4px solid var(--accent);font-size:12.5px">⚠ ${_sinVend.length} cobro(s) por ${fmtFull(_sinVend.reduce((s,r)=>s+(+r.cobrado||0),0))} no tienen vendedor (ni en el documento ni en el catálogo de clientes del CRM). Entran al total global (Rafa/Yadah) pero no a ningún vendedor. Asígnales vendedor en el catálogo de clientes.</div>` : ''}
     <div class="kpi-grid">
       <div class="kpi">
         <div class="kpi-label">Total cobrado</div>
@@ -5747,7 +5984,8 @@ function renderComisiones() {
       </div>
       <div class="kpi">
         <div class="kpi-label">Periodo</div>
-        <div class="kpi-value" style="font-size:18px">${_comFiltroAnio==='todos'?'Histórico':_comFiltroAnio}</div>
+        <div class="kpi-value" style="font-size:18px">${_comFiltroAnio==='todos'?'Histórico':(/^\d{4}-\d{2}$/.test(_comFiltroAnio)?_mesTxt(_comFiltroAnio):_comFiltroAnio)}</div>
+        <div class="kpi-sub">${_comBase==='pago'?'por fecha de pago':'por fecha del documento'}</div>
       </div>
     </div>
 
@@ -5883,6 +6121,10 @@ function abrirDetalleComision(vendedor) {
 function renderReportes() {
   return `
     <div class="page-title"><div><h1>Reportes</h1><div class="sub">Información agrupada de tu negocio</div></div></div>
+    <div class="dt-wrap" style="padding:16px 18px;margin-bottom:14px;cursor:pointer;border-left:4px solid var(--accent)" onclick="abrirReporte('ventas_detalle')">
+      <div style="font-weight:700;font-size:15px">📊 Ventas detalladas</div>
+      <div style="font-size:12.5px;color:var(--ink-3);margin-top:2px">Facturas y remisiones del mes (o las fechas que quieras) por <b>SKU, modelo, color, medida, cliente, vendedor</b> o documento · historial de un cliente · costo y utilidad · exportar a Excel</div>
+    </div>
     <div class="kpi-grid">
       <div class="kpi" style="cursor:pointer" onclick="abrirReporte('aging')"><div class="kpi-label">Aging cobranza</div><div class="kpi-value" style="font-size:14px">→ Ver reporte</div><div class="kpi-sub">0-30 / 31-60 / 61-90 / +90 días</div></div>
       <div class="kpi" style="cursor:pointer" onclick="abrirReporte('estado_cuenta')"><div class="kpi-label">Estado de cuenta cliente</div><div class="kpi-value" style="font-size:14px">→ Ver reporte</div><div class="kpi-sub">Facturas + pagos + NCs</div></div>
@@ -5892,14 +6134,152 @@ function renderReportes() {
       <div class="kpi" style="cursor:pointer" onclick="abrirReporte('comisiones')"><div class="kpi-label">Comisiones</div><div class="kpi-value" style="font-size:14px">→ Ver reporte</div><div class="kpi-sub">Por vendedor</div></div>
     </div>
     <div id="reporteMount" style="margin-top:24px"></div>
-  `;
+  ` + (window._repAbierto ? (setTimeout(() => { try { const m = document.getElementById('reporteMount'); if (m && !m.children.length) abrirReporte(window._repAbierto); } catch(e){} }, 0), '') : ''); // v3.62
+}
+// ============================================================
+// v3.62 — REPORTE VENTAS DETALLADAS (SKU · modelo · color · medida · cliente · vendedor · documento)
+// ============================================================
+const NUN_COLORES = ['NEGRO','NEGRA','GRIS','AZUL','ROJO','ROJA','BEIGE','DORADO','DORADA','LILA','MORADO','MORADA','VERDE','KHAKI','CAQUI','AQUA','ROSA','MARINO','VINO','BLANCO','BLANCA','CAFE','CAFÉ','AMARILLO','NARANJA','PLATA','PLATEADO','TURQUESA','CHAMPAGNE','CHAMPAÑA','CORAL','MENTA','OSCURO','OSCURA','CLARO','CLARA','PALO','BRONCE','COBRE','TINTO','CREMA','ARENA','MOSTAZA','FUCSIA','LAVANDA','TRANSPARENTE','MULTICOLOR'];
+function nunDescomponerProducto(desc, sku){
+  const t = String(desc||'').toUpperCase().replace(/\//g,' ').replace(/\s+/g,' ').trim();
+  const pal = t.split(' ');
+  const modelo = (pal.find(p => /^[A-Z]{1,3}\d{2,4}[A-Z]?$/.test(p)) || (String(sku||'').toUpperCase().match(/[A-Z]{2}\d{3}/)||[''])[0] || '');
+  let color = '', i = pal.findIndex(p => NUN_COLORES.includes(p));
+  if (i >= 0) { const c = []; while (i < pal.length && NUN_COLORES.includes(pal[i])) c.push(pal[i++]); color = c.join(' ').replace(/NEGRA/,'NEGRO').replace(/ROJA/,'ROJO').replace(/BLANCA/,'BLANCO').replace(/MORADA/,'MORADO').replace(/CAFÉ/,'CAFE').replace(/DORADA/,'DORADO'); }
+  const m = t.match(/(\d{2})\s*(PULGADAS|PULG|")/); const medida = m ? m[1] + '"' : '';
+  const tipo = /JUEGO|SET|MALETAS/.test(t) ? 'Juego' : (/MALETA/.test(t) ? 'Maleta' : (pal[0] ? pal[0].charAt(0) + pal[0].slice(1).toLowerCase() : ''));
+  return { modelo: modelo || '(sin modelo)', color: color || '(sin color)', medida: medida || '—', tipo };
+}
+let _repV = null;
+function _repVDefaults(){
+  const h = new Date(); const y = h.getFullYear(), m = String(h.getMonth()+1).padStart(2,'0');
+  return { desde: y+'-'+m+'-01', hasta: h.toISOString().slice(0,10), tipo:'ambos', cliente:'', vendedor:'', agrupar:'sku', buscar:'' };
+}
+// Todas las partidas vendidas (sin cancelados), con su documento
+function nunPartidasVendidas(){
+  const prodPorSku = {}, prodPorDesc = {};
+  (State.data.productos||[]).forEach(p => { if (p.sku) prodPorSku[String(p.sku).toUpperCase()] = p; if (p.descripcion) prodPorDesc[String(p.descripcion).toUpperCase().trim()] = p; });
+  const out = []; let sinPartidas = 0;
+  const docs = [].concat(
+    (State.data.facturas||[]).map(d => ({ d, tipoDoc:'Factura' })),
+    (State.data.remisiones||[]).map(d => ({ d, tipoDoc:'Remisión' })));
+  for (const { d, tipoDoc } of docs) {
+    if (/cancel/i.test(d.estatus||'')) continue;
+    let items = []; try { items = JSON.parse(d.items_json || '[]'); } catch(e){}
+    if (!items.length) { sinPartidas++; continue; }
+    const vend = (typeof nunVendedorDeDoc === 'function') ? nunVendedorDeDoc(d) : String(d.vendedor||'').toUpperCase();
+    const folio = (d.serie||'') + (d.folio||'');
+    for (const it of items) {
+      const cant = +it.cantidad || 0, pu = +it.precio_unitario || 0, desc = +it.descuento_pct || 0;
+      const importe = cant * pu * (1 - desc/100);
+      const p = prodPorSku[String(it.sku||'').toUpperCase()] || prodPorDesc[String(it.descripcion||'').toUpperCase().trim()] || {};
+      const costoU = +p.costo || 0;
+      const x = nunDescomponerProducto(it.descripcion || p.descripcion, it.sku || p.sku);
+      out.push({ fecha: String(d.fecha||'').slice(0,10), tipoDoc, folio, docId: d.id, cliente: d.cliente || '', vendedor: vend || '(sin vendedor)',
+        sku: it.sku || p.sku || '(sin SKU)', descripcion: it.descripcion || p.descripcion || '', modelo: x.modelo, color: x.color, medida: x.medida, tipoProd: x.tipo,
+        cantidad: cant, importe, costo: costoU * cant, tieneCosto: costoU > 0 });
+    }
+  }
+  return { partidas: out, sinPartidas };
+}
+function nunRepVentasHTML(){
+  _repV = _repV || _repVDefaults();
+  const f = _repV;
+  const vends = [...new Set((State.data.vendedores||[]).map(v => String(v.nombre||v).toUpperCase()).concat(['EDGAR','LUIS','ESTEBAN','YADAH']))].sort();
+  const h = new Date(); const mesesOpc = []; for (let i=0; i<13; i++){ const d = new Date(h.getFullYear(), h.getMonth()-i, 1); mesesOpc.push(d.toISOString().slice(0,7)); }
+  const mesTxt = m => ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][+m.slice(5)-1] + ' ' + m.slice(0,4);
+  const clientes = [...new Set([].concat(State.data.facturas||[], State.data.remisiones||[]).map(d => d.cliente).filter(Boolean))].sort();
+  const sel = 'padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)';
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      <div><h3 style="margin:0;font-size:16px">📊 Ventas detalladas</h3><div style="font-size:12px;color:var(--mute)">Facturas y remisiones (sin canceladas) · importes sin IVA</div></div>
+      <button class="btn btn-secondary btn-sm" onclick="nunRepVentasCSV()">⬇ Exportar a Excel</button>
+    </div>
+    <div class="dt-wrap" style="padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+      <label style="font-size:11px">Mes<br><select style="${sel}" onchange="if(this.value){const [y,m]=this.value.split('-'); const fin=new Date(+y,+m,0); _repV.desde=this.value+'-01'; _repV.hasta=this.value+'-'+String(fin.getDate()).padStart(2,'0'); nunRepVentasRefrescar();}">
+        <option value="">— elegir —</option>${mesesOpc.map(m => `<option value="${m}" ${f.desde===m+'-01'?'selected':''}>${mesTxt(m)}</option>`).join('')}</select></label>
+      <label style="font-size:11px">Desde<br><input type="date" value="${f.desde}" style="${sel}" onchange="_repV.desde=this.value; nunRepVentasPintar()"></label>
+      <label style="font-size:11px">Hasta<br><input type="date" value="${f.hasta}" style="${sel}" onchange="_repV.hasta=this.value; nunRepVentasPintar()"></label>
+      <label style="font-size:11px">Documentos<br><select style="${sel}" onchange="_repV.tipo=this.value; nunRepVentasPintar()">
+        <option value="ambos" ${f.tipo==='ambos'?'selected':''}>Facturas + remisiones</option><option value="Factura" ${f.tipo==='Factura'?'selected':''}>Solo facturas</option><option value="Remisión" ${f.tipo==='Remisión'?'selected':''}>Solo remisiones</option></select></label>
+      <label style="font-size:11px">Cliente<br><input list="repVClientes" value="${escapeHTML(f.cliente)}" placeholder="Todos" style="${sel};min-width:200px" onchange="_repV.cliente=this.value; nunRepVentasPintar()"><datalist id="repVClientes">${clientes.map(c=>`<option value="${escapeHTML(c)}">`).join('')}</datalist></label>
+      <label style="font-size:11px">Vendedor<br><select style="${sel}" onchange="_repV.vendedor=this.value; nunRepVentasPintar()"><option value="">Todos</option>${vends.map(v=>`<option ${f.vendedor===v?'selected':''}>${v}</option>`).join('')}</select></label>
+      <label style="font-size:11px">Buscar producto<br><input value="${escapeHTML(f.buscar)}" placeholder="SKU, modelo, color…" style="${sel}" oninput="_repV.buscar=this.value; clearTimeout(window._repVT); window._repVT=setTimeout(nunRepVentasPintar,300)"></label>
+      <label style="font-size:11px">Agrupar por<br><select style="${sel};font-weight:600" onchange="_repV.agrupar=this.value; nunRepVentasPintar()">
+        ${[['sku','SKU'],['modelo','Modelo'],['color','Color'],['medida','Medida'],['modelo_color','Modelo + color'],['cliente','Cliente'],['vendedor','Vendedor'],['documento','Documento (historial)'],['partida','Partida por partida'],['mes','Mes']].map(([k,t])=>`<option value="${k}" ${f.agrupar===k?'selected':''}>${t}</option>`).join('')}</select></label>
+    </div>
+    <div id="repVResultado"></div>`;
+}
+function nunRepVentasRefrescar(){ const m = document.getElementById('reporteMount'); if (m) { m.innerHTML = nunRepVentasHTML(); nunRepVentasPintar(); } }
+function nunRepVentasFiltradas(){
+  const f = _repV || _repVDefaults();
+  const { partidas, sinPartidas } = nunPartidasVendidas();
+  const normC = s => String(s||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+  const q = normC(f.buscar);
+  const rows = partidas.filter(r => (!f.desde || r.fecha >= f.desde) && (!f.hasta || r.fecha <= f.hasta)
+    && (f.tipo === 'ambos' || r.tipoDoc === f.tipo)
+    && (!f.cliente || normC(r.cliente).includes(normC(f.cliente)))
+    && (!f.vendedor || r.vendedor === f.vendedor)
+    && (!q || normC(r.sku + ' ' + r.descripcion + ' ' + r.modelo + ' ' + r.color).includes(q)));
+  return { rows, sinPartidas, f };
+}
+function nunRepVentasAgrupar(rows, modo){
+  const key = r => ({ sku: r.sku, modelo: r.modelo, color: r.color, medida: r.medida, modelo_color: r.modelo + ' · ' + r.color, cliente: r.cliente, vendedor: r.vendedor,
+    documento: r.tipoDoc + ' ' + r.folio + '|' + r.docId, mes: r.fecha.slice(0,7), partida: Math.random() })[modo];
+  const g = {};
+  rows.forEach(r => { const k = key(r); const x = g[k] = g[k] || { k, cantidad:0, importe:0, costo:0, docs:new Set(), sinCosto:0, ej:r }; x.cantidad += r.cantidad; x.importe += r.importe; x.costo += r.costo; x.docs.add(r.docId); if (!r.tieneCosto) x.sinCosto++; });
+  return Object.values(g).sort((a,b) => modo === 'documento' || modo === 'mes' ? String(b.ej.fecha).localeCompare(String(a.ej.fecha)) : b.importe - a.importe);
+}
+function nunRepVentasPintar(){
+  const cont = document.getElementById('repVResultado'); if (!cont) return;
+  const { rows, sinPartidas, f } = nunRepVentasFiltradas();
+  const tot = rows.reduce((s,r)=>({ c:s.c+r.cantidad, i:s.i+r.importe, k:s.k+r.costo }), { c:0, i:0, k:0 });
+  const nDocs = new Set(rows.map(r=>r.docId)).size;
+  const grupos = nunRepVentasAgrupar(rows, f.agrupar);
+  const titulo = { sku:'SKU', modelo:'Modelo', color:'Color', medida:'Medida', modelo_color:'Modelo · Color', cliente:'Cliente', vendedor:'Vendedor', documento:'Documento', mes:'Mes', partida:'Partida' }[f.agrupar];
+  const util = x => x.costo > 0 ? `<span style="color:${x.importe-x.costo>=0?'var(--green)':'var(--accent)'}">${fmt(x.importe - x.costo)} · ${((x.importe-x.costo)/(x.importe||1)*100).toFixed(0)}%</span>` : '<span style="color:var(--mute)">sin costo</span>';
+  const celda = x => {
+    const r = x.ej;
+    if (f.agrupar === 'sku') return `<b class="mono">${escapeHTML(x.k)}</b><div style="font-size:11px;color:var(--mute)">${escapeHTML(r.descripcion)}</div>`;
+    if (f.agrupar === 'documento') return `<a href="javascript:void(0)" onclick="abrirDoc('${r.tipoDoc==='Factura'?'facturas':'remisiones'}','${r.docId}')"><b>${escapeHTML(r.tipoDoc+' '+r.folio)}</b></a><div style="font-size:11px;color:var(--mute)">${fmtFecha(r.fecha)} · ${escapeHTML(r.cliente)} · ${escapeHTML(r.vendedor)}</div>`;
+    if (f.agrupar === 'partida') return `${fmtFecha(r.fecha)} · <b>${escapeHTML(r.tipoDoc+' '+r.folio)}</b> · ${escapeHTML(r.cliente)}<div style="font-size:11px;color:var(--mute)"><span class="mono">${escapeHTML(r.sku)}</span> ${escapeHTML(r.descripcion)}</div>`;
+    if (f.agrupar === 'cliente') return `<a href="javascript:void(0)" onclick="_repV.cliente=${escapeHTML(JSON.stringify(x.k))}; _repV.agrupar='documento'; nunRepVentasRefrescar()"><b>${escapeHTML(x.k)}</b></a><div style="font-size:11px;color:var(--mute)">clic = ver su historial</div>`;
+    return `<b>${escapeHTML(x.k)}</b>`;
+  };
+  cont.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi-label">Vendido (sin IVA)</div><div class="kpi-value">${fmt(tot.i)}</div><div class="kpi-sub">${nDocs} documentos</div></div>
+      <div class="kpi"><div class="kpi-label">Piezas</div><div class="kpi-value">${tot.c.toLocaleString('es-MX')}</div><div class="kpi-sub">${rows.length} partidas</div></div>
+      <div class="kpi"><div class="kpi-label">Costo</div><div class="kpi-value">${fmt(tot.k)}</div><div class="kpi-sub">de los que tienen costo</div></div>
+      <div class="kpi"><div class="kpi-label">Utilidad bruta</div><div class="kpi-value ${tot.i-tot.k>=0?'green':'red'}">${fmt(tot.i - tot.k)}</div><div class="kpi-sub">${tot.i ? ((tot.i-tot.k)/tot.i*100).toFixed(1) : 0}% margen</div></div>
+    </div>
+    ${sinPartidas ? `<div style="font-size:11.5px;color:var(--mute);margin:6px 0">ℹ ${sinPartidas} documento(s) no tienen productos capturados y no aparecen aquí (se completan al sincronizar con Bind).</div>` : ''}
+    <div class="dt-wrap" style="margin-top:10px"><table class="dt"><thead><tr>
+      <th>${titulo}</th><th class="right">Piezas</th><th class="right">Vendido</th><th class="right">% del total</th><th class="right">Docs</th><th class="right">Utilidad</th></tr></thead><tbody>
+      ${grupos.slice(0,500).map(x => `<tr><td>${celda(x)}</td><td class="right mono">${x.cantidad.toLocaleString('es-MX')}</td><td class="right mono">${fmt(x.importe)}</td>
+        <td class="right">${tot.i ? (x.importe/tot.i*100).toFixed(1) : 0}%</td><td class="right">${x.docs.size}</td><td class="right mono" style="font-size:12px">${util(x)}</td></tr>`).join('')}
+      ${grupos.length ? `<tr style="background:var(--bg-2);font-weight:600"><td>TOTAL</td><td class="right mono">${tot.c.toLocaleString('es-MX')}</td><td class="right mono">${fmt(tot.i)}</td><td class="right">100%</td><td class="right">${nDocs}</td><td class="right mono">${fmt(tot.i-tot.k)}</td></tr>` : `<tr><td colspan="6" style="text-align:center;padding:30px;color:var(--mute)">No hay ventas con esos filtros</td></tr>`}
+    </tbody></table>${grupos.length > 500 ? `<div style="font-size:11px;color:var(--mute);padding:8px">Mostrando 500 de ${grupos.length} — exporta a Excel para ver todo.</div>` : ''}</div>`;
+}
+function nunRepVentasCSV(){
+  const { rows, f } = nunRepVentasFiltradas();
+  const esc = v => '"' + String(v == null ? '' : v).replace(/"/g,'""') + '"';
+  const head = ['Fecha','Tipo','Folio','Cliente','Vendedor','SKU','Descripción','Modelo','Color','Medida','Cantidad','Vendido sin IVA','Costo','Utilidad'];
+  const lines = [head.join(',')].concat(rows.map(r => [r.fecha, r.tipoDoc, r.folio, r.cliente, r.vendedor, r.sku, r.descripcion, r.modelo, r.color, r.medida, r.cantidad, r.importe.toFixed(2), r.costo.toFixed(2), (r.importe - r.costo).toFixed(2)].map(esc).join(',')));
+  const blob = new Blob(['﻿' + lines.join('\n')], { type:'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ventas_' + (f.desde||'') + '_a_' + (f.hasta||'') + (f.cliente ? '_' + f.cliente.replace(/\W+/g,'_').slice(0,30) : '') + '.csv';
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  toast('✓ Exportado · ' + rows.length + ' partidas');
 }
 async function abrirReporte(rep) {
+  window._repAbierto = rep; // v3.62
   const mount = document.getElementById('reporteMount');
   if (!mount) return;
   mount.innerHTML = '<div class="placeholder-pane"><div class="skeleton" style="width:200px;height:14px;display:block;margin:0 auto"></div></div>';
   const año = new Date().getFullYear();
 
+  // v3.62 — Ventas detalladas
+  if (rep === 'ventas_detalle') { mount.innerHTML = nunRepVentasHTML(); nunRepVentasPintar(); return; }
   // v3.10.1 — Reportes LOCALES (no requiere backend)
   if (rep === 'aging') {
     const docs = (State.data.cobranza||[]).filter(c => !c.sin_entregar && (+c.pendiente||0) > 0);
@@ -5968,7 +6348,7 @@ async function abrirReporte(rep) {
   }
   if (rep === 'top_productos') {
     const map = {};
-    const docs = [...(State.data.facturas||[]), ...(State.data.remisiones||[])];
+    const docs = [...(State.data.facturas||[]), ...(State.data.remisiones||[])].filter(d => !/cancel/i.test(d.estatus||'')); // v3.62 sin cancelados
     for (const d of docs) {
       try {
         const items = JSON.parse(d.items_json||'[]');
@@ -6106,7 +6486,7 @@ const MODULOS = {
   importaciones:{ label:'Importaciones', render: ()=>renderDocOperativo('importaciones'), afterRender: ()=>afterDocOperativo('importaciones') },
   pagosproveedores: { label:'Pagos a proveedores', render: ()=>renderModuloGenerico('pagosproveedores'), afterRender: ()=>afterRenderGenerico('pagosproveedores') },
   gastos:       { label:'Gastos',       render: ()=>renderModuloGenerico('gastos'),       afterRender: ()=>afterRenderGenerico('gastos') },
-  ingresos:     { label:'Ingresos',     render: ()=>renderModuloGenerico('ingresos'),     afterRender: ()=>afterRenderGenerico('ingresos') },
+  ingresos:     { label:'Ingresos',     render: ()=>renderModuloGenerico('ingresos'),     afterRender: ()=>{ afterRenderGenerico('ingresos'); try { const m = document.getElementById('appMain'); const t = m && m.querySelector('.page-title'); if (t && !document.getElementById('nunCuadreIng')) t.insertAdjacentHTML('afterend', nunPanelCuadreIngresos()); } catch(e){ console.warn('cuadre ingresos', e); } } }, // v3.61
   reportes:     { label:'Reportes',     render: renderReportes },
   comisiones:   { label:'Comisiones',   render: renderComisiones, afterRender: afterRenderComisiones },
   /* v3.12.0 Oracle Financials */
@@ -6845,51 +7225,136 @@ function afterRenderUsuarios() {
   });
   const m = document.getElementById('usrMount'); if (m) m.innerHTML = html;
 }
+/* ============================================================
+   v3.60 — EDITOR DE USUARIOS (ERP + app de vendedores en un solo lugar)
+   Una sola pantalla (sin pestañas), permisos en español, plantillas por puesto,
+   y al guardar se CONSERVAN los permisos que no se tocan (ERP y CRM comparten la ficha).
+============================================================ */
+const NUN_PERM_ERP_VER = [
+  { k:'ver_catalogos',    t:'Catálogos',              d:'Clientes, productos y proveedores' },
+  { k:'ver_operacion',    t:'Ventas y cobranza',      d:'Cotizaciones, pedidos, remisiones, facturas, notas de crédito, cobranza, ingresos, gastos e importar XML' },
+  { k:'ver_inventario',   t:'Inventario',             d:'Existencias e importaciones' },
+  { k:'ver_compras',      t:'Compras',                d:'Órdenes de compra, recepciones y pagos a proveedores' },
+  { k:'ver_financieros',  t:'Finanzas y contabilidad',d:'Estados financieros, catálogo de cuentas, asientos, balance y estado de resultados' },
+  { k:'ver_reportes',     t:'Reportes y comisiones',  d:'Reportes y el módulo de comisiones' },
+  { k:'gestionar_usuarios', t:'Administración',       d:'Usuarios, configuración y bitácora' }
+];
+const NUN_PERM_CRM = [
+  { k:'ver_cobranza',          t:'Ver su cobranza' },
+  { k:'editar_cobranza',       t:'Capturar pagos' },
+  { k:'agregar_pedidos',       t:'Crear pedidos' },
+  { k:'agregar_notas',         t:'Agregar notas' },
+  { k:'cambiar_fecha_entrega', t:'Cambiar fecha de entrega' },
+  { k:'ver_todos_clientes',    t:'Ver clientes de TODOS los vendedores', d:'Apagado = solo ve sus propios clientes' },
+  { k:'ver_ingresos',          t:'Ver ingresos' },
+  { k:'editar_ingresos',       t:'Editar ingresos' },
+  { k:'ver_gastos',            t:'Ver gastos' },
+  { k:'editar_gastos',         t:'Editar gastos' },
+  { k:'ver_dashboard',         t:'Ver dashboard financiero' },
+  { k:'eliminar_documentos',   t:'Eliminar documentos y pagos', d:'Acción delicada' }
+];
+const NUN_PERM_ERP_EDIT = ['editar_catalogos','editar_inventario','editar_operacion','editar_compras','editar_financieros'];
+const NUN_PERM_TODAS = NUN_PERM_ERP_VER.map(x=>x.k).concat(NUN_PERM_CRM.map(x=>x.k), NUN_PERM_ERP_EDIT);
+const NUN_PLANTILLAS_USUARIO = {
+  admin:    Object.fromEntries(NUN_PERM_TODAS.map(k => [k, true])),
+  vendedor: { ver_catalogos:true, ver_operacion:true, ver_inventario:true,
+              ver_cobranza:true, editar_cobranza:true, agregar_pedidos:true, agregar_notas:true },
+  cobranza: { ver_catalogos:true, ver_operacion:true,
+              ver_cobranza:true, editar_cobranza:true, agregar_pedidos:true, agregar_notas:true, cambiar_fecha_entrega:true, ver_todos_clientes:true },
+  contador: { ver_catalogos:true, ver_operacion:true, ver_compras:true, ver_financieros:true, ver_reportes:true,
+              ver_cobranza:true, ver_ingresos:true, ver_gastos:true, ver_dashboard:true, ver_todos_clientes:true }
+};
+let _uPermOriginal = {};
+
+function _uSwitch(p, checked){
+  return `<label style="display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border:1px solid var(--line,#e5e5e5);border-radius:8px;cursor:pointer;background:var(--bg-2,transparent)">
+    <input type="checkbox" id="p_${p.k}" ${checked?'checked':''} style="margin-top:2px;width:16px;height:16px;flex-shrink:0">
+    <span><span style="font-weight:600;font-size:13px">${escapeHTML(p.t)}</span>${p.d?`<br><span style="font-size:11.5px;color:var(--ink-3,#777)">${escapeHTML(p.d)}</span>`:''}</span>
+  </label>`;
+}
+function _uSeccion(titulo, sub, html){
+  return `<div style="margin:18px 0 8px"><div style="font-weight:700;font-size:14px">${titulo}</div>${sub?`<div style="font-size:12px;color:var(--ink-3,#777);margin-top:2px">${sub}</div>`:''}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${html}</div>`;
+}
+function _uListaVendedores(actual){
+  const set = new Set(['EDGAR','LUIS','YADAH','ESTEBAN']);
+  (State.data.vendedores||[]).forEach(v => { const n = String(v.nombre||v||'').toUpperCase().trim(); if (n) set.add(n); });
+  const act = String(actual||'').toUpperCase().trim(); if (act) set.add(act);
+  return '<option value="">— Sin asignar —</option>' + [...set].sort().map(n => `<option value="${escapeHTML(n)}" ${n===act?'selected':''}>${escapeHTML(n.charAt(0)+n.slice(1).toLowerCase())}</option>`).join('');
+}
 function abrirUsuario(codigo) {
-  const u = codigo ? (State.data.usuarios||[]).find(x=>x.codigo===codigo) : {};
+  const u = codigo ? ((State.data.usuarios||[]).find(x=>x.codigo===codigo) || {}) : {};
   let permisos = {};
-  if (u.permisos) try { permisos = typeof u.permisos==='string'?JSON.parse(u.permisos):u.permisos; } catch(e){}
-  const permKeys = ['ver_catalogos','editar_catalogos','ver_inventario','editar_inventario','ver_operacion','editar_operacion','ver_compras','editar_compras','ver_financieros','editar_financieros','ver_reportes','eliminar_documentos','gestionar_usuarios','ver_todos_clientes'];
-  const permsHTML = permKeys.map(k=>`<label style="display:flex;gap:8px;align-items:center;font-size:13px;padding:6px 0"><input type="checkbox" id="p_${k}" ${permisos[k]?'checked':''}> ${escapeHTML(k.replace(/_/g,' '))}</label>`).join('');
+  if (u.permisos) try { permisos = typeof u.permisos==='string' ? JSON.parse(u.permisos) : (u.permisos||{}); } catch(e){ permisos = {}; }
+  _uPermOriginal = Object.assign({}, permisos);
+  const rol = u.rol || 'vendedor';
+  const esAdmin = rol === 'admin';
+  const plantBtn = (r,l) => `<button type="button" class="btn btn-secondary" style="font-size:12px;padding:6px 12px" onclick="nunAplicarPlantillaUsuario('${r}')">${l}</button>`;
+  const body = `
+    <div class="form-grid">
+      <div class="field"><label>Código de acceso</label><input type="text" id="uCodigo" value="${escapeHTML(u.codigo||'')}" ${codigo?'disabled':''} style="text-transform:uppercase" placeholder="EJ. EDGAR-2026"></div>
+      <div class="field"><label>Nombre</label><input type="text" id="uNombre" value="${escapeHTML(u.nombre||'')}" placeholder="Nombre de la persona"></div>
+      <div class="field"><label>Puesto (rol)</label><select id="uRol" onchange="document.getElementById('uAvisoAdmin').style.display=this.value==='admin'?'':'none'">
+        ${['admin','vendedor','cobranza','contador'].map(r=>`<option value="${r}" ${rol===r?'selected':''}>${{admin:'Administrador',vendedor:'Vendedor',cobranza:'Cobranza',contador:'Contador'}[r]}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Vendedor asignado <span style="font-weight:400;color:var(--ink-3,#777)">(qué cartera ve)</span></label><select id="uVend">${_uListaVendedores(u.vendedor_asignado)}</select></div>
+      <div class="field"><label>Máx. dispositivos</label><input type="number" id="uMaxDisp" min="1" value="${u.max_dispositivos||2}"></div>
+      <div class="field"><label>Estado</label><select id="uActivo"><option value="true" ${u.activo!==false&&u.activo!=='false'?'selected':''}>Activo</option><option value="false" ${u.activo===false||u.activo==='false'?'selected':''}>Inactivo (sin acceso)</option></select></div>
+    </div>
+    <div id="uAvisoAdmin" style="display:${esAdmin?'':'none'};margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(46,125,79,0.10);font-size:12.5px">★ Los <b>Administradores</b> ven y hacen todo, sin importar las casillas.</div>
+    <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:12.5px;color:var(--ink-3,#777)">Plantilla rápida:</span>
+      ${plantBtn('admin','Administrador')}${plantBtn('vendedor','Vendedor')}${plantBtn('cobranza','Cobranza')}${plantBtn('contador','Contador')}
+    </div>
+    ${_uSeccion('ERP — Qué módulos puede ver', 'Si una casilla está apagada, ese módulo no le aparece en el menú.', NUN_PERM_ERP_VER.map(p=>_uSwitch(p, permisos[p.k])).join(''))}
+    ${_uSeccion('App de vendedores (CRM) — Qué puede ver y hacer', 'Lo que ve en la app de cobranza del celular.', NUN_PERM_CRM.map(p=>_uSwitch(p, permisos[p.k])).join(''))}
+    <details style="margin-top:16px"><summary style="cursor:pointer;font-size:12.5px;color:var(--ink-3,#777)">Avanzado: permisos de edición del ERP (aún no restringen; se guardan para cuando se activen)</summary>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">${NUN_PERM_ERP_EDIT.map(k=>_uSwitch({k, t:k.replace(/_/g,' ')}, permisos[k])).join('')}</div>
+    </details>`;
   abrirDrawer({
-    title: codigo?'Editar usuario':'Nuevo usuario',
-    tabs:[
-      { key:'datos', label:'Datos', body:`
-        <div class="form-grid">
-          <div class="field"><label>Código</label><input type="text" id="uCodigo" value="${escapeHTML(u.codigo||'')}" ${codigo?'disabled':''} style="text-transform:uppercase"></div>
-          <div class="field"><label>Nombre</label><input type="text" id="uNombre" value="${escapeHTML(u.nombre||'')}"></div>
-          <div class="field"><label>Rol</label><select id="uRol"><option ${u.rol==='admin'?'selected':''}>admin</option><option ${u.rol==='cobranza'?'selected':''}>cobranza</option><option ${u.rol==='vendedor'?'selected':''}>vendedor</option><option ${u.rol==='contador'?'selected':''}>contador</option></select></div>
-          <div class="field"><label>Vendedor asignado</label><select id="uVend"><option value="">Sin asignar</option>${(State.data.vendedores||[]).map(v=>`<option ${u.vendedor_asignado===v.nombre?'selected':''}>${escapeHTML(v.nombre)}</option>`).join('')}</select></div>
-          <div class="field"><label>Máx. dispositivos</label><input type="number" id="uMaxDisp" value="${u.max_dispositivos||2}"></div>
-          <div class="field"><label>Estado</label><select id="uActivo"><option value="true" ${u.activo!==false?'selected':''}>Activo</option><option value="false" ${u.activo===false?'selected':''}>Inactivo</option></select></div>
-        </div>
-      ` },
-      { key:'permisos', label:'Permisos', body:`<div style="display:grid;grid-template-columns:1fr 1fr;gap:0">${permsHTML}</div>` }
-    ],
-    footer:`${codigo?`<button class="btn btn-danger" onclick="eliminarUsuario('${codigo}')">Eliminar</button>`:''}<div style="flex:1"></div><button class="btn btn-secondary" onclick="cerrarDrawer()">Cancelar</button><button class="btn btn-primary" onclick="guardarUsuario('${codigo||''}')">Guardar</button>`
+    title: codigo ? 'Editar usuario · ' + (u.nombre||codigo) : 'Nuevo usuario',
+    sub: codigo ? codigo : 'Crea un acceso para tu equipo',
+    body, wide: true,
+    footer:`${codigo?`<button class="btn btn-danger" onclick="eliminarUsuario('${codigo}')">Eliminar</button>`:''}<div style="flex:1"></div><button class="btn btn-secondary" onclick="cerrarDrawer()">Cancelar</button><button class="btn btn-primary" id="uGuardarBtn" onclick="guardarUsuario('${codigo||''}')">Guardar</button>`
   });
 }
+function nunAplicarPlantillaUsuario(rol){
+  const p = NUN_PLANTILLAS_USUARIO[rol] || {};
+  NUN_PERM_TODAS.forEach(k => { const el = document.getElementById('p_'+k); if (el) el.checked = !!p[k]; });
+  const sel = document.getElementById('uRol'); if (sel) { sel.value = rol; sel.dispatchEvent(new Event('change')); }
+  toast('Plantilla "' + ({admin:'Administrador',vendedor:'Vendedor',cobranza:'Cobranza',contador:'Contador'}[rol]||rol) + '" aplicada — revisa y guarda', { duration:2500 });
+}
 async function guardarUsuario(codigo) {
-  const permKeys = ['ver_catalogos','editar_catalogos','ver_inventario','editar_inventario','ver_operacion','editar_operacion','ver_compras','editar_compras','ver_financieros','editar_financieros','ver_reportes','eliminar_documentos','gestionar_usuarios','ver_todos_clientes'];
-  const permisos = {};
-  permKeys.forEach(k=>{ permisos[k] = document.getElementById('p_'+k).checked; });
+  const val = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  // Conservar TODO lo que ya tenía (p.ej. permisos del CRM) y sobrescribir solo lo que está en pantalla
+  const permisos = Object.assign({}, _uPermOriginal || {});
+  NUN_PERM_TODAS.forEach(k => { const el = document.getElementById('p_'+k); if (el) permisos[k] = el.checked; });
   const datos = {
-    codigo: document.getElementById('uCodigo').value.trim().toUpperCase(),
-    nombre: document.getElementById('uNombre').value.trim(),
-    rol: document.getElementById('uRol').value,
-    vendedor_asignado: document.getElementById('uVend').value,
-    max_dispositivos: parseInt(document.getElementById('uMaxDisp').value)||2,
-    activo: document.getElementById('uActivo').value === 'true',
+    codigo: String(val('uCodigo') || codigo || '').trim().toUpperCase(),
+    nombre: String(val('uNombre')).trim(),
+    rol: val('uRol') || 'vendedor',
+    vendedor_asignado: val('uVend'),
+    max_dispositivos: parseInt(val('uMaxDisp')) || 2,
+    activo: val('uActivo') !== 'false',
     permisos
   };
-  if (!datos.codigo) { toast('Código requerido', { type:'error' }); return; }
-  const data = codigo
-    ? await api({ accion:'actualizar_usuario', codigo, cambios:datos, codigo_admin:State.sesion.codigo })
-    : await api({ accion:'crear_usuario', datos, codigo_admin:State.sesion.codigo });
-  if (!data.ok) { toast('Error: '+data.error, { type:'error' }); return; }
-  await cargarUsuarios();
-  renderCurrent(); cerrarDrawer();
-  toast(codigo?'✓ Actualizado':'✓ Creado');
+  if (!datos.codigo) { toast('Falta el código de acceso', { type:'error' }); return; }
+  if (!codigo && datos.codigo.length < 4) { toast('El código debe tener al menos 4 caracteres', { type:'error' }); return; }
+  if (!datos.nombre) { toast('Falta el nombre', { type:'error' }); return; }
+  if (datos.rol === 'vendedor' && !datos.vendedor_asignado) { toast('Un vendedor necesita "Vendedor asignado" (su cartera)', { type:'error', duration:5000 }); return; }
+  const btn = document.getElementById('uGuardarBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  try {
+    const data = codigo
+      ? await api({ accion:'actualizar_usuario', codigo, cambios:datos, codigo_admin:State.sesion.codigo })
+      : await api({ accion:'crear_usuario', datos, codigo_admin:State.sesion.codigo });
+    if (!data || !data.ok) { toast('No se guardó: ' + ((data && data.error) || 'sin respuesta del servidor'), { type:'error', duration:7000 }); return; }
+    await cargarUsuarios();
+    renderCurrent(); cerrarDrawer();
+    toast(codigo ? '✓ Usuario actualizado' : '✓ Usuario creado');
+  } catch(e) {
+    toast('No se guardó: ' + e.message, { type:'error', duration:7000 });
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
+  }
 }
 async function eliminarUsuario(codigo) {
   const ok = await confirmDialog({ title:'¿Eliminar usuario?', message:'Perderá acceso al ERP inmediatamente.', ok:'Eliminar', danger:true });
@@ -8249,11 +8714,180 @@ function reiniciarSyncTimer() {
   console.log(`[Sync] Auto-sync activado cada ${min} min`);
 }
 
+// ============================================================
+// v3.59 — CUADRE CON BIND + VENDEDORES DESDE EL CATÁLOGO DEL CRM
+// ============================================================
+let _catClientes = [];
+async function cargarCatalogoVendedores(){
+  try { const r = await api({ accion:'erp_listar', tabla:'clientescat' }); _catClientes = (r && r.items) || []; } catch(e){ _catClientes = []; }
+  return _catClientes.length;
+}
+function _normCliCat(s) {
+  if (!s) return '';
+  return String(s).toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+
+function vendedorDeClienteCat(nombreCliente) {
+  if (!nombreCliente) return '';
+  if (!_catClientes || _catClientes.length === 0) return '';
+  
+  const buscar = _normCliCat(nombreCliente);
+  if (!buscar) return '';
+  
+  // 1. Match exacto por nombre_normalizado
+  for (const c of _catClientes) {
+    if (c.activo === 'no' || c.activo === false) continue;
+    const norm = _normCliCat(c.nombre_normalizado || c.nombre);
+    if (norm === buscar) return (c.vendedor || '').toUpperCase().trim();
+  }
+  
+  // 2. Match exacto por alias
+  for (const c of _catClientes) {
+    if (c.activo === 'no' || c.activo === false) continue;
+    const aliases = String(c.aliases || '').split('|').map(a => _normCliCat(a.trim())).filter(Boolean);
+    if (aliases.includes(buscar)) return (c.vendedor || '').toUpperCase().trim();
+  }
+  
+  // 3. Match parcial: substring directo
+  for (const c of _catClientes) {
+    if (c.activo === 'no' || c.activo === false) continue;
+    const norm = _normCliCat(c.nombre_normalizado || c.nombre);
+    if (norm.length >= 5 && (norm.includes(buscar) || buscar.includes(norm))) {
+      return (c.vendedor || '').toUpperCase().trim();
+    }
+    // También en aliases
+    const aliases = String(c.aliases || '').split('|').map(a => _normCliCat(a.trim())).filter(Boolean);
+    for (const al of aliases) {
+      if (al.length >= 5 && (al.includes(buscar) || buscar.includes(al))) {
+        return (c.vendedor || '').toUpperCase().trim();
+      }
+    }
+  }
+  
+  // 4. v1.3.7 FIX: Match por palabras compartidas (apellidos/nombres clave)
+  // Ej: "HUGO SOLORZANO" vs "HUGO CARLOS SOLORZANO GONZALEZ" comparten "HUGO" y "SOLORZANO"
+  // Si comparten 2+ palabras de 4+ caracteres → es match
+  const ignorar = new Set(['DE', 'LA', 'EL', 'LOS', 'LAS', 'Y', 'DEL', 'EN', 'MTY', 'SLP', 'CO', 'C.O']);
+  const palabrasBuscar = new Set(
+    buscar.split(/\s+/).filter(p => p.length >= 4 && !ignorar.has(p))
+  );
+  if (palabrasBuscar.size >= 2) {
+    for (const c of _catClientes) {
+      if (c.activo === 'no' || c.activo === false) continue;
+      const candidatos = [c.nombre_normalizado || c.nombre, ...String(c.aliases || '').split('|')];
+      for (const cand of candidatos) {
+        const palabrasCand = new Set(
+          _normCliCat(cand).split(/\s+/).filter(p => p.length >= 4 && !ignorar.has(p))
+        );
+        if (palabrasCand.size < 2) continue;
+        // Contar palabras compartidas
+        let compartidas = 0;
+        for (const p of palabrasBuscar) {
+          if (palabrasCand.has(p)) compartidas++;
+        }
+        if (compartidas >= 2) {
+          return (c.vendedor || '').toUpperCase().trim();
+        }
+      }
+    }
+  }
+  
+  return '';
+}
+
+// Actualización PARCIAL por lotes (solo los campos enviados; el backend conserva el resto)
+async function _upsertParcial(tabla, items){
+  let ok = 0;
+  for (let i=0; i<items.length; i+=40){
+    const lote = items.slice(i,i+40);
+    for (let t=0; t<2; t++){
+      try { const r = await api({ accion:'erp_upsert_batch', tabla, items: lote }); if (r && r.ok){ ok += lote.length; break; } } catch(e){}
+      await new Promise(res=>setTimeout(res,800));
+    }
+  }
+  return ok;
+}
+function _mapPedidoBind(o, prods){
+  const sub = (+o.ProductSubtotal||0) + (+o.ServiceSubtotal||0);
+  const tot = +o.Total || sub;
+  return {
+    id: 'bind_ord_' + o.ID, folio: o.Number || '', fecha: String(o.OrderDate||'').substring(0,10),
+    cliente: o.ClientName || '', vendedor: '', subtotal: +sub.toFixed(2), iva: +(tot - sub).toFixed(2), total: tot,
+    estatus: (o.Status === 2) ? 'cancelado' : 'confirmado',
+    items_json: JSON.stringify((prods||[]).map(p => ({ sku:p.Code||'', descripcion:p.Name||'', cantidad:+p.Qty||0, precio_unitario:+p.Price||0, descuento_pct:0, iva_pct:Math.round((+p.VATRate||0)*100), unidad:p.Unit||'pieza' }))),
+    notas: o.Comments || 'Importado de Bind', creado_por: 'Bind'
+  };
+}
+// Cuadre completo con Bind (lo llama la sincronización)
+async function cuadrarConBind(facts, esAutomatico){
+  const res = { pedidosNuevos:0, cancelados:0, cobranzaAnulada:0, vendedores:0, alertas:[] };
+  await cargarCatalogoVendedores();
+  const U = s => String(s||'').toUpperCase();
+  // 1) PEDIDOS nuevos
+  try {
+    const ords = await bindFetchTodos('/api/Orders');
+    const ex = new Set((State.data.pedidos||[]).map(p => p.id));
+    const nuevos = ords.filter(o => !ex.has('bind_ord_' + o.ID));
+    const items = [];
+    for (let i=0; i<nuevos.length; i++){
+      if (!esAutomatico) toast('Pedidos de Bind… '+(i+1)+'/'+nuevos.length, { type:'info', duration:1000 });
+      let prods = [];
+      try { const d = await bindFetch('/api/Orders/' + nuevos[i].ID); prods = (d && d.Products) || []; } catch(e){}
+      const p = _mapPedidoBind(nuevos[i], prods);
+      p.vendedor = vendedorDeClienteCat(p.cliente) || '';
+      items.push(p);
+    }
+    if (items.length){ await api({ accion:'erp_bulk_crear', tabla:'pedidos', items }); (State.data.pedidos = State.data.pedidos||[]).push(...items); }
+    res.pedidosNuevos = items.length;
+    // cancelaciones de pedidos existentes
+    const canc = new Set(ords.filter(o => o.Status === 2).map(o => 'bind_ord_' + o.ID));
+    const upd = (State.data.pedidos||[]).filter(p => canc.has(p.id) && !/cancel/i.test(p.estatus||'')).map(p => { p.estatus='cancelado'; return { id:p.id, estatus:'cancelado' }; });
+    if (upd.length) res.cancelados += await _upsertParcial('pedidos', upd);
+  } catch(e){ console.warn('[Cuadre] pedidos:', e); }
+  // 2) CANCELACIONES de facturas/remisiones + su cobranza
+  try {
+    const cancIds = new Set((facts||[]).filter(f => f.Status === 2 || f.Status === 'Cancelada').map(f => f.ID));
+    const updF = [], updR = [], updC = [];
+    (State.data.facturas||[]).forEach(f => { const bid = String(f.id).replace(/^bind_/,''); if (cancIds.has(bid) && !/cancel/i.test(f.estatus||'')) { f.estatus='cancelada'; updF.push({ id:f.id, estatus:'cancelada' }); } });
+    (State.data.remisiones||[]).forEach(r => { const bid = String(r.id).replace(/^bind_rem_/,''); if (cancIds.has(bid) && !/cancel/i.test(r.estatus||'')) { r.estatus='cancelada'; updR.push({ id:r.id, estatus:'cancelada' }); } });
+    (State.data.cobranza||[]).forEach(c => { const bid = String(c.id).replace(/^bind_cob_/,''); if (!cancIds.has(bid) || /cancel/i.test(c.estatus||'')) return;
+      if ((+c.cobrado||0) > 0) { res.alertas.push(c.numero+' '+c.cliente+' (cancelado en Bind pero con $'+Math.round(c.cobrado)+' cobrado)'); return; }
+      c.estatus='cancelado'; c.pendiente=0; updC.push({ id:c.id, estatus:'cancelado', pendiente:0 }); });
+    if (updF.length) res.cancelados += await _upsertParcial('facturas', updF);
+    if (updR.length) res.cancelados += await _upsertParcial('remisiones', updR);
+    if (updC.length) res.cobranzaAnulada = await _upsertParcial('cobranza', updC);
+    State.data.cobranza = (State.data.cobranza||[]).filter(c => !/^cancelad/i.test(c.estatus||''));
+  } catch(e){ console.warn('[Cuadre] cancelaciones:', e); }
+  // 3) VENDEDOR vacío → catálogo del CRM (y, si no, el pedido de origen)
+  try {
+    if (_catClientes.length){
+      const pedPorFolio = {}; (State.data.pedidos||[]).forEach(p => { if (p.vendedor) { pedPorFolio[String(p.folio)] = p.vendedor; pedPorFolio[p.id] = p.vendedor; } });
+      for (const tabla of ['cobranza','facturas','remisiones','pedidos']){
+        const upd = [];
+        (State.data[tabla]||[]).forEach(d => {
+          if (String(d.vendedor||'').trim()) return;
+          const v = vendedorDeClienteCat(d.cliente) || pedPorFolio[String(d.pedido_origen||'')] || '';
+          if (v) { d.vendedor = v; upd.push({ id:d.id, vendedor:v }); }
+        });
+        if (upd.length) res.vendedores += await _upsertParcial(tabla, upd);
+      }
+    }
+  } catch(e){ console.warn('[Cuadre] vendedores:', e); }
+  if (res.alertas.length){ try { localStorage.setItem('nun_sync_alertas', JSON.stringify(res.alertas)); } catch(e){} }
+  console.log('[Cuadre con Bind]', res);
+  return res;
+}
+
 // v3.58 — Completa facturas/remisiones NUEVAS traídas de Bind: partidas (productos), vendedor,
 // y para facturas timbradas su XML ORIGINAL + timbre del QR (compartido en el backend).
 async function enriquecerNuevosBind(facturasNuevas, remisionesNuevas, cobranzaNueva, silencioso){
   const docs = [].concat(facturasNuevas||[], remisionesNuevas||[]);
   if (!docs.length) return;
+  if (!_catClientes.length) await cargarCatalogoVendedores();
   const U = s => String(s||'').toUpperCase();
   const xmls = [], timbres = {};
   // vendedor habitual de cada cliente según el historial (cobranza, pedidos, docs y catálogo)
@@ -8283,6 +8917,7 @@ async function enriquecerNuevosBind(facturasNuevas, remisionesNuevas, cobranzaNu
       })));
     } catch(e) { console.warn('[Bind] sin partidas para', d.folio, e.message); }
     // b) vendedor
+    try { if (!d.vendedor && typeof vendedorDeClienteCat === 'function' && _catClientes.length) { const v = vendedorDeClienteCat(d.cliente); if (v) d.vendedor = v; } } catch(e){}
     try { if (!d.vendedor && typeof buscarVendedorReal === 'function') { const v = buscarVendedorReal(d); if (v) d.vendedor = v; } } catch(e){}
     if (!d.vendedor) { const v = vendDe(d.cliente); if (v) d.vendedor = v; }
     // c) XML original + QR (solo facturas timbradas y no canceladas)
@@ -8378,6 +9013,25 @@ async function sincronizarConBindAhora(esAutomatico) {
     const facturasNuevas = detectarNuevos(facturasMap, 'facturas');
     const remisionesNuevas = detectarNuevos(remisionesMap, 'remisiones');
     const cobranzaNueva = detectarNuevos(cobranzaMap, 'cobranza');
+    // v3.61 — la cobranza que YA existía se actualiza con lo pagado en Bind
+    const _cobAct = { n:0, monto:0, alertas:[] };
+    try {
+      const pagosERP = new Set((State.data.pagosclientes||[]).map(p => p.id_doc));
+      const porId = {}; (State.data.cobranza||[]).forEach(c => porId[c.id] = c);
+      const upd = [];
+      cobranzaMap.forEach(m => {
+        const e = porId[m.id]; if (!e || /^cancelad/i.test(e.estatus||'')) return;
+        const bc = +m.cobrado||0, bp = +m.pendiente||0, ec = +e.cobrado||0, ep = +e.pendiente||0;
+        if (Math.abs(bc-ec) < 0.5 && Math.abs(bp-ep) < 0.5) return;
+        if (pagosERP.has(e.id)) { _cobAct.alertas.push((e.numero||e.id)+' '+(e.cliente||'')+': Bind dice cobrado '+fmtFull(bc)+' y el ERP '+fmtFull(ec)+' (tiene pagos capturados en el ERP; no se tocó)'); return; }
+        if (bc + 0.5 < ec) console.warn('[Sync] cobrado bajó según Bind (se corrige):', e.numero, ec, '→', bc); // p.ej. una nota de crédito contada como pago
+        upd.push({ id:e.id, cobrado:+bc.toFixed(2), pendiente:+bp.toFixed(2) });
+        _cobAct.monto += bc - ec; e.cobrado = +bc.toFixed(2); e.pendiente = +bp.toFixed(2);
+      });
+      for (let i=0; i<upd.length; i+=40) await api({ accion:'erp_upsert_batch', tabla:'cobranza', items: upd.slice(i,i+40) });
+      _cobAct.n = upd.length;
+      if (upd.length) console.log('[Sync] cobranza actualizada desde Bind:', upd.length, 'docs ·', _cobAct.monto.toFixed(2));
+    } catch(e) { console.warn('[Sync] actualizar cobranza existente falló:', e); }
     // v3.58 — completar lo nuevo: partidas, vendedor, XML original y QR
     try { await enriquecerNuevosBind(facturasNuevas, remisionesNuevas, cobranzaNueva, esAutomatico); }
     catch(e) { console.warn('[Sync] enriquecer falló (se guardan igual los encabezados):', e); }
@@ -8391,22 +9045,32 @@ async function sincronizarConBindAhora(esAutomatico) {
     if (remisionesNuevas.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'remisiones', items:remisionesNuevas }).then(() => { State.data.remisiones.push(...remisionesNuevas); }));
     if (cobranzaNueva.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'cobranza', items:cobranzaNueva }).then(() => { State.data.cobranza.push(...cobranzaNueva); }));
     await Promise.all(tareas);
+    // v3.59 — cuadre con Bind: pedidos, cancelaciones y vendedores
+    let _cuadre = null;
+    try { _cuadre = await cuadrarConBind(facts, esAutomatico); } catch(e){ console.warn('[Sync] cuadre falló:', e); }
 
     resultados.agregados = {
       clientes: cliNuevos.length, productos: prodNuevos.length, proveedores: pvNuevos.length,
       facturas: facturasNuevas.length, remisiones: remisionesNuevas.length, cobranza: cobranzaNueva.length
     };
 
-    const totalNuevos = Object.values(resultados.agregados).reduce((s,n) => s+n, 0);
+    resultados.cobranzaActualizada = _cobAct.n; // v3.61
+    const totalNuevos = Object.values(resultados.agregados).reduce((s,n) => s+n, 0) + _cobAct.n;
+    if (_cobAct.n) toast('💰 ' + _cobAct.n + ' documento(s) de cobranza actualizados con pagos de Bind (' + fmtFull(_cobAct.monto) + '). Revisa Ingresos → Cuadre.', { duration:12000 });
+    if (_cobAct.alertas.length) toast('⚠ Cobranza: ' + _cobAct.alertas.length + ' diferencia(s) con Bind — ' + _cobAct.alertas.slice(0,2).join(' · '), { type:'error', duration:15000 });
+    if (_cuadre) { resultados.agregados.pedidos = _cuadre.pedidosNuevos; resultados.cuadre = _cuadre; }
+    const _extra = _cuadre ? (_cuadre.pedidosNuevos + _cuadre.cancelados + _cuadre.cobranzaAnulada + _cuadre.vendedores) : 0;
     const segs = ((Date.now() - inicio) / 1000).toFixed(1);
     localStorage.setItem('nun_sync_ultima', new Date().toISOString());
     localStorage.setItem('nun_sync_ultimo_resultado', JSON.stringify(resultados));
 
-    if (totalNuevos > 0) {
+    if (totalNuevos > 0 || _extra > 0) {
       actualizarContadoresNav();
       renderCurrent();
       const detalle = Object.entries(resultados.agregados).filter(([k,n]) => n>0).map(([k,n]) => `${n} ${k}`).join(' · ');
-      toast(`✓ Sync · ${detalle} (${segs}s)`, { duration:6000 });
+      const _c = _cuadre ? ` · ${_cuadre.cancelados} cancelados · ${_cuadre.cobranzaAnulada} cobranzas anuladas · ${_cuadre.vendedores} vendedores asignados` : '';
+      toast(`✓ Sync · ${detalle||'sin docs nuevos'}${_c} (${segs}s)`, { duration:9000 });
+      if (_cuadre && _cuadre.alertas.length) toast('⚠ Revisar: ' + _cuadre.alertas.length + ' documento(s) cancelados en Bind con pagos — ' + _cuadre.alertas.slice(0,3).join(' · '), { type:'error', duration:15000 });
     } else if (!esAutomatico) {
       toast(`✓ Sin cambios desde Bind (${segs}s)`, { duration:3500 });
     }
@@ -8817,6 +9481,8 @@ async function cargarTabla(tabla, opts) {
   opts = opts || {};
   const ttl = opts.ttl || 5*60*1000; // 5 min default
   const cacheKey = 'nun_cache_' + tabla;
+  // v3.61 — los gastos ni se descargan si no es Rafa
+  if (tabla === 'gastos' && !nunEsDuenoGastos()) { State.data.gastos = []; try { localStorage.removeItem(cacheKey); } catch(e){} return; }
   // 1. Mostrar inmediato desde cache si fresca
   try {
     const cached = localStorage.getItem(cacheKey);
@@ -8824,6 +9490,7 @@ async function cargarTabla(tabla, opts) {
       const o = JSON.parse(cached);
       if (Date.now() - o.t < ttl && o.items) {
         State.data[tabla] = o.items;
+        if (tabla === 'ingresos') nunSepararIngresos(); // v3.61
         // Trigger render rápido si la tabla mostrada es esta
         if (State.modulo === tabla) renderCurrent();
       }
@@ -8834,6 +9501,9 @@ async function cargarTabla(tabla, opts) {
     const data = await api({ accion:'erp_listar', tabla });
     if (data.ok) {
       State.data[tabla] = data.items || [];
+      // v3.59 — cobranza de documentos cancelados no cuenta
+      if (tabla === 'cobranza') State.data[tabla] = State.data[tabla].filter(c => !/^cancelad/i.test(c.estatus||''));
+      if (tabla === 'ingresos') nunSepararIngresos(); // v3.61 — sin duplicados del Excel
       // Cachear (sin items_json pesados para no saturar localStorage)
       try {
         const slim = (data.items||[]).map(it => {

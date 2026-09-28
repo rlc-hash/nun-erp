@@ -2553,7 +2553,13 @@ const KEY_CACHE_C = 'nun_cache_cobranza';
 const KEY_CACHE_CLI = 'nun_cache_clientes';
 
 let gastos = cargarCache(KEY_CACHE_G);
-let ingresos = cargarCache(KEY_CACHE_I);
+// v1.9.4 — Ingresos válidos: sin pagos cancelados en Bind, sin duplicados manuales, sin el export de Bind (ING-…) que repite pagos ya importados
+function nunIngresosValidos(arr){
+  arr = Array.isArray(arr) ? arr : [];
+  const corte = arr.filter(i => String(i.id||'').startsWith('bind_pag_')).map(i => String(i.fecha||'').slice(0,10)).sort().pop() || '';
+  return arr.filter(i => !( /^(CANCELADO|DUPLICADO)/i.test(String(i.tipo||'')) || (corte && /^ING-/.test(String(i.id||'')) && /^(PAGO|AJUSTE)$/i.test(String(i.tipo||'')) && String(i.fecha||'').slice(0,10) <= corte) ));
+}
+let ingresos = nunIngresosValidos(cargarCache(KEY_CACHE_I));
 let cobranza = cargarCache(KEY_CACHE_C);
 let clientesCatalogo = cargarCache(KEY_CACHE_CLI);  // v1.3.7: catálogo cliente→vendedor
 let urlScript = localStorage.getItem(KEY_URL) || 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
@@ -3671,8 +3677,22 @@ function recargarLogin() {
   location.reload();
 }
 
+// v1.9.4 — GASTOS: solo el dueño (Rafa) y el código maestro. Ni otros admins.
+const NUN_DUENOS_GASTOS = ['RAFA-2026','MASTER-NUN-ERP-2026'];
+function nunEsDuenoGastos(){
+  const c = String((sesionActual && sesionActual.codigo) || '').toUpperCase().trim();
+  return NUN_DUENOS_GASTOS.includes(c);
+}
+function nunQuitarGastos(){
+  if (!sesionActual || nunEsDuenoGastos()) return;
+  const p = sesionActual.permisos || (sesionActual.permisos = {});
+  p.ver_gastos = false; p.editar_gastos = false;
+  if (Array.isArray(p.pestanas)) p.pestanas = p.pestanas.filter(t => t !== 'gastos');
+  try { gastos = []; localStorage.removeItem(KEY_CACHE_G); } catch(e){}
+}
 function aplicarPermisos() {
   if (!sesionActual) return;
+  nunQuitarGastos(); // v1.9.4
   const permisos = sesionActual.permisos;
   
   // Ocultar/mostrar pestañas
@@ -4057,6 +4077,8 @@ async function editarUsuario(codigo) {
     } catch(e) {}
   }
   setPermisosEnForm(permisos);
+  // v1.9.3 — recordar TODOS sus permisos (incluye los del ERP) para no borrarlos al guardar
+  try { window._cuPermOriginal = u.permisos ? (typeof u.permisos === 'string' ? JSON.parse(u.permisos) : u.permisos) : {}; } catch(e) { window._cuPermOriginal = {}; }
   document.getElementById('cuVendedorField').style.display = u.rol === 'vendedor' ? '' : 'none';
   
   document.getElementById('modalCrearUsuario').classList.add('show');
@@ -4069,7 +4091,8 @@ async function guardarUsuarioNuevo() {
   const rol = document.getElementById('cuRol').value;
   const max = parseInt(document.getElementById('cuMax').value);
   const vendedor_asignado = document.getElementById('cuVendedor').value;
-  const permisos = obtenerPermisosDeForm();
+  // v1.9.3 — fusionar: lo del ERP se conserva, lo del CRM se toma de la pantalla
+  const permisos = Object.assign({}, editId ? (window._cuPermOriginal || {}) : {}, obtenerPermisosDeForm());
   
   if (!nombre || !codigo) { alert('Nombre y código son obligatorios'); return; }
   if (codigo.length < 4) { alert('El código debe tener al menos 4 caracteres'); return; }
@@ -4322,9 +4345,9 @@ async function sincronizarTodo() {
     getTabla('clientes')
   ]);
   let ok = true;
-  if (g) { gastos = g; localStorage.setItem(KEY_CACHE_G, JSON.stringify(gastos)); } else ok = false;
-  if (i) { ingresos = i; localStorage.setItem(KEY_CACHE_I, JSON.stringify(ingresos)); } else ok = false;
-  if (c) { cobranza = c; localStorage.setItem(KEY_CACHE_C, JSON.stringify(cobranza)); } else ok = false;
+  if (g) { if (nunEsDuenoGastos()) { gastos = g; localStorage.setItem(KEY_CACHE_G, JSON.stringify(gastos)); } else { gastos = []; } } else ok = false; // v1.9.4 solo Rafa
+  if (i) { ingresos = nunIngresosValidos(i); localStorage.setItem(KEY_CACHE_I, JSON.stringify(i)); } else ok = false; // v1.9.4
+  if (c) { cobranza = c.filter(x => !/^cancelad/i.test(String(x.estatus||''))); localStorage.setItem(KEY_CACHE_C, JSON.stringify(cobranza)); } else ok = false; // v1.9.2: sin cobranza cancelada
   // El catálogo es opcional: si no existe la pestaña, no falla la sincronización
   if (cli) { clientesCatalogo = cli; localStorage.setItem(KEY_CACHE_CLI, JSON.stringify(clientesCatalogo)); }
   if (ok) {
@@ -4668,7 +4691,8 @@ function renderAlertsGastos(filtroMes, filtrados) {
   `).join('');
 }
 
-function abrirModalGasto(id) {
+function abrirModalGasto(...a){ if (!nunEsDuenoGastos()) { alert('Gastos solo lo maneja Rafa'); return; } return abrirModalGasto__v194(...a); }
+function abrirModalGasto__v194(id) {
   document.getElementById('modalGasto').classList.add('show');
   document.getElementById('gEditId').value = id || '';
   if (id) {
@@ -8503,10 +8527,13 @@ function calcularComisionPersonaV2(persona, desde, hasta) {
     const desdeReal = desde < minVend ? minVend : desde;
     const propios = calcularDatosVendedor('EDGAR', new Date(desdeReal), new Date(hasta));
     const luis = calcularDatosVendedor('LUIS', new Date(desdeReal), new Date(hasta));
+    // v1.9.4 — esquema confirmado por Rafa (igual que el ERP): 6% propio + 3% Yadah + 1% Luis + 1% Esteban
+    const yadah = calcularDatosVendedor('YADAH', new Date(desdeReal), new Date(hasta));
+    const esteban = calcularDatosVendedor('ESTEBAN', new Date(desdeReal), new Date(hasta));
     const comPropia = propios.cobrado * 0.06;
     const comLuis = luis.cobrado * 0.01;
-    comision = comPropia + comLuis;
-    base = propios.cobrado + luis.cobrado;
+    comision = comPropia + comLuis + yadah.cobrado * 0.03 + esteban.cobrado * 0.01;
+    base = propios.cobrado + luis.cobrado + yadah.cobrado + esteban.cobrado;
   } else if (p === 'LUIS' || p === 'ESTEBAN') {
     const minVend = new Date(FECHA_INICIO_COMISIONES);
     const desdeReal = desde < minVend ? minVend : desde;
@@ -10209,9 +10236,17 @@ async function erpCargarTabla(tabla, force){
 // Filtro por vendedor: los vendedores solo ven lo suyo, admins ven todo
 function erpFiltrarMios(rows){
   if (erpEsAdmin()) return rows;
-  const yo = erpNombre().toUpperCase().trim();
+  // v1.9.2 — el vendedor del usuario: primero su vendedor_asignado, si no su nombre
+  let yo = '';
+  try { yo = (sesionActual.permisos && sesionActual.permisos.vendedor_asignado) || (sesionActual.usuario && sesionActual.usuario.vendedor_asignado) || ''; } catch(e){}
+  yo = String(yo || erpNombre()).toUpperCase().trim();
   if (!yo) return rows;
-  return rows.filter(r => String(r.vendedor||'').toUpperCase().trim() === yo);
+  return rows.filter(r => {
+    let v = String(r.vendedor||'').toUpperCase().trim();
+    // documento sin vendedor → deducirlo del catálogo cliente→vendedor (misma regla que Cobranza)
+    if (!v && typeof vendedorDeCliente === 'function') v = String(vendedorDeCliente(r.cliente)||'').toUpperCase().trim();
+    return v === yo;
+  });
 }
 
 function erpPaneLoading(id, titulo){

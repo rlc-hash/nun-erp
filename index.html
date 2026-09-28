@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>NUN ERP</title>
+<title>Sistema NUN</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 480 480'%3E%3Crect width='480' height='480' rx='96' fill='%230A0A0A'/%3E%3Cg transform='translate(60,147) scale(0.601) translate(2,-170)'%3E%3Cpath fill='%23ffffff' fill-rule='evenodd' d='M 283.5 475.9 C 264.3 473.4 246.5 466.0 230.0 453.6 C 226.1 450.7 186.8 412.3 142.7 368.4 C 98.6 324.5 61.5 287.6 60.2 286.5 C 58.2 284.9 57.7 284.8 57.0 286.0 C 56.4 286.9 56.0 311.3 56.0 344.2 C 56.0 388.9 55.7 401.0 54.8 401.1 C 48.3 401.4 2.6 400.9 1.9 400.4 C 0.5 399.6 0.7 189.9 2.1 184.4 C 4.4 175.6 15.1 169.9 23.1 173.3 C 25.3 174.2 54.7 202.9 104.2 252.4 C 146.9 295.1 182.3 330.0 182.9 330.0 C 183.5 330.0 184.0 328.8 184.0 327.2 C 184.0 325.7 184.0 298.5 184.0 266.6 C 184.0 224.3 184.2 208.4 185.1 207.4 C 186.7 205.5 236.9 205.3 238.8 207.2 C 239.7 208.1 240.0 227.5 240.0 288.5 C 240.0 341.0 240.4 370.7 241.1 374.6 C 241.7 377.8 244.0 384.3 246.2 388.9 C 259.0 415.6 290.1 428.1 318.8 418.0 C 336.4 411.8 349.1 397.5 355.8 376.5 C 357.2 372.1 357.5 360.1 357.9 283.5 C 358.3 219.5 358.8 195.0 359.7 193.5 C 363.3 187.2 371.7 183.9 378.3 186.2 C 381.2 187.2 399.5 204.9 459.9 265.2 C 502.8 308.0 538.3 343.0 538.9 343.0 C 539.7 343.0 540.1 324.8 540.2 281.2 L 540.5 219.5 L 567.5 219.5 L 594.5 219.5 L 594.8 330.5 C 595.1 453.0 595.4 446.7 588.9 451.9 C 585.6 454.5 578.2 455.8 573.3 454.5 C 571.4 454.1 546.4 429.6 492.9 375.8 C 446.1 328.8 414.7 297.9 413.9 298.2 C 412.8 298.6 412.4 305.8 411.9 337.6 C 411.3 378.3 411.0 382.1 406.3 396.5 C 388.8 450.6 338.8 482.9 283.5 475.9 Z'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.63 · cuadre Bind + reportes ✓</span>
+    <span class="rwd-version">v3.66 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2665,7 +2665,18 @@ function buscarClientePorNombre(nombre) {
 const origRenderCurrent = (typeof renderCurrent === 'function') ? renderCurrent : null;
 
 // API client — v3.28: inyecta el código de sesión en cada request (auth backend)
+// v3.65 — SOLO CONSULTA: bloquea cualquier cambio antes de mandarlo al servidor
+function nunSoloConsulta(){
+  try { const p = (State.sesion && State.sesion.permisos) || {}; const u = (State.sesion && State.sesion.usuario) || {};
+        return String(u.rol||'').toLowerCase() !== 'admin' && (p.solo_consulta === true || p.solo_consulta === 'true'); } catch(e){ return false; }
+}
+const NUN_ACC_ESCRITURA = /crear|actualizar|eliminar|borrar|guardar|upsert|bulk|capturar|editar|timbrar|cancelar|importar|registrar|aplicar|enviar|pagar|bind_proxy|sync|facturama_(?!estado)/i;
 async function api(payload) {
+  if (payload && payload.accion && nunSoloConsulta() && NUN_ACC_ESCRITURA.test(String(payload.accion)) && !/^kv_/.test(String(payload.accion))) {
+    try { toast('Tu usuario es de SOLO CONSULTA: no puede hacer cambios.', { type:'error', duration:4500 }); } catch(e){}
+    throw new Error('Usuario de solo consulta');
+  }
+  if (payload && payload.accion === 'kv_guardar' && nunSoloConsulta()) return { ok:true, omitido:'solo consulta' };
   if (!State.url) throw new Error('URL no configurada');
   const body = Object.assign({}, payload);
   if (!body.codigo && State.sesion && State.sesion.codigo && State.sesion.codigo !== 'DEMO') {
@@ -2969,13 +2980,15 @@ function nunPermisosDefinidos(){
   return Object.keys(p).length > 0;
 }
 // v3.61 — GASTOS: solo el dueño (Rafa) y el código maestro. Ni otros admins.
-const NUN_DUENOS_GASTOS = ['RAFA-2026','MASTER-NUN-ERP-2026'];
+const NUN_DUENOS_GASTOS = ['RAFA-2026','YADAH-2026','MASTER-NUN-ERP-2026']; // v3.65 Yadah también
 function nunEsDuenoGastos(){
   const c = String((State.sesion && (State.sesion.codigo || (State.sesion.usuario||{}).codigo)) || '').toUpperCase().trim();
   return NUN_DUENOS_GASTOS.includes(c);
 }
 function moduloPermitido(mod){
   if (mod === 'gastos' && !nunEsDuenoGastos()) return false; // v3.61 — solo Rafa
+  // v3.65 — usuarios de SOLO CONSULTA nunca ven finanzas, reportes, compras ni administración
+  if (typeof nunSoloConsulta === 'function' && nunSoloConsulta() && ['ver_financieros','ver_reportes','ver_compras','gestionar_usuarios'].includes(NUN_MOD_PERMISO[mod])) return false;
   if (NUN_MODULOS_OCULTOS.has(mod)) return false; // v3.56 — maqueta oculta para todos
   if (nunEsAdmin()) return true;                  // admin ve todo
   if (!nunPermisosDefinidos()) return true;       // usuario sin permisos configurados → no bloquear
@@ -5627,7 +5640,8 @@ const COM_PERSONAS = ['RAFA','YADAH','EDGAR','LUIS','ESTEBAN','YAZMIN'];
 // v3.61 — INGRESOS SIN DUPLICADOS + CUADRE CON COBRANZA + COMISIONES POR FECHA DE PAGO
 // ============================================================
 function nunSepararIngresos(){
-  const todos = (State.data.ingresos||[]).concat(State.data.ingresosDuplicados||[]);
+  // v3.64 — sin repetir: si se recargó la tabla completa, lo nuevo reemplaza a lo anterior (por id)
+  const _m = new Map(); (State.data.ingresosDuplicados||[]).concat(State.data.ingresos||[]).forEach(i => _m.set(i.id, i)); const todos = [..._m.values()];
   const corte = todos.filter(i => String(i.id||'').startsWith('bind_pag_')).map(i => String(i.fecha||'').slice(0,10)).sort().pop() || '';
   const esDup = i => /^(CANCELADO|DUPLICADO)/i.test(String(i.tipo||'')) || (corte && /^ING-/.test(String(i.id||'')) && /^(PAGO|AJUSTE)$/i.test(String(i.tipo||'')) && String(i.fecha||'').slice(0,10) <= corte);
   State.data.ingresos = todos.filter(i => !esDup(i));
@@ -5652,6 +5666,8 @@ function _nunIndicesCobranza(){
 }
 function nunVendedorDeIngreso(i, idx){
   idx = idx || _nunIndicesCobranza();
+  // v3.65 — igual que el CRM (validado vs Excel): primero el vendedor del CLIENTE en el catálogo
+  if (typeof vendedorDeClienteCat === 'function' && typeof _catClientes !== 'undefined' && _catClientes.length) { const vc = String(vendedorDeClienteCat(i.cliente)||'').toUpperCase().trim(); if (vc) return { v: vc, doc: null }; }
   const f = String(i.factura||'').split(/[,;/]/)[0];
   const d = idx.porNum[_nunNumDoc(f)];
   if (d) { const v = nunVendedorDeDoc(d); if (v) return { v, doc:d }; }
@@ -5797,12 +5813,19 @@ function calcularComisiones(filtroAnio) {
   const porVendedor = {};
   VENDEDORES.forEach(v => porVendedor[v] = { cobrado:0, ventas:0, count:0, docs:[] });
 
+  // v3.65 — mismas fechas de inicio que el CRM (validadas contra el Excel de Rafa)
+  const NUN_INICIO_VEND = '2025-08-01', NUN_INICIO_SOCIOS = '2026-04-01';
+  const _f = c => String(c.fecha_emision||c.fecha||'').slice(0,10);
+  const _yadahDesde = {}; // cobrado de YADAH que cuenta para el 3% de Edgar (desde abr-2026, igual que el CRM)
+  let totalSocios = 0;
   let totalGlobal = 0;            // total cobrado del periodo (todos los docs)
   const mesesSet = new Set();     // meses con cobranza (para el fijo de Yazmin)
   for (const c of cob) {
     if (filtroAnio && filtroAnio !== 'todos' && !(c.fecha_emision||c.fecha||'').startsWith(filtroAnio)) continue;
     const cobr = +c.cobrado||0;
     totalGlobal += cobr;
+    if (_f(c) >= NUN_INICIO_SOCIOS) totalSocios += cobr; // v3.65
+    if (_f(c) < NUN_INICIO_VEND) continue;               // v3.65 vendedores desde ago-2025
     if (cobr > 0) { const m = (c.fecha_emision||c.fecha||'').substring(0,7); if (m) mesesSet.add(m); }
     const v = (c.vendedor||'').toUpperCase();
     if (!VENDEDORES.includes(v)) continue;
@@ -5830,16 +5853,16 @@ function calcularComisiones(filtroAnio) {
     const overrideDetalle = {};
     if (cfg.override) {
       for (const [otroV, pct] of Object.entries(cfg.override)) {
-        const cobrOtro = (porVendedor[otroV] ? porVendedor[otroV].cobrado : 0);
+        const cobrOtro = (porVendedor[otroV] ? porVendedor[otroV].cobrado : 0); // v3.66 — el 3% de Yadah para Edgar cuenta desde el inicio (ago-2025)
         const monto = cobrOtro * pct;
         override += monto;
         overrideDetalle[otroV] = { cobrado: cobrOtro, pct, monto };
       }
     }
     if (cfg.global) {
-      const monto = totalGlobal * cfg.global;
+      const monto = totalSocios * cfg.global; // v3.65 socios desde abr-2026
       override += monto;
-      overrideDetalle['TOTAL COBRADO'] = { cobrado: totalGlobal, pct: cfg.global, monto };
+      overrideDetalle['TOTAL COBRADO'] = { cobrado: totalSocios, pct: cfg.global, monto };
     }
     const fijo = cfg.fijo ? cfg.fijo * nMeses : 0;
     comisiones[v] = {
@@ -5936,7 +5959,7 @@ function dibujarComisionesPorMes() {
 function renderComisiones() {
   const c = calcularComisiones(_comFiltroAnio);
   // v3.61 — total cobrado = TODO lo cobrado del periodo (base del 4% de Rafa/Yadah), no solo lo asignado a vendedores
-  const totalCobrado = (c.RAFA && c.RAFA.overrideDetalle && c.RAFA.overrideDetalle['TOTAL COBRADO']) ? c.RAFA.overrideDetalle['TOTAL COBRADO'].cobrado : Object.values(c).reduce((s,x)=>s+x.cobrado, 0);
+  const totalCobrado = nunFilasComision().filter(r => _comFiltroAnio === 'todos' || String(r.fecha_emision||r.fecha||'').startsWith(_comFiltroAnio)).reduce((s,r)=>s+(+r.cobrado||0),0); // v3.65 todo lo cobrado del periodo
   const totalComision = Object.values(c).reduce((s,x)=>s+x.comisionTotal, 0);
 
   // Anios disponibles
@@ -7254,11 +7277,13 @@ const NUN_PERM_CRM = [
   { k:'eliminar_documentos',   t:'Eliminar documentos y pagos', d:'Acción delicada' }
 ];
 const NUN_PERM_ERP_EDIT = ['editar_catalogos','editar_inventario','editar_operacion','editar_compras','editar_financieros'];
+NUN_PERM_ERP_VER.push({ k:'solo_consulta', t:'SOLO CONSULTA', d:'Puede ver lo que tenga marcado, pero no crear, editar, cobrar, timbrar ni borrar nada' }); // v3.65
 const NUN_PERM_TODAS = NUN_PERM_ERP_VER.map(x=>x.k).concat(NUN_PERM_CRM.map(x=>x.k), NUN_PERM_ERP_EDIT);
 const NUN_PLANTILLAS_USUARIO = {
   admin:    Object.fromEntries(NUN_PERM_TODAS.map(k => [k, true])),
   vendedor: { ver_catalogos:true, ver_operacion:true, ver_inventario:true,
               ver_cobranza:true, editar_cobranza:true, agregar_pedidos:true, agregar_notas:true },
+  vendedor_consulta: { ver_catalogos:true, ver_operacion:true, ver_inventario:true, solo_consulta:true, ver_cobranza:true }, // v3.65
   cobranza: { ver_catalogos:true, ver_operacion:true,
               ver_cobranza:true, editar_cobranza:true, agregar_pedidos:true, agregar_notas:true, cambiar_fecha_entrega:true, ver_todos_clientes:true },
   contador: { ver_catalogos:true, ver_operacion:true, ver_compras:true, ver_financieros:true, ver_reportes:true,
@@ -7303,7 +7328,7 @@ function abrirUsuario(codigo) {
     <div id="uAvisoAdmin" style="display:${esAdmin?'':'none'};margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(46,125,79,0.10);font-size:12.5px">★ Los <b>Administradores</b> ven y hacen todo, sin importar las casillas.</div>
     <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <span style="font-size:12.5px;color:var(--ink-3,#777)">Plantilla rápida:</span>
-      ${plantBtn('admin','Administrador')}${plantBtn('vendedor','Vendedor')}${plantBtn('cobranza','Cobranza')}${plantBtn('contador','Contador')}
+      ${plantBtn('admin','Administrador')}${plantBtn('vendedor','Vendedor')}${plantBtn('vendedor_consulta','Vendedor (solo consulta)')}${plantBtn('cobranza','Cobranza')}${plantBtn('contador','Contador')}
     </div>
     ${_uSeccion('ERP — Qué módulos puede ver', 'Si una casilla está apagada, ese módulo no le aparece en el menú.', NUN_PERM_ERP_VER.map(p=>_uSwitch(p, permisos[p.k])).join(''))}
     ${_uSeccion('App de vendedores (CRM) — Qué puede ver y hacer', 'Lo que ve en la app de cobranza del celular.', NUN_PERM_CRM.map(p=>_uSwitch(p, permisos[p.k])).join(''))}
@@ -7320,8 +7345,8 @@ function abrirUsuario(codigo) {
 function nunAplicarPlantillaUsuario(rol){
   const p = NUN_PLANTILLAS_USUARIO[rol] || {};
   NUN_PERM_TODAS.forEach(k => { const el = document.getElementById('p_'+k); if (el) el.checked = !!p[k]; });
-  const sel = document.getElementById('uRol'); if (sel) { sel.value = rol; sel.dispatchEvent(new Event('change')); }
-  toast('Plantilla "' + ({admin:'Administrador',vendedor:'Vendedor',cobranza:'Cobranza',contador:'Contador'}[rol]||rol) + '" aplicada — revisa y guarda', { duration:2500 });
+  const sel = document.getElementById('uRol'); if (sel) { sel.value = rol === 'vendedor_consulta' ? 'vendedor' : rol; sel.dispatchEvent(new Event('change')); }
+  toast('Plantilla "' + ({admin:'Administrador',vendedor:'Vendedor',vendedor_consulta:'Vendedor (solo consulta)',cobranza:'Cobranza',contador:'Contador'}[rol]||rol) + '" aplicada — revisa y guarda', { duration:2500 });
 }
 async function guardarUsuario(codigo) {
   const val = id => { const el = document.getElementById(id); return el ? el.value : ''; };
@@ -8961,6 +8986,14 @@ async function sincronizarConBindAhora(esAutomatico) {
   // v3.58 — sin llave en el navegador se usa la del servidor (más seguro).
   const apiKey = localStorage.getItem('nun_bind_api_key') || bindImportState.apiKey || 'SERVIDOR';
   bindImportState.apiKey = apiKey;
+  // v3.64 — no sincronizar si alguna tabla clave no cargó bien (evita duplicar todo)
+  {
+    const clave = ['clientes','productos','proveedores','facturas','remisiones','cobranza','pedidos'];
+    State._cargaOk = State._cargaOk || {};
+    for (const t of clave) { if (!State._cargaOk[t]) { try { await cargarTabla(t, { ttl:0 }); } catch(e){} } }
+    const faltan = clave.filter(t => !State._cargaOk[t]);
+    if (faltan.length) { if (!esAutomatico) toast('No sincronicé: no se pudieron leer ' + faltan.join(', ') + ' del servidor. Intenta en un minuto (así evitamos duplicados).', { type:'error', duration:9000 }); console.warn('[Sync] cancelado, faltan tablas:', faltan); return; }
+  }
   _syncEnCurso = true;
   const inicio = Date.now();
   if (!esAutomatico) toast('🔄 Sincronizando con Bind...', { duration:3000 });
@@ -8977,7 +9010,7 @@ async function sincronizarConBindAhora(esAutomatico) {
 
     // 2. Mapear y detectar nuevos
     const detectarNuevos = (mapeados, tabla) => {
-      const existentes = new Set((State.data[tabla]||[]).map(x => x.id));
+      const existentes = new Set(((tabla === 'cobranza' && State.data.cobranzaTodos) ? State.data.cobranzaTodos : (State.data[tabla]||[])).map(x => x.id)); // v3.64
       return mapeados.filter(m => !existentes.has(m.id));
     };
 
@@ -9498,9 +9531,19 @@ async function cargarTabla(tabla, opts) {
   } catch(e){}
   // 2. Pedir backend en background (siempre actualiza)
   try {
-    const data = await api({ accion:'erp_listar', tabla });
+    // v3.64 — solo se acepta una respuesta con lista de items; si el backend contesta sin items, se reintenta
+    let data = null;
+    for (let intento = 0; intento < 3; intento++) {
+      try { data = await api({ accion:'erp_listar', tabla }); } catch(e) { data = null; }
+      if (data && data.ok && Array.isArray(data.items)) break;
+      data = null; await new Promise(r => setTimeout(r, 1500 * (intento + 1)));
+    }
+    State._cargaOk = State._cargaOk || {};
+    if (!data) { State._cargaOk[tabla] = false; console.warn('[cargarTabla] ' + tabla + ': el backend no devolvió datos, se conserva lo anterior'); return; }
+    State._cargaOk[tabla] = true;
     if (data.ok) {
       State.data[tabla] = data.items || [];
+      if (tabla === 'cobranza') State.data.cobranzaTodos = data.items.slice(); // v3.64 incluye canceladas
       // v3.59 — cobranza de documentos cancelados no cuenta
       if (tabla === 'cobranza') State.data[tabla] = State.data[tabla].filter(c => !/^cancelad/i.test(c.estatus||''));
       if (tabla === 'ingresos') nunSepararIngresos(); // v3.61 — sin duplicados del Excel
@@ -9877,7 +9920,7 @@ function aplicarBranding(){
     const el = document.querySelector('.nun-logo-svg');
     window._nunLogoOriginal = el ? el.outerHTML : '';
   }
-  document.title = br.nombre + ' ERP';
+  document.title = 'Sistema ' + br.nombre; // v3.66
   const main = document.querySelector('.brand-label-main'); if (main) main.textContent = br.nombre;
   const sub = document.querySelector('.brand-label-sub'); if (sub) sub.textContent = br.sub;
   const box = document.querySelector('.nun-logo-box');

@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.74 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.75 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7038,7 +7038,9 @@ function abrirDoc(tabla, id) {
     if (tabla === 'remisiones') acciones += `<button class="btn btn-secondary" onclick="nunFacturarRemisionDesdeDrawer('${id}')">→ Factura</button>`; // v3.72 guarda y luego factura
     if (tabla === 'ordenescompra') acciones += `<button class="btn btn-secondary" onclick="recibirOC('${id}')">Recibir mercancía</button>`;
     if (tabla === 'importaciones') acciones += `<button class="btn btn-secondary" onclick="cerrarImportacion('${id}')">Cerrar importación</button>`;
-    if ((tabla === 'remisiones' || tabla === 'facturas') && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunPagoDesdeDoc('${tabla}','${id}')">💵 Registrar pago</button>`; // v3.74
+    if (tabla === 'facturas' && doc.uuid_sat && String(doc.metodo_pago||'') === 'PPD' && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunAbrirComplementoPago('${id}')">💵 Pago + complemento</button>`; // v3.75
+    else if ((tabla === 'remisiones' || tabla === 'facturas') && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunPagoDesdeDoc('${tabla}','${id}')">💵 Registrar pago</button>`; // v3.74
+    if (tabla === 'facturas') nunRepsDeFactura(doc).forEach(r => { acciones += `<button class="btn btn-secondary" onclick="nunDescargarREP('${r.uuid}')">📃 XML ${r.folio}</button>`; }); // v3.75
     acciones += `<button class="btn btn-secondary" onclick="imprimirDocumento('${tabla}','${id}')">📄 PDF</button>`;
     if (tabla === 'facturas') acciones += `<button class="btn btn-secondary" onclick="descargarXMLCFDI('${id}')">📃 XML CFDI</button>`;
     // v3.38 — Timbrar con Facturama (solo facturas sin timbrar)
@@ -7216,6 +7218,147 @@ async function nunPagoDesdeDoc(tabla, id){
   setTimeout(() => { abrirDrawerCobranza(c.id); setTimeout(() => { try { drawerCambiarTab('pago'); } catch(e){} }, 150); }, 200);
 }
 window.nunPagoDesdeDoc = nunPagoDesdeDoc;
+// ============================================================
+// v3.75 — Complemento de pago (REP, CFDI tipo P, Pagos 2.0) desde la factura PPD + registro del pago en Cobranza
+// Se guarda en la factura (notas "REP CP0001 …") y el XML en el almacén de CFDI. Serie "CP" (debe existir en Facturama).
+// ============================================================
+function nunRepsDeFactura(f){
+  const out = [];
+  String(f.notas||'').replace(/REP (CP\d+) uuid=([\w-]+) monto=([\d.]+) fecha=([\d-]+) parc=(\d+)/g, (m, folio, uuid, monto, fecha, parc) => { out.push({ folio, uuid, monto:+monto, fecha, parc:+parc }); return m; });
+  return out;
+}
+function nunSiguienteFolioREP(){
+  let max = 0;
+  (State.data.facturas||[]).forEach(f => nunRepsDeFactura(f).forEach(r => { const n = parseInt(String(r.folio).replace(/\D/g,''), 10); if (n > max) max = n; }));
+  return 'CP' + String(max + 1).padStart(4, '0');
+}
+function nunCobroDeDoc(tabla, doc){
+  const cob = State.data.cobranza || [];
+  let c = nunCobranzaDeDoc(doc, cob);
+  if (!c && tabla === 'facturas') {
+    const po = String(doc.pedido_origen||'').trim(), fr = po.replace(/^REM\s+/, '');
+    if (/^(R\d{4,}|REM )/.test(po)) { const rem = (State.data.remisiones||[]).find(r => String(r.folio).trim() === fr); if (rem) c = nunCobranzaDeDoc(rem, cob); }
+  }
+  if (!c) { const f = String(doc.folio||'').trim(); c = cob.find(x => { const n = String(x.numero||'').trim(); return n === f || n === 'V01' + f; }); }
+  return c || null;
+}
+async function nunAbrirComplementoPago(idFactura){
+  await Promise.all([cargarTabla('facturas'), cargarTabla('cobranza'), cargarTabla('remisiones')]);
+  const f = (State.data.facturas||[]).find(x => x.id === idFactura); if (!f) return;
+  if (!f.uuid_sat) { toast('La factura todavía no está timbrada', { type:'error' }); return; }
+  if (String(f.metodo_pago||'') !== 'PPD') { toast('Esta factura es ' + (f.metodo_pago||'PUE') + ': el complemento solo aplica a facturas PPD. Registra el pago normal.', { type:'error', duration:7000 }); return; }
+  const reps = nunRepsDeFactura(f);
+  const pagado = nunR2(reps.reduce((s, r) => s + r.monto, 0));
+  const saldo = nunR2((+f.total||0) - pagado);
+  const c = nunCobroDeDoc('facturas', f);
+  const cuentas = State.data.cuentas || [];
+  const opt = (arr, sel) => arr.map(([k,v]) => `<option value="${k}" ${String(sel)===k?'selected':''}>${k} · ${escapeHTML(v)}</option>`).join('');
+  let m = document.getElementById('modalREP'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalREP';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = e => { if (e.target === m) m.remove(); };
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:620px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)">
+      <div><h3 style="margin:0">Pago y complemento · ${escapeHTML(f.folio||'')}</h3><div style="font-size:12px;color:var(--ink-3)">${escapeHTML(f.cliente||'')} · factura ${fmtFull(f.total)} · ya pagado ${fmtFull(pagado)} · <b>saldo ${fmtFull(saldo)}</b></div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalREP').remove()">✕</button></div>
+    <div style="padding:16px 20px">
+      ${reps.length ? `<div style="font-size:12px;margin-bottom:10px;color:var(--ink-3)">Complementos anteriores: ${reps.map(r => escapeHTML(r.folio) + ' ' + fmtFull(r.monto) + ' (' + r.fecha + ')').join(' · ')}</div>` : ''}
+      <div class="form-grid">
+        <div class="field"><label>Monto pagado *</label><input type="number" id="repMonto" step="0.01" min="0.01" max="${saldo}" value="${saldo > 0 ? saldo : ''}"></div>
+        <div class="field"><label>Fecha del pago *</label><input type="date" id="repFecha" value="${new Date().toISOString().substring(0,10)}"></div>
+        <div class="field"><label>Forma de pago *</label><select id="repForma"><option value="">— Elige —</option>${opt(SAT_FORMA_PAGO.filter(([k]) => k !== '99'), '')}</select></div>
+        <div class="field"><label>Núm. de operación <span style="color:var(--ink-4);font-weight:400">(opcional)</span></label><input type="text" id="repOperacion" maxlength="40"></div>
+        <div class="field full"><label>Cuenta donde entró *</label><select id="repCuenta"><option value="">— Selecciona —</option>${cuentas.map(x => `<option value="${escapeHTML(x.nombre)}">${escapeHTML(x.nombre)}</option>`).join('')}</select></div>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:10px"><input type="checkbox" id="repCobranza" ${c ? 'checked' : 'disabled'}> Registrar también el pago en Cobranza ${c ? '(' + escapeHTML(String(c.numero||'')) + ', saldo ' + fmtFull(c.pendiente) + ') → baja solo a Ingresos' : '<span style="color:var(--red)">(no encontré su renglón de Cobranza)</span>'}</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:6px"><input type="checkbox" id="repTimbrar" checked> Timbrar el complemento de pago ante el SAT (serie CP, folio ${nunSiguienteFolioREP()})</label>
+      <div id="repError" style="color:var(--red);font-size:12.5px;margin-top:10px;white-space:pre-line"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)">
+      <button class="btn" onclick="document.getElementById('modalREP').remove()">Cancelar</button>
+      <button class="btn btn-primary" id="repBoton" onclick="nunConfirmarComplementoPago('${escapeHTML(idFactura)}')">Registrar pago</button></div></div>`;
+  m._f = f; m._c = c; m._saldo = saldo; m._parc = reps.length + 1;
+  document.body.appendChild(m);
+}
+window.nunAbrirComplementoPago = nunAbrirComplementoPago;
+function nunCfdiComplementoPago(f, pago){
+  const emp = State.data.empresa || {};
+  const cli = facturaClienteFiscal(f.cliente);
+  const saldoAnt = pago.saldoAnterior, pagado = pago.monto;
+  let items = []; try { items = JSON.parse(f.items_json||'[]'); } catch(e){}
+  const rate = items.some(it => +it.iva_pct > 0) && (+f.iva || 0) > 0 ? 0.16 : 0;
+  const base = rate ? nunR2(pagado / (1 + rate)) : nunR2(pagado);
+  const iva = rate ? nunR2(pagado - base) : 0;
+  const serieF = (String(f.folio||'').match(/^[A-Za-z]+/)||[])[0], folioF = String(f.folio||'').replace(/\D/g,'');
+  const rel = { Uuid: String(f.uuid_sat), PartialityNumber: pago.parcialidad, Currency:'MXN',
+    PreviousBalanceAmount: saldoAnt, AmountPaid: pagado, ImpSaldoInsoluto: nunR2(saldoAnt - pagado), TaxObject:'02',
+    Taxes: [{ Name:'IVA', Rate: rate, Total: iva, Base: base, IsRetention: false }] };
+  if (serieF) rel.Serie = serieF; if (folioF) rel.Folio = folioF;
+  const p = { Date: pago.fecha + 'T12:00:00', PaymentForm: pago.forma, Amount: pagado, RelatedDocuments: [rel] };
+  if (pago.operacion) p.OperationNumber = pago.operacion;
+  return { NameId:'14', CfdiType:'P', Serie:'CP', Folio: String(pago.folioRep).replace(/\D/g,''), ExpeditionPlace: String(emp.cp||''),
+    Receiver: { Rfc: cli.rfc, Name: cli.nombre, CfdiUse:'CP01', FiscalRegime: cli.regimen, TaxZipCode: cli.cp },
+    Complemento: { Payments: [p] } };
+}
+async function nunConfirmarComplementoPago(idFactura){
+  const m = document.getElementById('modalREP'); if (!m) return;
+  const btn = document.getElementById('repBoton'), err = document.getElementById('repError');
+  if (btn.disabled) return;
+  const f = m._f, c = m._c;
+  const monto = nunR2(parseFloat(document.getElementById('repMonto').value));
+  const fecha = document.getElementById('repFecha').value, forma = document.getElementById('repForma').value;
+  const operacion = String(document.getElementById('repOperacion').value||'').trim(), cuenta = document.getElementById('repCuenta').value;
+  const conCobro = document.getElementById('repCobranza').checked, conTimbre = document.getElementById('repTimbrar').checked;
+  const e = [];
+  if (!(monto > 0)) e.push('Monto inválido');
+  if (monto > m._saldo + 0.005) e.push('El monto es mayor al saldo de la factura (' + fmtFull(m._saldo) + ')');
+  if (!fecha) e.push('Falta la fecha del pago');
+  if (conTimbre && !forma) e.push('Falta la forma de pago');
+  if (conCobro && !cuenta) e.push('Falta la cuenta donde entró');
+  if (conCobro && c && monto > (+c.pendiente||0) + 0.005) e.push('El monto es mayor al saldo en Cobranza (' + fmtFull(c.pendiente) + ')');
+  if (!conCobro && !conTimbre) e.push('Marca al menos una opción');
+  const cli = facturaClienteFiscal(f.cliente);
+  if (conTimbre && (!cli.rfc || !cli.cp || !cli.regimen)) e.push('Faltan datos fiscales del cliente (RFC, CP o régimen)');
+  if (e.length) { err.textContent = '⚠ ' + e.join('\n⚠ '); return; }
+  btn.disabled = true; btn.textContent = 'Procesando…';
+  const hecho = [];
+  try {
+    if (conTimbre) {
+      nunOcupado('Timbrando complemento de pago…');
+      const folioRep = nunSiguienteFolioREP();
+      const cfdi = nunCfdiComplementoPago(f, { monto, fecha, forma, operacion, parcialidad: m._parc, saldoAnterior: m._saldo, folioRep });
+      const r = await api({ accion:'facturama_timbrar', cfdi });
+      if (!(r && r.ok && r.uuid)) throw new Error('Facturama: ' + ((r && r.error) || 'no se pudo timbrar el complemento') + (hecho.length ? '' : ' · no se registró nada'));
+      const nota = 'REP ' + folioRep + ' uuid=' + r.uuid + ' monto=' + monto.toFixed(2) + ' fecha=' + fecha + ' parc=' + m._parc + (r.id ? ' fid=' + r.id : '');
+      f.notas = (f.notas ? f.notas + ' · ' : '') + nota;
+      await Promise.all([
+        api({ accion:'erp_upsert_batch', tabla:'facturas', items:[{ id: f.id, notas: f.notas }] }),
+        r.xml ? api({ accion:'cfdi_xml_guardar', docs:[{ uuid:r.uuid, xml:r.xml, fecha, total:monto, cliente:f.cliente, tipo:'P' }] }).catch(()=>null) : null
+      ]);
+      hecho.push('complemento ' + folioRep + ' timbrado (UUID ' + String(r.uuid).substring(0,8) + '…)');
+    }
+    if (conCobro && c) {
+      nunOcupado('Registrando el pago…');
+      const d = await api({ accion:'capturar_pago_cliente', id_doc: c.id, monto, fecha, cuenta,
+        notas: 'Pago factura ' + f.folio + (operacion ? ' · op ' + operacion : '') + (conTimbre ? ' · con complemento' : ''),
+        usuario: State.sesion.usuario.nombre, codigo_usuario: State.sesion.codigo });
+      if (!(d && d.ok)) throw new Error('No se registró el pago en Cobranza: ' + ((d && d.error) || '?') + (hecho.length ? ' (el ' + hecho.join(', ') + ' sí quedó)' : ''));
+      hecho.push('pago de ' + fmtFull(monto) + ' registrado en Cobranza e Ingresos');
+    }
+    nunOcupado(''); m.remove();
+    toast('✓ ' + hecho.join(' · '), { type:'success', duration:9000 });
+    await Promise.all([cargarTabla('facturas'), cargarTabla('cobranza'), cargarTabla('ingresos'), cargarTabla('pagosclientes')]);
+    try { cerrarDrawer(); } catch(e2){} renderCurrent();
+  } catch(ex) {
+    nunOcupado(''); err.textContent = '✗ ' + ex.message; btn.disabled = false; btn.textContent = 'Registrar pago';
+    if (hecho.length) { try { document.getElementById('repTimbrar').checked = false; document.getElementById('repTimbrar').disabled = true; } catch(e3){} }
+  }
+}
+window.nunConfirmarComplementoPago = nunConfirmarComplementoPago;
+// XML del complemento
+async function nunDescargarREP(uuid){ return cfdiDescargarXML(uuid); }
+window.nunDescargarREP = nunDescargarREP;
+
 
 // Lectura de totales del CFDI timbrado (lo que quedó ante el SAT manda)
 function nunTotalesCfdi(xml){

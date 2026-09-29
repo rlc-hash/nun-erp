@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.69 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.70 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3086,6 +3086,8 @@ const SCHEMAS = {
       { key:'ciudad', label:'Ciudad' },
       { key:'estado', label:'Estado' },
       { key:'cp', label:'CP', maxlength:5 },
+      { key:'regimen_fiscal', label:'Régimen fiscal (SAT)', type:'select', vacio:true, options:()=>SAT_REGIMEN, full:true }, // v3.70
+      { key:'uso_cfdi', label:'Uso de CFDI (SAT)', type:'select', vacio:true, options:()=>SAT_USO_CFDI, full:true }, // v3.70
       { key:'credito_dias', label:'Días crédito', type:'number' },
       { key:'limite_credito', label:'Límite crédito MXN', type:'number' },
       { key:'activo', label:'Activo', type:'switch', default:true },
@@ -3602,7 +3604,8 @@ function buildFormHTML(schema, item) {
         <span style="font-size:12px;color:var(--mute)">${checked?'Activo':'Inactivo'}</span>
       </label>`;
     } else if (f.type === 'select') {
-      input = `<select id="f_${f.key}">` + f.options.map(o => `<option value="${escapeHTML(o)}" ${String(val)===String(o)?'selected':''}>${escapeHTML(o)}</option>`).join('') + `</select>`;
+      const _ops = typeof f.options === 'function' ? f.options() : f.options; // v3.70
+      input = `<select id="f_${f.key}">` + (f.vacio ? '<option value="">— Selecciona —</option>' : '') + _ops.map(o => { const v = Array.isArray(o) ? o[0] : o, t = Array.isArray(o) ? o[0] + ' · ' + o[1] : o; return `<option value="${escapeHTML(v)}" ${String(val)===String(v)?'selected':''}>${escapeHTML(t)}</option>`; }).join('') + `</select>`;
     } else if (f.source) {
       const src = State.data[f.source] || [];
       const lbl = f.sourceLabel || 'nombre';
@@ -6940,8 +6943,8 @@ function docNuevoClienteRapido() {
           <div class="field full"><label>Razón social / Nombre *</label><input type="text" id="cfRazon" placeholder="Como aparece en su Constancia (MAYÚSCULAS, sin S.A. de C.V.)" style="text-transform:uppercase"></div>
           <div class="field"><label>RFC *</label><input type="text" id="cfRfc" maxlength="13" placeholder="XAXX010101000" style="text-transform:uppercase"></div>
           <div class="field"><label>Código Postal fiscal *</label><input type="text" id="cfCp" maxlength="5" placeholder="00000"></div>
-          <div class="field full"><label>Régimen fiscal *</label><select id="cfRegimen"><option value="">— Selecciona —</option>${opt(SAT_REGIMEN,'612')}</select></div>
-          <div class="field full"><label>Uso de CFDI * <span style="color:var(--ink-4);font-weight:400">(debe ser compatible con su régimen)</span></label><select id="cfUso">${opt(SAT_USO_CFDI,'G01')}</select></div>
+          <div class="field full"><label>Régimen fiscal *</label><select id="cfRegimen"><option value="">— Selecciona —</option>${opt(SAT_REGIMEN,'')}</select></div>
+          <div class="field full"><label>Uso de CFDI * <span style="color:var(--ink-4);font-weight:400">(debe ser compatible con su régimen)</span></label><select id="cfUso"><option value="">— Selecciona —</option>${opt(SAT_USO_CFDI,'')}</select></div>
           <div class="field full"><label>Dirección <span style="color:var(--ink-4);font-weight:400">(opcional · aparece en el PDF, el SAT solo exige el CP de arriba)</span></label><input type="text" id="cfDir" placeholder="Calle, número, colonia"></div>
           <div class="field"><label>Ciudad</label><input type="text" id="cfCiudad" placeholder="opcional"></div>
           <div class="field"><label>Estado</label><input type="text" id="cfEstado" placeholder="opcional"></div>
@@ -7157,7 +7160,7 @@ function recalDocTotal() {
 // ============================================================
 // v3.69 — FOLIOS NUN (P0001 / R0001 / F0001), SIN DOBLES, COBRANZA AUTOMÁTICA
 // ============================================================
-const NUN_PREF_FOLIO = { pedidos:'P', remisiones:'R', facturas:'F' };
+const NUN_PREF_FOLIO = { pedidos:'P', remisiones:'R', facturas:'FT' }; // v3.70 facturas FT0001
 function nunEsFolioNUN(tabla, folio){ const p = NUN_PREF_FOLIO[tabla]; return !!p && new RegExp('^' + p + '\\d{4,}$').test(String(folio||'').trim()); }
 function nunFolioNUNde(tabla, rows){
   const pref = NUN_PREF_FOLIO[tabla]; if (!pref) return '';
@@ -12106,7 +12109,8 @@ function facturaClienteFiscal(nombreCliente){
   if (esPublico) {
     return { rfc:'XAXX010101000', nombre:'PUBLICO EN GENERAL', cp: cli.cp || emp.cp || '', regimen:'616', uso:'S01', publico:true };
   }
-  return { rfc:(cli.rfc||'').toUpperCase(), nombre:(cli.razon_social||nombreCliente||'').toUpperCase(), cp: cli.cp||'', regimen: cli.regimen_fiscal||'612', uso: cli.uso_cfdi||'G03', publico:false };
+  const _cod = v => (String(v||'').trim().match(/^[A-Z]*\d+/i)||[''])[0].toUpperCase(); // v3.70 — sin defaults: si falta, no se timbra
+  return { rfc:(cli.rfc||'').toUpperCase(), nombre:(cli.razon_social||nombreCliente||'').toUpperCase(), cp: String(cli.cp||'').trim(), regimen: _cod(cli.regimen_fiscal), uso: _cod(cli.uso_cfdi), publico:false, _cli: cli };
 }
 // Mapear una factura del ERP → JSON que pide Facturama
 function facturaACfdiFacturama(doc){
@@ -12120,7 +12124,7 @@ function facturaACfdiFacturama(doc){
     const ivaPct = (it.iva_pct!=null ? +it.iva_pct : 16)/100;
     return {
       Quantity: String(cant),
-      ProductCode: it.clave_sat || '53121800', // default: maletas/mochilas
+      ProductCode: String(it.clave_sat||'').trim(), // v3.70 — se elige al timbrar (sin default)
       UnitCode: 'H87', Unit: it.unidad||'Pieza',
       Description: it.descripcion || it.sku || 'Producto',
       IdentificationNumber: it.sku || '',
@@ -12142,10 +12146,10 @@ function facturaACfdiFacturama(doc){
     GlobalInformation: globalInfo,
     Serie: (String(doc.folio||'').match(/^[A-Za-z]+/)||[])[0] || undefined, // v3.69 — F0001 → Serie F
     Folio: String(doc.folio||'').replace(/\D/g,'') || undefined,
-    PaymentForm: doc.forma_pago || '03',   // 03 = transferencia
-    PaymentMethod: doc.metodo_pago || 'PUE',
+    PaymentForm: String(doc.forma_pago||''),   // v3.70 — se elige al timbrar
+    PaymentMethod: String(doc.metodo_pago||''),
     Exportation: '01',
-    Receiver: { Name: cli.nombre || (doc.cliente||'').toUpperCase(), Rfc: cli.rfc, CfdiUse: cli.uso, FiscalRegime: cli.regimen, TaxZipCode: cli.cp },
+    Receiver: { Name: cli.nombre || (doc.cliente||'').toUpperCase(), Rfc: cli.rfc, CfdiUse: cli.publico ? cli.uso : (String(doc.uso_cfdi||'').trim() || cli.uso), FiscalRegime: cli.regimen, TaxZipCode: cli.cp },
     Items
   };
 }
@@ -12161,6 +12165,17 @@ function facturaValidarTimbrado(doc){
   if (!cli.cp) errs.push(cli.publico ? 'Falta el Código Postal de tu empresa (Configuración) — se usa para Público en General' : 'El cliente no tiene Código Postal (edítalo en Clientes)');
   let items=[]; try { items=JSON.parse(doc.items_json||'[]'); } catch(e){}
   if (!items.length) errs.push('La factura no tiene productos');
+  // v3.70 — nada se inventa: todo lo fiscal tiene que venir elegido
+  if (!cli.publico) {
+    if (!cli.regimen) errs.push('El cliente no tiene Régimen fiscal (edítalo en Clientes)');
+    if (!(String(doc.uso_cfdi||'').trim() || cli.uso)) errs.push('Falta el Uso de CFDI');
+  }
+  const mp = String(doc.metodo_pago||''), fp = String(doc.forma_pago||'');
+  if (!/^(PUE|PPD)$/.test(mp)) errs.push('Falta el Método de pago (PUE o PPD)');
+  if (!fp) errs.push('Falta la Forma de pago');
+  if (mp === 'PPD' && fp && fp !== '99') errs.push('Con PPD la forma de pago debe ser 99 (Por definir)');
+  if (mp === 'PUE' && fp === '99') errs.push('Con PUE la forma de pago no puede ser 99; elige cómo pagó');
+  items.forEach((it, i) => { if (!/^\d{8}$/.test(String(it.clave_sat||'').trim())) errs.push('Falta la Clave SAT de ' + (it.sku || it.descripcion || ('renglón ' + (i+1)))); });
   return errs;
 }
 
@@ -12168,16 +12183,20 @@ async function facturaTimbrar(idFactura){
   const doc = (State.data.facturas||[]).find(f => f.id===idFactura);
   if (!doc) return;
   if (doc.uuid_sat){ toast('Esta factura ya está timbrada (UUID '+String(doc.uuid_sat).substring(0,8)+'…)', { type:'error' }); return; }
+  if (!facturaTimbrar._listo || facturaTimbrar._listo !== idFactura) { facturaDatosTimbrado(idFactura); return; } // v3.70
+  facturaTimbrar._listo = null;
+  if (window._nunTimbrando) return; window._nunTimbrando = true; // v3.70 — un solo clic
+  try {
   const errs = facturaValidarTimbrado(doc);
-  if (errs.length){ toast('⚠ No se puede timbrar:\n• '+errs.join('\n• '), { type:'error', duration:7000 }); return; }
-  if (!confirm('¿Timbrar la factura '+(doc.folio||'')+' de '+(doc.cliente||'')+' por '+fmt(doc.total)+'?\n\nEsto la sella ante el SAT vía Facturama.')) return;
-  toast('⏳ Timbrando con Facturama...', { type:'info' });
+  if (errs.length){ toast('⚠ No se puede timbrar:\n• '+errs.join('\n• '), { type:'error', duration:9000 }); return; }
+  nunOcupado('Timbrando ' + (doc.folio||'') + ' ante el SAT…');
   try {
     const cfdi = facturaACfdiFacturama(doc);
     const r = await api({ accion:'facturama_timbrar', cfdi });
     if (r && r.ok && r.uuid){
       doc.uuid_sat = r.uuid; doc.estatus='timbrada'; doc.xml_url='local:'+r.uuid;
       doc.facturama_id = r.id;
+      if (r.id && !/Facturama ID:/.test(doc.notas||'')) doc.notas = (doc.notas ? doc.notas + ' · ' : '') + 'Facturama ID: ' + r.id; // v3.70 — la tabla no guarda facturama_id
       // guardar timbre compacto + XML en backend
       if (r.xml){
         const td = cfdiTimbreData(r.xml); if (td){ const tm=cfdiGetTimbres(); tm[r.uuid]=td; cfdiSetTimbres(tm); }
@@ -12186,10 +12205,107 @@ async function facturaTimbrar(idFactura){
       try { await api({ accion:'erp_actualizar', tabla:'facturas', item:doc }); } catch(e){}
       toast('✓ Factura timbrada · UUID '+String(r.uuid).substring(0,8)+'…', { type:'success', duration:6000 });
       renderCurrent();
-    } else { toast('✗ '+((r&&r.error)||'No se pudo timbrar'), { type:'error', duration:8000 }); }
-  } catch(e){ toast('✗ Error: '+e.message, { type:'error', duration:7000 }); }
+    } else { toast('✗ '+((r&&r.error)||'No se pudo timbrar'), { type:'error', duration:12000 }); }
+  } catch(e){ toast('✗ Error: '+e.message, { type:'error', duration:9000 }); }
+  } finally { window._nunTimbrando = false; nunOcupado(''); } // v3.70
 }
 window.facturaTimbrar = facturaTimbrar;
+// ============================================================
+// v3.70 — Datos fiscales al timbrar: forma y método de pago, uso CFDI y clave SAT por producto.
+// Nada se pone por default: lo que falte se elige aquí o no se timbra.
+// ============================================================
+const SAT_FORMA_PAGO = [['01','Efectivo'],['02','Cheque nominativo'],['03','Transferencia electrónica'],['04','Tarjeta de crédito'],['28','Tarjeta de débito'],['99','Por definir']];
+const SAT_METODO_PAGO = [['PUE','Pago en una sola exhibición'],['PPD','Pago en parcialidades o diferido']];
+const SAT_CLAVES_NUN = [['53121502','Sets de maletas'],['53121503','Piezas individuales de maletas'],['53121603','Morrales (mochilas)'],['01010101','No existe en el catálogo']];
+function facturaDatosTimbrado(idFactura){
+  const doc = (State.data.facturas||[]).find(f => f.id === idFactura); if (!doc) return;
+  const cli = facturaClienteFiscal(doc.cliente);
+  let items = []; try { items = JSON.parse(doc.items_json||'[]'); } catch(e){}
+  const prods = State.data.productos || [];
+  const prodDe = sku => prods.find(p => String(p.sku||'').toUpperCase() === String(sku||'').toUpperCase());
+  const opt = (arr, sel) => arr.map(([k,v]) => `<option value="${k}" ${String(sel)===k?'selected':''}>${k} · ${escapeHTML(v)}</option>`).join('');
+  const falta = t => `<span style="color:var(--red);font-weight:600">${t}</span>`;
+  const usoIni = cli.publico ? 'S01' : (String(doc.uso_cfdi||'').trim() || cli.uso || '');
+  const filas = items.map((it, i) => {
+    const pr = prodDe(it.sku) || {};
+    const cl = String(it.clave_sat || pr.clave_sat || '').trim();
+    const enLista = SAT_CLAVES_NUN.some(([k]) => k === cl);
+    return `<tr>
+      <td style="padding:6px 4px;font-size:12px"><span class="mono">${escapeHTML(it.sku||'')}</span><br><span style="color:var(--ink-3)">${escapeHTML(it.descripcion||'')}</span></td>
+      <td style="padding:6px 4px;font-size:12px;text-align:right">${+it.cantidad||0}</td>
+      <td style="padding:6px 4px"><select class="ftClave" data-i="${i}" onchange="this.nextElementSibling.style.display=this.value==='otra'?'block':'none'" style="width:100%">
+        <option value="">— Elige —</option>${opt(SAT_CLAVES_NUN, cl)}${cl && !enLista ? `<option value="${escapeHTML(cl)}" selected>${escapeHTML(cl)} · (la que ya tenía)</option>` : ''}<option value="otra">Otra clave…</option></select>
+        <input class="ftClaveOtra" type="text" maxlength="8" placeholder="8 dígitos" style="display:none;margin-top:4px;width:100%"></td>
+    </tr>`;
+  }).join('');
+  let m = document.getElementById('modalTimbrado'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalTimbrado';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = e => { if (e.target === m) m.remove(); };
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:680px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)">
+      <div><h3 style="margin:0">Timbrar factura ${escapeHTML(doc.folio||'')}</h3><div style="font-size:12px;color:var(--ink-3)">${escapeHTML(doc.cliente||'')} · ${fmtFull(doc.total)}</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalTimbrado').remove()">✕</button></div>
+    <div style="padding:16px 20px">
+      <div style="font-size:12px;line-height:1.7;padding:10px 12px;background:var(--bg-3,#f5f5f5);border-radius:8px;margin-bottom:14px">
+        <b>Receptor:</b> ${escapeHTML(cli.nombre||'')}<br>
+        RFC: ${cli.rfc ? escapeHTML(cli.rfc) : falta('falta')} · CP: ${cli.cp ? escapeHTML(cli.cp) : falta('falta')} · Régimen: ${cli.regimen ? escapeHTML(cli.regimen) : falta('falta — edítalo en Clientes')}
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>Método de pago *</label><select id="ftMetodo" onchange="facturaTimbradoMetodo()"><option value="">— Elige —</option>${opt(SAT_METODO_PAGO, doc.metodo_pago||'')}</select></div>
+        <div class="field"><label>Forma de pago *</label><select id="ftForma"><option value="">— Elige —</option>${opt(SAT_FORMA_PAGO, doc.forma_pago||'')}</select></div>
+        <div class="field full"><label>Uso de CFDI *</label><select id="ftUso" ${cli.publico?'disabled':''}><option value="">— Elige —</option>${opt(SAT_USO_CFDI, usoIni)}</select></div>
+      </div>
+      <div style="font-size:11.5px;color:var(--ink-3);margin:4px 0 12px">PUE = ya pagó (elige cómo). PPD = paga después: forma 99 y al cobrar se hace el complemento de pago (hoy desde Facturama).</div>
+      <table style="width:100%;border-collapse:collapse"><thead><tr style="font-size:11px;color:var(--ink-3);text-align:left"><th>Producto</th><th style="text-align:right">Cant.</th><th style="width:48%">Clave SAT *</th></tr></thead><tbody>${filas}</tbody></table>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12px;margin-top:10px"><input type="checkbox" id="ftGuardarClaves" checked> Guardar estas claves en el catálogo de productos (la próxima vez ya salen)</label>
+      <div id="ftError" style="color:var(--red);font-size:12.5px;margin-top:10px;white-space:pre-line"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)">
+      <button class="btn" onclick="document.getElementById('modalTimbrado').remove()">Cancelar</button>
+      <button class="btn btn-primary" id="ftBoton" onclick="facturaTimbradoConfirmar('${escapeHTML(idFactura)}')">⚡ Timbrar ante el SAT</button></div></div>`;
+  document.body.appendChild(m);
+  facturaTimbradoMetodo(true);
+}
+window.facturaDatosTimbrado = facturaDatosTimbrado;
+function facturaTimbradoMetodo(inicio){
+  const mp = document.getElementById('ftMetodo'), fp = document.getElementById('ftForma'); if (!mp || !fp) return;
+  const o99 = fp.querySelector('option[value="99"]');
+  if (mp.value === 'PPD') { fp.value = '99'; fp.disabled = true; if (o99) o99.disabled = false; }
+  else { fp.disabled = false; if (o99) o99.disabled = (mp.value === 'PUE'); if (mp.value === 'PUE' && fp.value === '99' && !inicio) fp.value = ''; }
+}
+window.facturaTimbradoMetodo = facturaTimbradoMetodo;
+async function facturaTimbradoConfirmar(idFactura){
+  const doc = (State.data.facturas||[]).find(f => f.id === idFactura); if (!doc) return;
+  const btn = document.getElementById('ftBoton'); const err = document.getElementById('ftError');
+  if (btn && btn.disabled) return;
+  const cli = facturaClienteFiscal(doc.cliente);
+  let items = []; try { items = JSON.parse(doc.items_json||'[]'); } catch(e){}
+  const metodo = document.getElementById('ftMetodo').value, forma = document.getElementById('ftForma').value;
+  const uso = cli.publico ? 'S01' : document.getElementById('ftUso').value;
+  const selects = [...document.querySelectorAll('#modalTimbrado .ftClave')];
+  selects.forEach(sel => { const i = +sel.dataset.i; let v = sel.value; if (v === 'otra') v = String(sel.nextElementSibling.value||'').trim(); if (items[i]) items[i].clave_sat = v; });
+  const prueba = Object.assign({}, doc, { metodo_pago: metodo, forma_pago: forma, uso_cfdi: uso, items_json: JSON.stringify(items) });
+  const errs = facturaValidarTimbrado(prueba);
+  if (errs.length) { err.textContent = '⚠ Falta antes de timbrar:\n• ' + errs.join('\n• '); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  try {
+    Object.assign(doc, { metodo_pago: metodo, forma_pago: forma, uso_cfdi: uso, items_json: prueba.items_json });
+    const w = await api({ accion:'erp_upsert_batch', tabla:'facturas', items:[{ id: doc.id, metodo_pago: metodo, forma_pago: forma, uso_cfdi: uso, items_json: prueba.items_json }] });
+    if (!(w && w.ok)) throw new Error((w && w.error) || 'no se pudieron guardar los datos de la factura');
+    if (document.getElementById('ftGuardarClaves').checked) {
+      const cambios = [];
+      items.forEach(it => { const pr = (State.data.productos||[]).find(p => String(p.sku||'').toUpperCase() === String(it.sku||'').toUpperCase());
+        if (pr && pr.id && String(pr.clave_sat||'') !== String(it.clave_sat) && !cambios.some(c => c.id === pr.id)) { cambios.push({ id: pr.id, clave_sat: it.clave_sat }); pr.clave_sat = it.clave_sat; } });
+      if (cambios.length) { try { await api({ accion:'erp_upsert_batch', tabla:'productos', items: cambios }); } catch(e){} }
+    }
+  } catch(e) { err.textContent = '✗ ' + e.message; if (btn) { btn.disabled = false; btn.textContent = '⚡ Timbrar ante el SAT'; } return; }
+  const m = document.getElementById('modalTimbrado'); if (m) m.remove();
+  facturaTimbrar._listo = idFactura;
+  return facturaTimbrar(idFactura);
+}
+window.facturaTimbradoConfirmar = facturaTimbradoConfirmar;
+
 
 // v3.56 — Cancelar una factura ante el SAT (o marcar cancelada si se timbró con otro PAC)
 async function facturaCancelar(idFactura){
@@ -12210,6 +12326,7 @@ async function facturaCancelar(idFactura){
   if (!['01','02','03','04'].includes(m)){ toast('Motivo inválido. Debe ser 01, 02, 03 o 04.', { type:'error' }); return; }
 
   // Caso A: se timbró desde ESTE ERP con Facturama → cancelar de verdad ante el SAT
+  if (!doc.facturama_id) { const _m = String(doc.notas||'').match(/Facturama ID: ?([\w-]+)/); if (_m) doc.facturama_id = _m[1]; } // v3.70
   if (doc.facturama_id){
     if (!confirm('¿Cancelar ante el SAT la factura '+(doc.folio||'')+' de '+(doc.cliente||'')+' por '+fmt(doc.total)+'?\n\nMotivo '+m+'. Esta acción es fiscal y no se puede deshacer.')) return;
     toast('⏳ Cancelando ante el SAT...', { type:'info' });

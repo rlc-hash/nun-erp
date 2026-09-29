@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.75 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.76 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2921,6 +2921,7 @@ function dtSearch(id, val) {
 function _dtSearchExec(id, val) {
   // Detectar qué módulo es y re-renderizar SOLO su tabla
   const moduloKey = id.replace(/^dt_/,'');
+  if (typeof DOC_DEFS !== 'undefined' && DOC_DEFS[moduloKey] && document.getElementById('dtMountDoc_' + moduloKey)) { afterDocOperativo(moduloKey); return; } // v3.76
   if (SCHEMAS[moduloKey] && typeof afterRenderGenerico === 'function') {
     afterRenderGenerico(moduloKey);
     return;
@@ -3592,7 +3593,8 @@ const SCHEMAS = {
 function buildFormHTML(schema, item) {
   item = item || {};
   return '<div class="form-grid">' + schema.fields.map(f => {
-    const val = item[f.key] != null ? item[f.key] : (f.default != null ? f.default : '');
+    let val = item[f.key] != null ? item[f.key] : (f.default != null ? f.default : '');
+    if (f.type === 'date' && val) val = String(val).substring(0,10); // v3.76 — la hoja guarda fecha con hora
     let input = '';
     if (f.type === 'textarea') {
       input = `<textarea id="f_${f.key}">${escapeHTML(val)}</textarea>`;
@@ -6687,7 +6689,7 @@ function afterDocOperativo(tabla) {
     columns:[
       { key:'serie_folio', label:'Folio', render:r=>`<span class="mono" style="font-weight:600">${escapeHTML(r.serie||'')}${escapeHTML(String(r.folio||'—'))}</span>` },
       { key:'fecha', label:'Fecha', render:r=>{
-        const fecha = r.fecha ? new Date(r.fecha) : null;
+        const fecha = r.fecha ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(String(r.fecha)) ? r.fecha + 'T12:00:00' : r.fecha) : null; // v3.76 sin brincar de día
         if (!fecha || isNaN(fecha)) return '—';
         return `<span style="font-size:12px">${fecha.toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'2-digit'})}</span>`;
       } },
@@ -7000,7 +7002,7 @@ function abrirDoc(tabla, id) {
   const fields = `
     <div class="form-grid">
       <div class="field"><label>Folio</label><input type="text" id="dFolio" value="${escapeHTML(doc.folio || (id ? '' : siguienteFolioLocal(tabla)))}" placeholder="auto si vacío"></div>
-      <div class="field"><label>Fecha</label><input type="date" id="dFecha" value="${(doc.fecha||new Date().toISOString().substring(0,10))}"></div>
+      <div class="field"><label>Fecha</label><input type="date" id="dFecha" value="${String(doc.fecha||new Date().toISOString()).substring(0,10)}"></div>
       ${usaCli ? `<div class="field full"><label style="display:flex;justify-content:space-between;align-items:center">Cliente <button type="button" class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:11px" onclick="docNuevoClienteRapido()">+ Nuevo cliente</button></label>
         <input type="text" id="dCliente" data-ac="1" value="${escapeHTML(doc.cliente||'')}" placeholder="Escribe para buscar cliente por nombre o RFC..." autocomplete="off" oninput="acCliente(this)" onfocus="acCliente(this)" onkeydown="acKey(event)"></div>` :
       `<div class="field full"><label>Proveedor</label><input type="text" id="dProveedor" value="${escapeHTML(doc.proveedor||'')}" placeholder="Escribe el proveedor..." autocomplete="off"></div>`}
@@ -7369,10 +7371,17 @@ function nunTotalesCfdi(xml){
   return { subtotal: +sub, total: +tot, iva: t ? +t[1] : nunR2(+tot - +sub), fecha: fecha.substring(0,10) };
 }
 // Saldo de un documento: primero su renglón de Cobranza (sistema o Bind "V01…"), si no, total − pagado
-function nunSaldoDoc(r){
+function nunIdxCobranza(){ // v3.76 — índice que se rehace solo cuando cambia la cobranza
   const cob = State.data.cobranza || [];
-  let c = nunCobranzaDeDoc(r, cob);
-  if (!c) c = cob.find(x => { const n = String(x.numero||'').trim(), f = String(r.folio||'').trim(); return n && f && (n === ((r.serie||'') + f) || n === f || n.replace(/^V0*1?/, '') === f || n === 'V01' + f); });
+  if (nunIdxCobranza._src === cob && nunIdxCobranza._idx) return nunIdxCobranza._idx;
+  const idx = { id:new Map(), fo:new Map(), num:new Map() };
+  cob.forEach(c => { idx.id.set(String(c.id), c); if (c.factura_origen) idx.fo.set(String(c.factura_origen), c); const n = String(c.numero||'').trim(); if (n) { if (!idx.num.has(n)) idx.num.set(n, c); } });
+  nunIdxCobranza._src = cob; nunIdxCobranza._idx = idx; return idx;
+}
+function nunSaldoDoc(r){
+  const idx = nunIdxCobranza(); const id = String(r.id||''), bindId = id.replace(/^bind_(rem_|fac_|ord_)?/, '');
+  let c = idx.fo.get(id) || idx.id.get('cob_' + id) || (id.startsWith('bind_') ? idx.id.get('bind_cob_' + bindId) : null);
+  if (!c) { const f = String(r.folio||'').trim(); if (f) c = idx.num.get((r.serie||'') + f) || idx.num.get(f) || idx.num.get('V01' + f); }
   if (c) return Math.max(0, +c.pendiente || 0);
   const s = +r.saldo; if (s && !isNaN(s)) return s;
   return Math.max(0, (+r.total||0) - (+r.pagado||0));
@@ -9887,7 +9896,7 @@ async function cargarVendedores() {
 async function cargarCuentas() {
   try {
     const d = await api({ accion:'listar_cuentas' });
-    if (d.ok) State.data.cuentas = (d.cuentas||[]).filter(c=>c.activa);
+    if (d.ok) { const _vistas = new Set(); State.data.cuentas = (d.cuentas||[]).filter(c => c.activa && !_vistas.has(String(c.nombre||'').trim().toUpperCase()) && _vistas.add(String(c.nombre||'').trim().toUpperCase())); } // v3.76 sin repetidas
   } catch(e){}
 }
 async function cargarUsuarios() {

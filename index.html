@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.67 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.68 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2593,7 +2593,9 @@ const State = {
   sesion: (function(){
     try {
       const s = JSON.parse(localStorage.getItem('nun_sesion_v2') || 'null');
-      if (s && s.codigo && s.usuario) return s;
+      // v3.68 — los vendedores usan la app de vendedores, no el Sistema NUN
+      if (s && s.usuario && String(s.usuario.rol||'').toLowerCase() === 'vendedor') { localStorage.removeItem('nun_sesion_v2'); }
+      else if (s && s.codigo && s.usuario) return s;
     } catch(e){}
     return { codigo: '', usuario: { codigo:'', nombre:'', rol:'' } }; // sin sesión → pantalla de login
   })(),
@@ -9994,6 +9996,11 @@ async function loginNUN(){
   }
   try {
     const r = await api({ accion:'login', codigo, device_id: deviceId, device_name: (navigator.platform || 'navegador') });
+    if (r && r.ok && r.usuario && String(r.usuario.rol||'').toLowerCase() === 'vendedor') { // v3.68
+      err.innerHTML = 'Tu acceso es por la <a href="crm.html" style="color:inherit;font-weight:700">app de vendedores</a>.';
+      btn.disabled = false; btn.textContent = 'Entrar';
+      return;
+    }
     if (r && r.ok && r.usuario) {
       localStorage.setItem('nun_sesion_v2', JSON.stringify({
         codigo: r.usuario.codigo, usuario: r.usuario, permisos: r.permisos || {}, ts: Date.now()

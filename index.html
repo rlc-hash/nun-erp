@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.71 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.72 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3081,7 +3081,7 @@ const SCHEMAS = {
       { key:'contacto', label:'Contacto' },
       { key:'email', label:'Email', type:'email' },
       { key:'telefono', label:'Teléfono' },
-      { key:'vendedor', label:'Vendedor asignado', source:'vendedores' },
+      { key:'vendedor', label:'Vendedor asignado', type:'select', vacio:true, options:['EDGAR','LUIS','ESTEBAN','YADAH','RAFA','CASA'] }, // v3.72
       { key:'direccion', label:'Dirección', full:true },
       { key:'ciudad', label:'Ciudad' },
       { key:'estado', label:'Estado' },
@@ -6601,10 +6601,10 @@ const docFiltros = {};
 function renderDocOperativo(tabla) {
   const def = DOC_DEFS[tabla];
   const rows = State.data[tabla] || [];
-  // KPIs rápidos
-  const total = rows.reduce((s,r)=>s+(+r.total||0), 0);
-  const pagado = rows.reduce((s,r)=>s+(+r.pagado||0), 0);
-  const saldo = total - pagado;
+  // KPIs rápidos — v3.72: sin canceladas ni remisiones ya facturadas (la venta no se cuenta dos veces)
+  const _vig = rows.filter(r => !/cancel/i.test(r.estatus||'') && !(tabla === 'remisiones' && r.estatus === 'facturada'));
+  const total = _vig.reduce((s,r)=>s+(+r.total||0), 0);
+  const saldo = _vig.reduce((s,r)=>s+nunSaldoDoc(r), 0);
   const timbradas = rows.filter(r => r.estatus === 'timbrada').length;
   const canceladas = rows.filter(r => r.estatus === 'cancelada').length;
   const pendientes = rows.filter(r => r.estatus === 'pendiente').length;
@@ -6621,7 +6621,7 @@ function renderDocOperativo(tabla) {
     <div class="page-title">
       <div>
         <h1>${escapeHTML(def.label)}</h1>
-        <div class="sub">${rows.length} documentos · ${fmt(total)} total · ${fmt(saldo)} por cobrar</div>
+        <div class="sub">${rows.length} documentos · ${fmt(total)} total vigente · ${fmt(saldo)} por cobrar${tabla === 'remisiones' ? ' · ' + rows.filter(r => r.estatus === 'facturada').length + ' ya facturadas (no suman)' : ''}</div>
       </div>
       <div class="actions">
         <button class="btn btn-secondary" onclick="exportarTabla('${tabla}')">Exportar</button>
@@ -6717,15 +6717,8 @@ function afterDocOperativo(tabla) {
       { key:'total', label:'Total', right:true, render:r=>`<span class="mono">${fmt(r.total||0)}</span>` },
       { key:'saldo', label:'Saldo', right:true, render:r=>{
         // v3.10.1 — Cross-ref: si no hay saldo, calcular vía cobranza por folio/serie
-        let s = +r.saldo;
-        if (!s || isNaN(s)) {
-          const cob = (State.data.cobranza||[]).find(c =>
-            String(c.numero).trim() === ((r.serie||'') + (r.folio||'')).trim() ||
-            String(c.numero).trim() === String(r.folio||'').trim()
-          );
-          s = cob ? +cob.pendiente : ((+r.total||0) - (+r.pagado||0));
-        }
-        if (r.estatus === 'cancelada') return `<span class="mono" style="color:var(--mute)">—</span>`;
+        const s = nunSaldoDoc(r); // v3.72
+        if (r.estatus === 'cancelada' || (tabla === 'remisiones' && r.estatus === 'facturada')) return `<span class="mono" style="color:var(--mute)">—</span>`;
         if (s <= 0) return `<span class="mono" style="color:var(--green)">$0</span>`;
         return `<span class="mono" style="color:var(--red);font-weight:500">${fmt(s)}</span>`;
       } },
@@ -6733,14 +6726,8 @@ function afterDocOperativo(tabla) {
         // v3.55 — Cancelada se respeta; para las vigentes, ACTIVA vs PAGADA según el saldo real (de cobranza)
         if (r.estatus === 'cancelada') return `<span class="tag red">cancelada</span>`;
         if (r.estatus === 'borrador')  return `<span class="tag">borrador</span>`;
-        let s = +r.saldo;
-        if (!s || isNaN(s)) {
-          const cob = (State.data.cobranza||[]).find(c =>
-            String(c.numero).trim() === ((r.serie||'') + (r.folio||'')).trim() ||
-            String(c.numero).trim() === String(r.folio||'').trim()
-          );
-          s = cob ? +cob.pendiente : ((+r.total||0) - (+r.pagado||0));
-        }
+        if (tabla === 'remisiones' && r.estatus === 'facturada') return `<span class="tag blue">facturada</span>`; // v3.72
+        const s = nunSaldoDoc(r); // v3.72
         return (s <= 0.01) ? `<span class="tag green">pagada</span>` : `<span class="tag amber">activa</span>`;
       } }
     ],
@@ -7018,7 +7005,7 @@ function abrirDoc(tabla, id) {
       `<div class="field full"><label>Proveedor</label><input type="text" id="dProveedor" value="${escapeHTML(doc.proveedor||'')}" placeholder="Escribe el proveedor..." autocomplete="off"></div>`}
       <div class="field"><label>Vendedor</label><select id="dVendedor" onchange="docVendedorCambio(this.value)"><option value="">— Sin vendedor —</option>${vendedoresParaSelect().map(v=>`<option value="${escapeHTML(v.nombre)}" ${doc.vendedor===v.nombre?'selected':''}>${escapeHTML(v.nombre)}${v.pct?' · '+v.pct+'%':''}</option>`).join('')}</select></div>
       <div class="field"><label>Comisión % ${'<span style="color:var(--ink-4);font-weight:400">(auto según vendedor, editable)</span>'}</label><input type="number" step="0.1" id="dComisionPct" value="${doc.comision_pct!=null?doc.comision_pct:(doc.vendedor?comisionPctDe(doc.vendedor):'')}" placeholder="%" oninput="this.dataset.tocado=1"></div>
-      <div class="field"><label>Estatus</label><select id="dEstatus">${def.estatus.map(e=>`<option value="${e}" ${doc.estatus===e?'selected':''}>${e}</option>`).join('')}</select></div>
+      <div class="field"><label>Estatus</label><select id="dEstatus">${(doc.estatus && !def.estatus.includes(doc.estatus) ? [doc.estatus].concat(def.estatus) : def.estatus).map(e=>`<option value="${e}" ${doc.estatus===e?'selected':''}>${e}</option>`).join('')}</select></div>
       <div class="field full"><label>Notas</label><textarea id="dNotas">${escapeHTML(doc.notas||'')}</textarea></div>
     </div>
 
@@ -7047,7 +7034,7 @@ function abrirDoc(tabla, id) {
     if (tabla === 'cotizaciones') acciones += `<button class="btn btn-secondary" onclick="convertirDocConItems('cotizaciones','${id}','pedidos')">→ Pedido</button>`;
     if (tabla === 'pedidos') { acciones += `<button class="btn btn-secondary" onclick="convertirDocConItems('pedidos','${id}','remisiones')">→ Remisión</button>`;
       acciones += `<button class="btn btn-secondary" onclick="convertirDocConItems('pedidos','${id}','facturas')">→ Factura</button>`; }
-    if (tabla === 'remisiones') acciones += `<button class="btn btn-secondary" onclick="nunFacturarRemision('${id}')">→ Factura</button>`; // v3.71 completa o parcial
+    if (tabla === 'remisiones') acciones += `<button class="btn btn-secondary" onclick="nunFacturarRemisionDesdeDrawer('${id}')">→ Factura</button>`; // v3.72 guarda y luego factura
     if (tabla === 'ordenescompra') acciones += `<button class="btn btn-secondary" onclick="recibirOC('${id}')">Recibir mercancía</button>`;
     if (tabla === 'importaciones') acciones += `<button class="btn btn-secondary" onclick="cerrarImportacion('${id}')">Cerrar importación</button>`;
     acciones += `<button class="btn btn-secondary" onclick="imprimirDocumento('${tabla}','${id}')">📄 PDF</button>`;
@@ -7090,22 +7077,22 @@ function renderDocItems() {
           <th style="width:55px" class="right">Cant.</th>
           <th style="width:75px" class="right">Precio</th>
           <th style="width:50px" class="right">Desc%</th>
-          <th style="width:45px" class="right">IVA%</th>
-          <th style="width:75px" class="right">Total</th>
+          <th style="width:58px" class="right">IVA%</th>
+          <th style="width:75px" class="right">IVA $</th>
+          <th style="width:80px" class="right">Total</th>
           <th style="width:28px"></th>
         </tr></thead><tbody>
         ${docItems.map((it,i) => {
-          const sub = (+it.cantidad||0) * (+it.precio_unitario||0) * (1 - (+it.descuento_pct||0)/100);
-          const iva = sub * (+it.iva_pct||0)/100;
-          const tot = sub + iva;
+          const _c = nunCalcLinea(it, docSinIva); // v3.72 — mismo cálculo que el SAT
           return `<tr>
             <td><input type="text" data-ac="1" value="${escapeHTML(it.sku||'')}" oninput="docCambiarItem(${i},'sku',this.value);acProducto(this,${i})" onfocus="acProducto(this,${i})" onkeydown="acKey(event)" placeholder="buscar SKU..." style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:10px"></td>
             <td><input type="text" value="${escapeHTML(it.descripcion||'')}" oninput="docCambiarItem(${i},'descripcion',this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-size:11px"></td>
-            <td class="right"><input type="number" step="0.01" value="${it.cantidad||0}" oninput="docCambiarItem(${i},'cantidad',this.value)" style="width:50px;padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right"></td>
+            <td class="right"><input type="number" step="1" min="0" inputmode="numeric" value="${Math.round(+it.cantidad||0)}" oninput="docCambiarItem(${i},'cantidad',this.value)" style="width:50px;padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right"></td>
             <td class="right"><input type="number" step="0.01" value="${it.precio_unitario||0}" oninput="docCambiarItem(${i},'precio_unitario',this.value)" style="width:70px;padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right"></td>
             <td class="right"><input type="number" step="0.01" value="${it.descuento_pct||0}" oninput="docCambiarItem(${i},'descuento_pct',this.value)" style="width:45px;padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right"></td>
-            <td class="right"><input type="number" step="0.01" value="${it.iva_pct||16}" oninput="docCambiarItem(${i},'iva_pct',this.value)" style="width:40px;padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right"></td>
-            <td class="right mono" style="font-weight:500">${fmt(tot)}</td>
+            <td class="right"><select onchange="docCambiarItem(${i},'iva_pct',this.value)" style="padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-size:11px"><option value="16" ${(+it.iva_pct)===0?'':'selected'}>16%</option><option value="0" ${(+it.iva_pct)===0?'selected':''}>0%</option></select></td>
+            <td class="right mono" id="docIva_${i}">${fmtFull(_c.iva)}</td>
+            <td class="right mono" style="font-weight:500" id="docTot_${i}">${fmtFull(_c.total)}</td>
             <td><button onclick="docQuitarItem(${i})" style="background:transparent;border:none;color:var(--accent);cursor:pointer;font-size:14px">×</button></td>
           </tr>`;
         }).join('')}
@@ -7114,7 +7101,7 @@ function renderDocItems() {
   `;
 }
 function docAgregarItem() {
-  docItems.push({ sku:'', descripcion:'', cantidad:1, precio_unitario:0, descuento_pct:0, iva_pct: parseFloat(State.data.empresa?.iva_default) || 16 });
+  docItems.push({ sku:'', descripcion:'', cantidad:1, precio_unitario:0, descuento_pct:0, iva_pct: 16 }); // v3.72
   renderDocItems(); recalcularDocDesdeItems();
 }
 function docQuitarItem(i) {
@@ -7134,20 +7121,20 @@ function docCambiarItem(i, campo, valor) {
     }
   } else if (campo === 'descripcion') {
     docItems[i].descripcion = valor;
+  } else if (campo === 'cantidad') {
+    docItems[i].cantidad = Math.max(0, Math.round(parseFloat(valor) || 0)); // v3.72 — piezas enteras
+  } else if (campo === 'iva_pct') {
+    docItems[i].iva_pct = (+valor === 0) ? 0 : 16; // v3.72 — solo 16% o 0%
   } else {
     docItems[i][campo] = parseFloat(valor) || 0;
   }
+  nunPintarLinea(i); // v3.72 — el renglón se actualiza al momento
   recalcularDocDesdeItems();
 }
 function recalcularDocDesdeItems() {
-  let subtotal = 0, ivaTotal = 0;
-  docItems.forEach(it => {
-    const sub = (+it.cantidad||0) * (+it.precio_unitario||0) * (1 - (+it.descuento_pct||0)/100);
-    const iva = docSinIva ? 0 : sub * (+it.iva_pct||0)/100; // v3.40 — sin IVA si está marcado
-    subtotal += sub;
-    ivaTotal += iva;
-  });
-  const total = subtotal + ivaTotal;
+  const _t = nunCalcDoc(docItems, docSinIva); // v3.72 — redondeo por renglón, igual que el CFDI
+  const subtotal = _t.subtotal, ivaTotal = _t.iva, total = _t.total;
+  try { docItems.forEach((_, i) => nunPintarLinea(i)); } catch(e){}
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = fmtFull(v); };
   set('dSubtotalLbl', subtotal); set('dIvaLbl', ivaTotal); set('dTotalLbl', total);
   const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v.toFixed(2); };
@@ -7156,6 +7143,76 @@ function recalcularDocDesdeItems() {
 function recalDocTotal() {
   // Mantenido por compat — ahora usamos recalcularDocDesdeItems
   recalcularDocDesdeItems();
+}
+
+// ============================================================
+// v3.72 — Cálculo igual al SAT (redondeo por renglón), sincronía con Cobranza, timbrado más rápido
+// ============================================================
+function nunR2(x){ return Math.round((+x || 0) * 100 + (x >= 0 ? 1e-9 : -1e-9)) / 100; }
+// Un renglón: importe bruto, descuento, base, IVA y total, redondeados a centavos como los calcula el CFDI
+function nunCalcLinea(it, sinIva){
+  const bruto = nunR2((+it.cantidad||0) * (+it.precio_unitario||0));
+  const desc = nunR2(bruto * (+it.descuento_pct||0) / 100);
+  const base = nunR2(bruto - desc);
+  const pct = sinIva ? 0 : (+it.iva_pct||0);
+  const iva = nunR2(base * pct / 100);
+  return { bruto, desc, base, pct, iva, total: nunR2(base + iva) };
+}
+function nunCalcDoc(items, sinIva){
+  let sub = 0, iva = 0;
+  (items||[]).forEach(it => { const c = nunCalcLinea(it, sinIva); sub += c.base; iva += c.iva; });
+  sub = nunR2(sub); iva = nunR2(iva);
+  return { subtotal: sub, iva, total: nunR2(sub + iva) };
+}
+// Pinta IVA y total del renglón sin volver a dibujar la tabla (no pierdes el cursor al escribir)
+function nunPintarLinea(i){
+  const it = docItems[i]; if (!it) return;
+  const c = nunCalcLinea(it, docSinIva);
+  const a = document.getElementById('docIva_' + i); if (a) a.textContent = fmtFull(c.iva);
+  const b = document.getElementById('docTot_' + i); if (b) b.textContent = fmtFull(c.total);
+}
+// Cobranza del documento (sistema o Bind)
+function nunCobranzaDeDoc(doc, cob){
+  const id = String(doc.id||'');
+  const bindId = id.replace(/^bind_(rem_|fac_|ord_)?/, '');
+  return (cob||[]).find(c => c.factura_origen === id || c.id === 'cob_' + id || (id.startsWith('bind_') && c.id === 'bind_cob_' + bindId));
+}
+// Al editar una remisión o factura ya guardada, su renglón en Cobranza toma el total nuevo
+async function nunSyncCobranzaDoc(tabla, doc){
+  if (tabla !== 'remisiones' && tabla !== 'facturas') return;
+  if (tabla === 'facturas' && /^(R\d{4,}|REM )/.test(String(doc.pedido_origen||''))) return; // la venta está en la remisión
+  const cob = await nunListarFresco('cobranza');
+  const c = nunCobranzaDeDoc(doc, cob); if (!c) return;
+  const total = nunR2(doc.total);
+  if (Math.abs((+c.total||0) - total) < 0.005) return;
+  const cobrado = +c.cobrado || 0;
+  await api({ accion:'erp_upsert_batch', tabla:'cobranza', items:[{ id: c.id, total, pendiente: nunR2(total - cobrado) }] });
+  toast('Cobranza actualizada: ' + (c.numero||doc.folio) + ' ahora ' + fmtFull(total) + ' (antes ' + fmtFull(c.total) + ')', { duration:6000 });
+}
+// Remisión → Factura desde la remisión abierta: primero guarda lo que cambiaste
+async function nunFacturarRemisionDesdeDrawer(id){
+  window._nunDocGuardadoOk = null;
+  await guardarDoc('remisiones', id);
+  if (window._nunDocGuardadoOk !== id) return; // no se guardó: el aviso ya salió
+  return nunFacturarRemision(id);
+}
+window.nunFacturarRemisionDesdeDrawer = nunFacturarRemisionDesdeDrawer;
+// Lectura de totales del CFDI timbrado (lo que quedó ante el SAT manda)
+function nunTotalesCfdi(xml){
+  const g = a => { const m = String(xml||'').match(new RegExp('<cfdi:Comprobante[^>]*\\s' + a + '="([^"]*)"')); return m ? m[1] : ''; };
+  const t = String(xml||'').match(/<cfdi:Impuestos[^>]*TotalImpuestosTrasladados="([^"]*)"/);
+  const sub = g('SubTotal'), tot = g('Total'), fecha = g('Fecha');
+  if (!sub || !tot) return null;
+  return { subtotal: +sub, total: +tot, iva: t ? +t[1] : nunR2(+tot - +sub), fecha: fecha.substring(0,10) };
+}
+// Saldo de un documento: primero su renglón de Cobranza (sistema o Bind "V01…"), si no, total − pagado
+function nunSaldoDoc(r){
+  const cob = State.data.cobranza || [];
+  let c = nunCobranzaDeDoc(r, cob);
+  if (!c) c = cob.find(x => { const n = String(x.numero||'').trim(), f = String(r.folio||'').trim(); return n && f && (n === ((r.serie||'') + f) || n === f || n.replace(/^V0*1?/, '') === f || n === 'V01' + f); });
+  if (c) return Math.max(0, +c.pendiente || 0);
+  const s = +r.saldo; if (s && !isNaN(s)) return s;
+  return Math.max(0, (+r.total||0) - (+r.pagado||0));
 }
 
 // ============================================================
@@ -7267,6 +7324,8 @@ async function guardarDoc(tabla, id, opts) {
   }
   window._nunIdPendiente = null; // v3.69
   const idGuardado = id || (data.item && data.item.id) || _nunIdNuevo || null;
+  window._nunDocGuardadoOk = idGuardado; // v3.72
+  if (id) { try { await nunSyncCobranzaDoc(tabla, Object.assign({}, item, { id, folio })); await cargarTabla('cobranza'); } catch(e){} } // v3.72
   if (!id && (tabla === 'remisiones' || tabla === 'facturas')) { try { await nunAltaCobranza(tabla, Object.assign({}, item, { id: idGuardado, folio })); await cargarTabla('cobranza'); } catch(e){} } // v3.69
   await cargarTabla(tabla);
   // v3.47 — flujo "Guardar y Facturar": después de guardar, timbrar sin cerrar
@@ -11812,7 +11871,7 @@ async function cfdiDescargarXML(uuid){
   const store = cfdiGetStore();
   if (store[uuid] && store[uuid].xml) xml = store[uuid].xml; // compatibilidad con importaciones viejas
   if (!xml){
-    try { const r = await api({ accion:'cfdi_xml_get', uuid }); if (r && r.ok && r.xml) xml = r.xml; } catch(e){}
+    for (const _u of [uuid, String(uuid).toUpperCase(), String(uuid).toLowerCase()]) { if (xml) break; try { const r = await api({ accion:'cfdi_xml_get', uuid:_u }); if (r && r.ok && r.xml) xml = r.xml; } catch(e){} } // v3.72
   }
   if (!xml){ toast('No encontré el XML de este documento (¿ya se importó?)', { type:'error' }); return; }
   const a = document.createElement('a');
@@ -12121,8 +12180,9 @@ function facturaACfdiFacturama(doc){
   try { items = JSON.parse(doc.items_json||'[]'); } catch(e){}
   const Items = items.map(it => {
     const cant = +it.cantidad||0, pu = +it.precio_unitario||0;
-    const sub = +(cant*pu).toFixed(2);
-    const ivaPct = (it.iva_pct!=null ? +it.iva_pct : 16)/100;
+    const _c = nunCalcLinea(Object.assign({}, it, { iva_pct: it.iva_pct!=null ? +it.iva_pct : 16 }), false); // v3.72
+    const sub = _c.base;
+    const ivaPct = _c.pct/100;
     return {
       Quantity: String(cant),
       ProductCode: String(it.clave_sat||'').trim(), // v3.70 — se elige al timbrar (sin default)
@@ -12131,8 +12191,8 @@ function facturaACfdiFacturama(doc){
       IdentificationNumber: it.sku || '',
       UnitPrice: pu.toFixed(2), Subtotal: sub.toFixed(2),
       TaxObject: '02',
-      Taxes: [{ Name:'IVA', Rate: ivaPct.toFixed(6), Total:(sub*ivaPct).toFixed(2), Base: sub.toFixed(2), IsRetention:'false', IsFederalTax:'true' }],
-      Total: (sub*(1+ivaPct)).toFixed(2)
+      Taxes: [{ Name:'IVA', Rate: ivaPct.toFixed(6), Total: _c.iva.toFixed(2), Base: sub.toFixed(2), IsRetention:'false', IsFederalTax:'true' }],
+      Total: _c.total.toFixed(2)
     };
   });
   // v3.48 — Público en General requiere el nodo Información Global (factura global diaria)
@@ -12184,6 +12244,7 @@ async function facturaTimbrar(idFactura){
   const doc = (State.data.facturas||[]).find(f => f.id===idFactura);
   if (!doc) return;
   if (doc.uuid_sat){ toast('Esta factura ya está timbrada (UUID '+String(doc.uuid_sat).substring(0,8)+'…)', { type:'error' }); return; }
+  try { const _p = localStorage.getItem('nun_timbrada_' + idFactura); if (_p) { toast('⚠ Esta factura ya se timbró (UUID ' + _p + ') aunque el sistema no lo alcanzó a guardar. No se vuelve a timbrar.', { type:'error', duration:12000 }); return; } } catch(e){} // v3.72
   if (!facturaTimbrar._listo || facturaTimbrar._listo !== idFactura) { facturaDatosTimbrado(idFactura); return; } // v3.70
   facturaTimbrar._listo = null;
   if (window._nunTimbrando) return; window._nunTimbrando = true; // v3.70 — un solo clic
@@ -12198,14 +12259,25 @@ async function facturaTimbrar(idFactura){
       doc.uuid_sat = r.uuid; doc.estatus='timbrada'; doc.xml_url='local:'+r.uuid;
       doc.facturama_id = r.id;
       if (r.id && !/Facturama ID:/.test(doc.notas||'')) doc.notas = (doc.notas ? doc.notas + ' · ' : '') + 'Facturama ID: ' + r.id; // v3.70 — la tabla no guarda facturama_id
-      // guardar timbre compacto + XML en backend
-      if (r.xml){
-        const td = cfdiTimbreData(r.xml); if (td){ const tm=cfdiGetTimbres(); tm[r.uuid]=td; cfdiSetTimbres(tm); }
-        try { await api({ accion:'cfdi_xml_guardar', docs:[{ uuid:r.uuid, xml:r.xml, fecha:doc.fecha, total:doc.total, cliente:doc.cliente, tipo:'I' }] }); } catch(e){}
-      }
-      try { await api({ accion:'erp_actualizar', tabla:'facturas', item:doc }); } catch(e){}
-      toast('✓ Factura timbrada · UUID '+String(r.uuid).substring(0,8)+'…', { type:'success', duration:6000 });
-      renderCurrent();
+      // v3.72 — lo que quedó ante el SAT manda (totales y fecha del CFDI)
+      const _tc = r.xml ? nunTotalesCfdi(r.xml) : null;
+      if (_tc) { doc.subtotal = _tc.subtotal; doc.iva = _tc.iva; doc.total = _tc.total; if (_tc.fecha) doc.fecha = _tc.fecha; }
+      try { localStorage.setItem('nun_timbrada_' + doc.id, r.uuid); } catch(e){}
+      if (r.xml){ const td = cfdiTimbreData(r.xml); if (td){ const tm=cfdiGetTimbres(); tm[r.uuid]=td; cfdiSetTimbres(tm); } }
+      nunOcupado('');
+      toast('✓ Factura timbrada · UUID '+String(r.uuid).substring(0,8)+'… · guardando PDF/XML…', { type:'success', duration:6000 });
+      try { cerrarDrawer(); } catch(e){} renderCurrent();
+      // guardar en paralelo, con reintentos: si esto falla la factura ya existe ante el SAT, NO se vuelve a timbrar
+      const _guardar = async (fn) => { for (let k = 0; k < 3; k++) { try { const x = await fn(); if (x && x.ok) return true; } catch(e){} await new Promise(z => setTimeout(z, 1500)); } return false; };
+      const _res = await Promise.all([
+        _guardar(() => api({ accion:'erp_actualizar', tabla:'facturas', item:doc })),
+        r.xml ? _guardar(() => api({ accion:'cfdi_xml_guardar', docs:[{ uuid:r.uuid, xml:r.xml, fecha:doc.fecha, total:doc.total, cliente:doc.cliente, tipo:'I' }] })) : true,
+        (async () => { try { const cob = await nunListarFresco('cobranza'); const c = nunCobranzaDeDoc(doc, cob);
+          if (c && !(+c.cobrado) && Math.abs((+c.total||0) - doc.total) >= 0.005) await api({ accion:'erp_upsert_batch', tabla:'cobranza', items:[{ id:c.id, total:doc.total, pendiente:doc.total, folio_fiscal:r.uuid }] }); } catch(e){} return true; })()
+      ]);
+      if (_res[0]) { try { localStorage.removeItem('nun_timbrada_' + doc.id); } catch(e){} }
+      else toast('⚠ La factura SÍ se timbró (UUID ' + r.uuid + ') pero no se pudo guardar en el sistema. NO la vuelvas a timbrar; avísale a Claude.', { type:'error', duration:20000 });
+      await cargarTabla('facturas'); renderCurrent();
     } else { toast('✗ '+((r&&r.error)||'No se pudo timbrar'), { type:'error', duration:12000 }); }
   } catch(e){ toast('✗ Error: '+e.message, { type:'error', duration:9000 }); }
   } finally { window._nunTimbrando = false; nunOcupado(''); } // v3.70
@@ -12217,7 +12289,7 @@ window.facturaTimbrar = facturaTimbrar;
 // ============================================================
 const SAT_FORMA_PAGO = [['01','Efectivo'],['02','Cheque nominativo'],['03','Transferencia electrónica'],['04','Tarjeta de crédito'],['28','Tarjeta de débito'],['99','Por definir']];
 const SAT_METODO_PAGO = [['PUE','Pago en una sola exhibición'],['PPD','Pago en parcialidades o diferido']];
-const SAT_CLAVES_NUN = [['53121502','Sets de maletas'],['53121503','Piezas individuales de maletas'],['53121603','Morrales (mochilas)'],['01010101','No existe en el catálogo']];
+const SAT_CLAVES_NUN = [['53121502','Sets de maletas'],['53121503','Piezas individuales de maletas'],['24111514','Bolsas con cremallera (mochilas)'],['53121603','Morrales (mochilas)'],['01010101','No existe en el catálogo']];
 function facturaDatosTimbrado(idFactura){
   const doc = (State.data.facturas||[]).find(f => f.id === idFactura); if (!doc) return;
   const cli = facturaClienteFiscal(doc.cliente);
@@ -12249,8 +12321,12 @@ function facturaDatosTimbrado(idFactura){
       <button class="icon-btn" onclick="document.getElementById('modalTimbrado').remove()">✕</button></div>
     <div style="padding:16px 20px">
       <div style="font-size:12px;line-height:1.7;padding:10px 12px;background:var(--bg-3,#f5f5f5);border-radius:8px;margin-bottom:14px">
-        <b>Receptor:</b> ${escapeHTML(cli.nombre||'')}<br>
-        RFC: ${cli.rfc ? escapeHTML(cli.rfc) : falta('falta')} · CP: ${cli.cp ? escapeHTML(cli.cp) : falta('falta')} · Régimen: ${cli.regimen ? escapeHTML(cli.regimen) : falta('falta — edítalo en Clientes')}
+        <b>Receptor:</b> ${escapeHTML(cli.nombre||'')} ${cli.publico ? '(Público en General)' : '<span style="color:var(--ink-3)">· corrige aquí lo que falte, se guarda en el cliente</span>'}
+        ${cli.publico ? '' : `<div class="form-grid" style="margin-top:8px">
+          <div class="field"><label>RFC *</label><input type="text" id="ftRfc" maxlength="13" value="${escapeHTML(cli.rfc||'')}" style="text-transform:uppercase"></div>
+          <div class="field"><label>Código postal fiscal *</label><input type="text" id="ftCp" maxlength="5" value="${escapeHTML(String(cli.cp||''))}"></div>
+          <div class="field full"><label>Régimen fiscal *</label><select id="ftReg"><option value="">— Elige —</option>${opt(SAT_REGIMEN, cli.regimen||'')}</select></div>
+        </div>`}
       </div>
       <div class="form-grid">
         <div class="field"><label>Método de pago *</label><select id="ftMetodo" onchange="facturaTimbradoMetodo()"><option value="">— Elige —</option>${opt(SAT_METODO_PAGO, doc.metodo_pago||'')}</select></div>
@@ -12353,7 +12429,7 @@ function nunFacturarRemisionTotal(){
   const el = document.getElementById('frTotales'); if (!el) return;
   const { lineas, modo } = nunFacturarRemisionLineas();
   let sub = 0, iva = 0;
-  lineas.forEach(l => { const s = l.cantidad * l.precio_unitario * (1 - l.descuento_pct/100); sub += s; iva += s * l.iva_pct / 100; });
+  { const _t = nunCalcDoc(lineas, false); sub = _t.subtotal; iva = _t.iva; } // v3.72
   el.innerHTML = lineas.length ? (lineas.length + ' producto(s) · Subtotal ' + fmtFull(sub) + (modo ? ' · IVA ' + fmtFull(iva) + ' · <b>Total ' + fmtFull(sub + iva) + '</b>' : ' · <span style="color:var(--red)">elige lo del IVA</span>')) : '<span style="color:var(--ink-3)">Nada marcado</span>';
 }
 window.nunFacturarRemisionTotal = nunFacturarRemisionTotal;
@@ -12368,8 +12444,7 @@ async function nunFacturarRemisionCrear(){
   const rem = m._rem;
   btn.disabled = true; btn.textContent = 'Creando…'; nunOcupado('Creando factura…');
   try {
-    let sub = 0, iva = 0;
-    lineas.forEach(l => { const s = l.cantidad * l.precio_unitario * (1 - l.descuento_pct/100); sub += s; iva += s * l.iva_pct / 100; });
+    const _t = nunCalcDoc(lineas, false); const sub = _t.subtotal, iva = _t.iva; // v3.72
     const lista = await nunListarFresco('facturas');
     const id = m.dataset.idNuevo || ('fac_' + Date.now() + '_' + Math.random().toString(36).substring(2,6));
     m.dataset.idNuevo = id;
@@ -12384,6 +12459,12 @@ async function nunFacturarRemisionCrear(){
       let r = null; try { r = await api({ accion:'erp_crear', tabla:'facturas', item }); } catch(e){ r = null; }
       if (!(r && r.ok) && !(await nunListarFresco('facturas')).some(f => String(f.id) === id)) throw new Error((r && r.error) || 'el servidor no confirmó; puedes volver a intentar, no se duplica');
       m.remove();
+      try { // v3.72 — si ya se facturó todo lo de la remisión, queda "facturada"
+        const _fs = await nunListarFresco('facturas'); const _cl = nunClavesRemision(rem); const _ya = {};
+        _fs.filter(f => !/cancel/i.test(f.estatus||'') && _cl.includes(String(f.pedido_origen||'').trim())).forEach(f => { try { JSON.parse(f.items_json||'[]').forEach(it => { const k = String(it.sku||it.descripcion||'').toUpperCase(); _ya[k] = (_ya[k]||0) + (+it.cantidad||0); }); } catch(e){} });
+        const _todo = m._items.every(it => (_ya[String(it.sku||it.descripcion||'').toUpperCase()]||0) >= (+it.cantidad||0));
+        if (_todo && rem.estatus !== 'facturada') { await api({ accion:'erp_upsert_batch', tabla:'remisiones', items:[{ id: rem.id, estatus:'facturada' }] }); await cargarTabla('remisiones'); }
+      } catch(e){}
       await cargarTabla('facturas');
       toast('✓ Factura ' + item.folio + ' creada (borrador) por ' + fmtFull(item.total) + '. Ábrela en Facturas y timbra.', { type:'success', duration:8000 });
       try { cerrarDrawer(); } catch(e){}
@@ -12408,6 +12489,21 @@ async function facturaTimbradoConfirmar(idFactura){
   let items = []; try { items = JSON.parse(doc.items_json||'[]'); } catch(e){}
   const metodo = document.getElementById('ftMetodo').value, forma = document.getElementById('ftForma').value;
   const uso = cli.publico ? 'S01' : document.getElementById('ftUso').value;
+  // v3.72 — datos fiscales del cliente corregidos en esta ventana
+  let _cliCambios = null;
+  if (!cli.publico && cli._cli && document.getElementById('ftRfc')) {
+    const rfc = String(document.getElementById('ftRfc').value||'').toUpperCase().trim(), cp = String(document.getElementById('ftCp').value||'').trim(), reg = document.getElementById('ftReg').value;
+    const e2 = [];
+    if (!/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(rfc)) e2.push('RFC inválido');
+    if (!/^\d{5}$/.test(cp)) e2.push('El código postal debe tener 5 dígitos');
+    if (!reg) e2.push('Elige el régimen fiscal');
+    if (e2.length) { err.textContent = '⚠ ' + e2.join('\n⚠ '); return; }
+    if (rfc !== String(cli._cli.rfc||'').toUpperCase() || cp !== String(cli._cli.cp||'') || reg !== String(cli.regimen||'') || uso !== String(cli._cli.uso_cfdi||'')) {
+      if (!cli._cli.id) { err.textContent = '⚠ Este cliente no está en el catálogo: dalo de alta en Clientes'; return; }
+      _cliCambios = { id: cli._cli.id, rfc, cp, regimen_fiscal: reg, uso_cfdi: uso };
+      Object.assign(cli._cli, _cliCambios); // para que la revisión use los datos nuevos
+    }
+  }
   const selects = [...document.querySelectorAll('#modalTimbrado .ftClave')];
   selects.forEach(sel => { const i = +sel.dataset.i; let v = sel.value; if (v === 'otra') v = String(sel.nextElementSibling.value||'').trim(); if (items[i]) items[i].clave_sat = v; });
   const prueba = Object.assign({}, doc, { metodo_pago: metodo, forma_pago: forma, uso_cfdi: uso, items_json: JSON.stringify(items) });
@@ -12416,14 +12512,18 @@ async function facturaTimbradoConfirmar(idFactura){
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
   try {
     Object.assign(doc, { metodo_pago: metodo, forma_pago: forma, uso_cfdi: uso, items_json: prueba.items_json });
-    const w = await api({ accion:'erp_upsert_batch', tabla:'facturas', items:[{ id: doc.id, metodo_pago: metodo, forma_pago: forma, uso_cfdi: uso, items_json: prueba.items_json }] });
-    if (!(w && w.ok)) throw new Error((w && w.error) || 'no se pudieron guardar los datos de la factura');
+    // v3.72 — todo se guarda al mismo tiempo (antes era uno tras otro)
+    const cambios = [];
     if (document.getElementById('ftGuardarClaves').checked) {
-      const cambios = [];
       items.forEach(it => { const pr = (State.data.productos||[]).find(p => String(p.sku||'').toUpperCase() === String(it.sku||'').toUpperCase());
         if (pr && pr.id && String(pr.clave_sat||'') !== String(it.clave_sat) && !cambios.some(c => c.id === pr.id)) { cambios.push({ id: pr.id, clave_sat: it.clave_sat }); pr.clave_sat = it.clave_sat; } });
-      if (cambios.length) { try { await api({ accion:'erp_upsert_batch', tabla:'productos', items: cambios }); } catch(e){} }
     }
+    const [w] = await Promise.all([
+      api({ accion:'erp_upsert_batch', tabla:'facturas', items:[{ id: doc.id, metodo_pago: metodo, forma_pago: forma, uso_cfdi: uso, items_json: prueba.items_json }] }),
+      cambios.length ? api({ accion:'erp_upsert_batch', tabla:'productos', items: cambios }).catch(()=>null) : null,
+      _cliCambios ? api({ accion:'erp_upsert_batch', tabla:'clientes', items:[_cliCambios] }).catch(()=>null) : null
+    ]);
+    if (!(w && w.ok)) throw new Error((w && w.error) || 'no se pudieron guardar los datos de la factura');
   } catch(e) { err.textContent = '✗ ' + e.message; if (btn) { btn.disabled = false; btn.textContent = '⚡ Timbrar ante el SAT'; } return; }
   const m = document.getElementById('modalTimbrado'); if (m) m.remove();
   facturaTimbrar._listo = idFactura;

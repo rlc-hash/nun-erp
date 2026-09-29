@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.8</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.9</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.8</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.9</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -4436,8 +4436,10 @@ async function guardarConfig() {
   await sincronizarTodo();
 }
 
+const _nunTabInicial = (function(){ try { return localStorage.getItem('nun_crm_tab'); } catch(e){ return null; } })(); // v1.9.9
 function cambiarTab(tab) {
   tabActiva = tab;
+  try { localStorage.setItem('nun_crm_tab', tab); } catch(e){} // v1.9.9
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   document.querySelectorAll('.pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + tab));
   document.getElementById('fab').classList.toggle('show', tab === 'gastos');
@@ -10698,46 +10700,64 @@ function erpActualizarTotales(){
 }
 
 window.erpGuardarPedido = async function(){
+  if (window._erpGuardandoPedido) return; // v1.9.9 — nunca dos al mismo tiempo
   const cliente = (document.getElementById('erpPedCliente')?.value||'').trim();
   const lineas = erpLineas.filter(l => l.sku && (l.cantidad||0) > 0);
   if (!cliente) { erpToast('Falta el cliente', 'error'); return; }
   if (!lineas.length) { erpToast('Agrega al menos un producto', 'error'); return; }
   const btn = document.getElementById('erpPedGuardarBtn');
-  btn.disabled = true; btn.textContent = 'Subiendo...';
+  window._erpGuardandoPedido = true;
+  if (btn) { btn.disabled = true; btn.textContent = 'Subiendo...'; }
+  erpOcupado('Subiendo pedido…');
+  // El id se fija UNA vez por pedido: si se reintenta, se revisa si ya quedó guardado (no se duplica)
+  const modal = document.getElementById('erpModalPedido');
+  const id = (modal && modal.dataset.idPedido) || ('crm_ped_' + Date.now() + '_' + Math.random().toString(36).substring(2,6));
+  if (modal) modal.dataset.idPedido = id;
+  let item = null;
   try {
-    let folio = '';
-    try { const f = await erpApi({ accion:'siguiente_folio', tipo_documento:'pedido' }); folio = (f && (f.folio || f.siguiente)) || ''; } catch(e){}
-    if (!folio) folio = 'PED-' + new Date().toISOString().substring(2,10).replace(/-/g,'') + '-' + Math.random().toString(36).substring(2,5).toUpperCase();
-    const chkIVA = document.getElementById('erpPedConIVA');
-    const conIVA = !chkIVA || chkIVA.checked; // v1.9: IVA opcional (sin IVA = sin factura)
-    const items = lineas.map(l => {
-      const p = erpData.productos.find(x => String(x.sku).toUpperCase() === String(l.sku).toUpperCase());
-      return { sku: l.sku, descripcion: (p && p.descripcion) || l.sku, cantidad: l.cantidad, precio_unitario: l.precio, descuento_pct: 0, iva_pct: conIVA ? 16 : 0 };
-    });
-    const subtotal = items.reduce((s,it)=>s+it.cantidad*it.precio_unitario,0);
-    const ivaMonto = conIVA ? subtotal*0.16 : 0;
-    const item = {
-      id: 'crm_ped_' + Date.now() + '_' + Math.random().toString(36).substring(2,6),
-      folio, fecha: new Date().toISOString().substring(0,10),
-      cliente, vendedor: erpNombre(),
-      subtotal: +subtotal.toFixed(2), iva: +ivaMonto.toFixed(2), total: +(subtotal+ivaMonto).toFixed(2),
-      sin_iva: !conIVA,
-      estatus: 'borrador', items_json: JSON.stringify(items), sin_entregar: true,
-      notas: (document.getElementById('erpPedNotas')?.value||'') + (conIVA ? '' : ' · SIN IVA') + ' · Capturado desde CRM',
-      creado_por: erpCodigo()
-    };
-    const r = await erpApi({ accion:'erp_crear', tabla:'pedidos', item });
-    if (r && r.ok) {
-      erpToast('✓ Pedido ' + folio + ' subido al ERP', 'ok');
-      document.getElementById('erpModalPedido').remove();
-      erpCargado['pedidos'] = false;
-      if (tabActiva === 'erp_pedidos') renderERPTab('erp_pedidos', true);
-      erpPedidoListo(item); // v1.9.8 — aviso + WhatsApp con imagen
-    } else throw new Error((r && r.error) || 'el ERP rechazó el pedido');
+    const existentes = await erpCargarTabla('pedidos', true);
+    const ya = existentes.find(x => String(x.id) === id);
+    if (ya) { item = ya; }
+    else {
+      const folio = (modal && modal.dataset.folio) || await erpFolioNUN('pedidos');
+      if (modal) modal.dataset.folio = folio;
+      const chkIVA = document.getElementById('erpPedConIVA');
+      const conIVA = !chkIVA || chkIVA.checked;
+      const items = lineas.map(l => {
+        const p = erpData.productos.find(x => String(x.sku).toUpperCase() === String(l.sku).toUpperCase());
+        return { sku: l.sku, descripcion: (p && p.descripcion) || l.sku, cantidad: l.cantidad, precio_unitario: l.precio, descuento_pct: 0, iva_pct: conIVA ? 16 : 0 };
+      });
+      const subtotal = items.reduce((s,it)=>s+it.cantidad*it.precio_unitario,0);
+      const ivaMonto = conIVA ? subtotal*0.16 : 0;
+      item = {
+        id, folio, fecha: new Date().toISOString().substring(0,10),
+        cliente, vendedor: erpVendedorUsuario(),
+        subtotal: +subtotal.toFixed(2), iva: +ivaMonto.toFixed(2), total: +(subtotal+ivaMonto).toFixed(2),
+        sin_iva: !conIVA,
+        estatus: 'borrador', items_json: JSON.stringify(items), sin_entregar: true,
+        notas: (document.getElementById('erpPedNotas')?.value||'') + (conIVA ? '' : ' · SIN IVA') + ' · Capturado desde CRM',
+        creado_por: erpCodigo()
+      };
+      let r = null;
+      try { r = await erpApi({ accion:'erp_crear', tabla:'pedidos', item }); } catch(e){ r = null; }
+      if (!(r && r.ok)) {
+        // ¿Se guardó aunque la respuesta falló? Revisar antes de decir que no
+        await new Promise(z => setTimeout(z, 1500));
+        const chk = await erpCargarTabla('pedidos', true);
+        if (!chk.some(x => String(x.id) === id)) throw new Error((r && r.error) || 'el servidor no confirmó');
+      }
+    }
+    erpOcupado('');
+    erpToast('✓ Pedido ' + item.folio + ' subido', 'ok');
+    const mm = document.getElementById('erpModalPedido'); if (mm) mm.remove();
+    erpCargado['pedidos'] = false;
+    if (tabActiva === 'erp_pedidos') renderERPTab('erp_pedidos', true);
+    erpPedidoListo(item);
   } catch(e){
-    erpToast('✗ No se subió: ' + e.message, 'error');
-    btn.disabled = false; btn.textContent = 'Subir pedido al ERP';
-  }
+    erpOcupado('');
+    erpToast('✗ No se subió: ' + e.message + ' · puedes volver a intentar, no se duplica', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Subir pedido al ERP'; }
+  } finally { window._erpGuardandoPedido = false; }
 };
 
 /* ============ CONVERTIR PEDIDO → REMISIÓN o FACTURA (v1.9) ============ */
@@ -10760,16 +10780,42 @@ window.erpElegirConversion = function(id, folio){
 };
 window.erpConvertirPedido = async function(id, folio, destino){
   const nombre = destino === 'remisiones' ? 'remisión' : 'factura';
+  window._erpConvirtiendo = window._erpConvirtiendo || {};
+  if (window._erpConvirtiendo[id]) return; // v1.9.9 — un solo clic cuenta
+  window._erpConvirtiendo[id] = true;
+  erpOcupado('Generando ' + nombre + '…');
   try {
+    // ¿Este pedido ya tiene remisión o factura? (revisado en el servidor, no en pantalla)
+    const [peds, rems, facts] = await Promise.all([erpCargarTabla('pedidos', true), erpCargarTabla('remisiones', true), erpCargarTabla('facturas', true)]);
+    const ped = peds.find(x => String(x.id) === String(id));
+    if (!ped) throw new Error('no encontré el pedido');
+    if (/cancel/i.test(ped.estatus||'')) throw new Error('el pedido está cancelado');
+    const claves = [String(ped.folio||''), String(ped.id)].filter(Boolean);
+    const previo = rems.concat(facts).find(d => !/cancel/i.test(d.estatus||'') && claves.includes(String(d.pedido_origen||'')));
+    if (previo) throw new Error('este pedido ya tiene ' + (rems.includes(previo) ? 'la remisión ' : 'la factura ') + (previo.folio||''));
+    const antes = new Set((destino === 'remisiones' ? rems : facts).map(d => String(d.id)));
     const r = await erpApi({ accion:'convertir_documento', tabla_origen:'pedidos', id_origen:id, tabla_destino:destino, usuario: erpCodigo() });
-    if (r && r.ok) {
-      const folioNuevo = (r.item && r.item.folio) ? (' ' + r.item.folio) : '';
-      const extra = destino === 'remisiones' ? ' · inventario descontado' : ' · ya aparece en Cobranza';
-      erpToast('✓ Pedido ' + (folio||id) + ' → ' + nombre + folioNuevo + extra, 'ok');
-      erpCargado['pedidos'] = false; erpCargado[destino] = false;
-      renderERPTab(tabActiva, true);
-    } else throw new Error((r && r.error) || 'el ERP no pudo convertirlo');
-  } catch(e){ erpToast('✗ ' + e.message, 'error'); }
+    if (!(r && r.ok)) throw new Error((r && r.error) || 'el servidor no pudo convertirlo');
+    // Documento nuevo → folio NUN (R0001 / F0001), vendedor del pedido y alta en Cobranza
+    const lista = await erpCargarTabla(destino, true);
+    let nuevo = (r.item && r.item.id) ? lista.find(d => String(d.id) === String(r.item.id)) : null;
+    if (!nuevo) nuevo = lista.filter(d => !antes.has(String(d.id)) && claves.includes(String(d.pedido_origen||''))).pop();
+    let folioNuevo = nuevo ? nuevo.folio : '';
+    if (nuevo) {
+      if (!erpEsFolioNUN(destino, nuevo.folio)) folioNuevo = await erpFolioNUN(destino);
+      const cambios = { id: nuevo.id, folio: folioNuevo, pedido_origen: ped.folio || ped.id };
+      if (!nuevo.vendedor && ped.vendedor) cambios.vendedor = ped.vendedor;
+      await erpApi({ accion:'erp_upsert_batch', tabla: destino, items:[cambios] });
+      Object.assign(nuevo, cambios);
+      try { await erpAltaCobranza(destino, nuevo); } catch(e){}
+    }
+    erpOcupado('');
+    const extra = destino === 'remisiones' ? ' · inventario descontado' : '';
+    erpToast('✓ Pedido ' + (folio||id) + ' → ' + nombre + ' ' + folioNuevo + extra + ' · ya está en Cobranza', 'ok');
+    erpCargado['pedidos'] = false; erpCargado[destino] = false;
+    renderERPTab(tabActiva, true);
+  } catch(e){ erpOcupado(''); erpToast('✗ ' + e.message, 'error'); }
+  finally { delete window._erpConvirtiendo[id]; }
 };
 // Compatibilidad: el botón viejo ahora abre el selector
 window.erpFacturarPedido = function(id, folio){ erpElegirConversion(id, folio); };
@@ -11055,6 +11101,47 @@ function erpPedidoListo(item){
     </div>`);
 }
 
+/* ============ v1.9.9 — FOLIOS NUN (P/R/F), SIN DOBLES, COBRANZA AUTOMÁTICA ============ */
+const ERP_PREF_FOLIO = { pedidos:'P', remisiones:'R', facturas:'F' };
+function erpEsFolioNUN(tabla, folio){ const p = ERP_PREF_FOLIO[tabla]; return !!p && new RegExp('^' + p + '\\d{4,}$').test(String(folio||'').trim()); }
+async function erpFolioNUN(tabla){
+  const pref = ERP_PREF_FOLIO[tabla]; if (!pref) return '';
+  const rows = await erpCargarTabla(tabla, true); // siempre fresco del servidor
+  let max = 0; const re = new RegExp('^' + pref + '(\\d{4,})$');
+  rows.forEach(r => { const m = String(r.folio||'').trim().match(re); if (m) max = Math.max(max, parseInt(m[1],10)); });
+  return pref + String(max + 1).padStart(4,'0');
+}
+function erpVendedorUsuario(){
+  let v = '';
+  try { v = (sesionActual.permisos && sesionActual.permisos.vendedor_asignado) || (sesionActual.usuario && sesionActual.usuario.vendedor_asignado) || ''; } catch(e){}
+  v = String(v || erpNombre() || '').toUpperCase().trim();
+  return v;
+}
+function erpOcupado(msg){
+  let o = document.getElementById('erpOcupado');
+  if (!msg) { if (o) o.remove(); return; }
+  if (!o) { o = document.createElement('div'); o.id = 'erpOcupado'; o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9500;display:flex;align-items:center;justify-content:center'; document.body.appendChild(o); }
+  o.innerHTML = '<div style="background:var(--bg,#fff);color:inherit;border-radius:14px;padding:22px 26px;font-size:15px;font-weight:600;box-shadow:0 20px 50px rgba(0,0,0,0.35)">⏳ ' + erpEsc(msg) + '<div style="font-size:12px;font-weight:400;color:var(--mute);margin-top:6px">No cierres ni vuelvas a presionar, el servidor tarda unos segundos.</div></div>';
+}
+// Alta automática en Cobranza de una remisión/factura nueva (misma forma que la cobranza del sistema)
+async function erpAltaCobranza(tabla, doc){
+  if (!doc || !doc.id) return false;
+  if (tabla === 'facturas' && /^R\d{4,}$/.test(String(doc.pedido_origen||''))) return false; // factura de una remisión: la venta ya está en cobranza
+  const r = await erpApi({ accion:'erp_listar', tabla:'cobranza' });
+  const ya = ((r && r.items) || []).some(c => c.factura_origen === doc.id || c.id === 'cob_' + doc.id);
+  if (ya) return false;
+  let credito = 0; try { const cli = (erpData.clientes||[]).find(c => String(c.razon_social||'').trim().toUpperCase() === String(doc.cliente||'').trim().toUpperCase()); credito = +(cli && cli.credito_dias) || 0; } catch(e){}
+  const f = String(doc.fecha || new Date().toISOString()).substring(0,10);
+  const venc = new Date(f + 'T12:00:00'); venc.setDate(venc.getDate() + credito);
+  const total = +(+doc.total||0).toFixed(2);
+  const item = { id:'cob_' + doc.id, fecha_emision:f, fecha_entrega:f, fecha_vencimiento: venc.toISOString().substring(0,10), cliente:doc.cliente,
+    tipo: tabla === 'facturas' ? 'Factura' : 'Remisión', numero: doc.folio, estatus:'', vendedor: String(doc.vendedor||'').toUpperCase(),
+    descripcion: 'Alta automática desde ' + (tabla === 'facturas' ? 'factura ' : 'remisión ') + doc.folio + (doc.pedido_origen ? ' · pedido ' + doc.pedido_origen : ''),
+    credito: credito ? String(credito) : '', total, cobrado:0, pendiente: total, dias_vencido:0, sin_entregar:false, folio_fiscal: doc.uuid_sat || '', factura_origen: doc.id };
+  const w = await erpApi({ accion:'erp_upsert_batch', tabla:'cobranza', items:[item] });
+  return !!(w && w.ok);
+}
+
 /* ============ ROUTER + INYECCIÓN DE UI ============ */
 window.renderERPTab = function(tab, force){
   if (force) { erpCargado['pedidos'] = false; erpCargado['facturas'] = false; erpCargado['remisiones'] = false; erpCargado['productos'] = tab==='erp_inventario' ? false : erpCargado['productos']; }
@@ -11121,6 +11208,26 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 
 
+
+// v1.9.9 — al recargar, volver a la pestaña donde estabas + refresco automático cada 2 minutos
+document.addEventListener('DOMContentLoaded', function(){
+  setTimeout(function(){
+    try {
+      const t = _nunTabInicial;
+      const el = t && document.querySelector('.tab[data-tab="' + t + '"]');
+      if (sesionActual && el && !el.classList.contains('oculta') && el.style.display !== 'none' && t !== tabActiva) cambiarTab(t);
+    } catch(e){}
+  }, 900);
+});
+setInterval(function(){
+  try {
+    if (document.visibilityState !== 'visible' || !sesionActual) return;
+    if (document.querySelector('#erpModalPedido, #erpModalDetalle, #erpModalConvertir, #erpOcupado, .modal.show, .modal-overlay.show, .editor-overlay.show')) return;
+    const a = document.activeElement; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+    if (typeof sincronizarTodo === 'function') sincronizarTodo();
+    if (/^erp_/.test(tabActiva) && typeof renderERPTab === 'function') renderERPTab(tabActiva, true);
+  } catch(e){}
+}, 120000);
 </script>
 </body>
 </html>

@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.7</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.8</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.7</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.8</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -3111,7 +3111,7 @@ async function guardarPagoCobranza() {
     const r = await fetch(urlScript, {
       method: 'POST',
       body: JSON.stringify({
-        accion: 'capturar_pago',
+        accion: 'capturar_pago_cliente', // v1.9.8 — igual que el sistema NUN
         id_doc: docActualEditor.id,
         monto: monto,
         fecha: fecha,
@@ -3133,12 +3133,14 @@ async function guardarPagoCobranza() {
     }
     
     // Actualizar localmente
-    docActualEditor.cobrado = data.nuevoCobrado;
-    docActualEditor.pendiente = data.nuevoPendiente;
+    const _nc = (data.nuevoCobrado !== undefined) ? data.nuevoCobrado : (+docActualEditor.cobrado||0) + monto; // v1.9.8
+    const _np = (data.nuevoPendiente !== undefined) ? data.nuevoPendiente : Math.max(0, (+docActualEditor.pendiente||0) - monto);
+    docActualEditor.cobrado = _nc;
+    docActualEditor.pendiente = _np;
     const idx = cobranza.findIndex(c => c.id === docActualEditor.id);
     if (idx >= 0) {
-      cobranza[idx].cobrado = data.nuevoCobrado;
-      cobranza[idx].pendiente = data.nuevoPendiente;
+      cobranza[idx].cobrado = _nc;
+      cobranza[idx].pendiente = _np;
       localStorage.setItem(KEY_CACHE_C, JSON.stringify(cobranza));
     }
     
@@ -3210,6 +3212,7 @@ function abrirNuevoPedido() {
     alert('No tienes permiso para agregar pedidos');
     return;
   }
+  if (typeof erpAbrirNuevoPedido === 'function') return erpAbrirNuevoPedido(); // v1.9.8 — pedido real del sistema
   
   document.getElementById('npCliente').value = '';
   document.getElementById('npTipo').value = 'Remisión';
@@ -3672,6 +3675,7 @@ async function hacerLogin() {
       permisos: data.permisos,
       device_id: deviceId
     };
+    nunNormalizarSesion(); // v1.9.8
     localStorage.setItem(KEY_SESSION, JSON.stringify(sesionActual));
     
     // Mostrar app
@@ -3904,6 +3908,29 @@ function guardarConfigLogin() {
 }
 
 // Restaurar sesión al cargar
+// v1.9.8 — permisos normalizados: si el servidor no manda las pestañas (o manda texto), se arman aquí
+function nunNormalizarSesion(){
+  if (!sesionActual) return;
+  let p = sesionActual.permisos;
+  if (typeof p === 'string') { try { p = JSON.parse(p); } catch(e){ p = {}; } }
+  p = p || {};
+  const u = sesionActual.usuario || {};
+  if (!p.vendedor_asignado && u.vendedor_asignado) p.vendedor_asignado = u.vendedor_asignado;
+  if (p.gestionar_usuarios === undefined) p.gestionar_usuarios = false;
+  const si = k => p[k] === true || p[k] === 'true';
+  const pest = [];
+  if (si('ver_gastos')) pest.push('gastos');
+  if (si('ver_ingresos')) pest.push('ingresos');
+  if (si('ver_cobranza')) pest.push('cobranza');
+  if (si('eliminar_documentos')) pest.push('clientes');
+  pest.push('micomision');
+  if (p.ver_todos_clientes !== false && p.ver_todos_clientes !== 'false') pest.push('vendedores');
+  if (si('ver_dashboard')) pest.push('dashboard');
+  const base = ['gastos','ingresos','cobranza','clientes','micomision','vendedores','dashboard'];
+  const extra = (Array.isArray(p.pestanas) ? p.pestanas : []).filter(t => !base.includes(t));
+  p.pestanas = pest.concat(extra);
+  sesionActual.permisos = p;
+}
 function restaurarSesion() {
   const guardada = localStorage.getItem(KEY_SESSION);
   if (guardada) {
@@ -3917,6 +3944,7 @@ function restaurarSesion() {
         sesionActual = null;
         return false;
       }
+      nunNormalizarSesion(); // v1.9.8
       document.getElementById('loginOverlay').style.display = 'none';
       document.getElementById('appWrap').style.display = '';
       aplicarPermisos();
@@ -8525,6 +8553,13 @@ function mostrarPestanaMiComisionSegunPermisos() {
 
 // --- Lista de personas con comisión ---
 function listaPersonasComisionV2() {
+  // v1.9.8 — los socios (Rafa/Yadah) solo los ven Rafa y Yadah
+  const _todas = _listaPersonasComisionTodas();
+  if (typeof nunEsDuenoGastos === 'function' && nunEsDuenoGastos()) return _todas;
+  try { document.querySelectorAll('#vPersona option[value="RAFA"], #vPersona option[value="YADAH"]').forEach(o => o.remove()); } catch(e){}
+  return _todas.filter(p => p.tipo !== 'socio');
+}
+function _listaPersonasComisionTodas() {
   // Esteban incluido siempre (decisión del usuario)
   return [
     { codigo: 'RAFA',    rol: 'Socio',              regla: '4% sobre ingresos', tipo: 'socio' },
@@ -10439,7 +10474,7 @@ async function renderERPPedidos(force){
           const realId = String(d.id||'').replace(/^bind_/,'');
           const pdfUrl = d.pdf_url || (realId && /^[0-9a-f-]{30,}$/i.test(realId) ? 'https://app.bind.com.mx/InvoicesAPI/ShowInvoiceDocument?InvoiceRemissionID=' + realId : '');
           const xu = String(d.xml_url||''); const xmlCell = /^local:/.test(xu) ? '<a onclick="event.stopPropagation();erpXmlLocal(\''+xu.replace('local:','')+'\')" style="color:inherit;font-weight:600;cursor:pointer">XML</a>' : (xu ? '<a href="'+xu+'" target="_blank" style="color:inherit;font-weight:600">XML</a>' : '');
-          const links = [pdfUrl ? '<a href="'+pdfUrl+'" target="_blank" style="color:inherit;font-weight:600">📄 PDF</a>' : '', xmlCell].filter(Boolean).join(' · ') || '—';
+          const links = erpBotonesDoc(filtro, d, true); // v1.9.8 PDF propio (ya no Bind)
           return `<tr onclick="erpVerDoc('${filtro}','${erpEsc(d.id)}')" style="cursor:pointer">
             <td style="${erpTdStyle};font-family:monospace">${erpEsc(d.folio||d.numero||d.id)}</td>
             <td style="${erpTdStyle}">${erpEsc(String(d.fecha||'').substring(0,10))}</td>
@@ -10518,14 +10553,13 @@ window.erpVerPedido = function(id){
     ${erpInfoGrid([['Fecha', String(p.fecha||'').substring(0,10)], ['Cliente', p.cliente], ['Vendedor', p.vendedor], ['Estatus', p.estatus], ['Total', erpFmt(p.total)], ['Notas', p.notas]])}
     <div style="font-size:12px;color:var(--mute);margin:14px 0 6px;text-transform:uppercase;letter-spacing:0.06em">Productos</div>
     ${erpTablaItems(erpItemsDe(p))}
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap"><button class="btn" onclick="erpImprimirDoc('pedidos','${erpEsc(p.id)}')">📄 PDF del pedido</button><button class="btn primary" onclick="erpWhatsAppPedido('${erpEsc(p.id)}')">📲 WhatsApp</button></div>
     <div style="font-size:12px;color:var(--mute);margin:18px 0 6px;text-transform:uppercase;letter-spacing:0.06em">Documento derivado</div>
     ${m ? `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:12px;border:1px solid var(--line,#333);border-radius:10px">
         <div><strong>${m.tipo} ${erpEsc(m.doc.folio||m.doc.numero||'')}</strong> · ${erpEsc(String(m.doc.fecha||'').substring(0,10))} · ${erpEsc(m.doc.estatus||'')} · ${erpFmt(m.doc.total)}${m.via==='≈' ? ' <span style="font-size:11px;color:var(--mute)">(cruce por cliente+monto)</span>' : ''}</div>
         <div style="display:flex;gap:8px">
-          ${links.pdf ? `<a href="${links.pdf}" target="_blank" class="btn" style="font-size:12px;text-decoration:none">📄 PDF</a>` : ''}
-          ${links.xml ? `<a href="${links.xml}" target="_blank" class="btn" style="font-size:12px;text-decoration:none">⬇ XML</a>` : (links.xmlLocal ? `<button class="btn" style="font-size:12px" onclick="erpXmlLocal('${links.xmlLocal}')">⬇ XML</button>` : '')}
-          ${m.tipo === 'Factura' ? `<button class="btn" style="font-size:12px" onclick="erpGenerarNC('${m.tipo==='Factura'?'facturas':'remisiones'}','${erpEsc(m.doc.id)}')">↩ Nota de crédito</button>` : ''}
+          ${erpBotonesDoc(m.tipo==='Factura'?'facturas':'remisiones', m.doc, true)}
         </div>
       </div>`
     : `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border:1px solid rgba(224,82,82,0.4);border-radius:10px">
@@ -10550,9 +10584,7 @@ window.erpVerDoc = function(tabla, id){
     <div style="font-size:12px;color:var(--mute);margin:14px 0 6px;text-transform:uppercase;letter-spacing:0.06em">Productos</div>
     ${erpTablaItems(erpItemsDe(d))}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap">
-      ${links.pdf ? `<a href="${links.pdf}" target="_blank" class="btn" style="text-decoration:none">📄 Descargar PDF</a>` : ''}
-      ${links.xml ? `<a href="${links.xml}" target="_blank" class="btn" style="text-decoration:none">⬇ Descargar XML</a>` : (links.xmlLocal ? `<button class="btn" onclick="erpXmlLocal('${links.xmlLocal}')">⬇ Descargar XML</button>` : '')}
-      <button class="btn" onclick="erpGenerarNC('${tabla}','${erpEsc(d.id)}')">↩ Generar nota de crédito</button>
+      ${erpBotonesDoc(tabla, d)}
     </div>
   `);
 };
@@ -10700,6 +10732,7 @@ window.erpGuardarPedido = async function(){
       document.getElementById('erpModalPedido').remove();
       erpCargado['pedidos'] = false;
       if (tabActiva === 'erp_pedidos') renderERPTab('erp_pedidos', true);
+      erpPedidoListo(item); // v1.9.8 — aviso + WhatsApp con imagen
     } else throw new Error((r && r.error) || 'el ERP rechazó el pedido');
   } catch(e){
     erpToast('✗ No se subió: ' + e.message, 'error');
@@ -10803,6 +10836,225 @@ window.erpEspejoSync = async function(manual){
   } finally { _espejoCorriendo = false; }
 };
 
+/* ============ v1.9.8 — PDF PROPIO (ya no depende de Bind), XML, WHATSAPP ============ */
+const ERP_NUM_LETRAS = (function(){
+function numeroALetras(num) {
+  num = Math.round((+num || 0) * 100) / 100;
+  const entero = Math.floor(num);
+  const cent = Math.round((num - entero) * 100);
+  const unidades = ['', 'UNO','DOS','TRES','CUATRO','CINCO','SEIS','SIETE','OCHO','NUEVE'];
+  const especiales = ['DIEZ','ONCE','DOCE','TRECE','CATORCE','QUINCE','DIECISÉIS','DIECISIETE','DIECIOCHO','DIECINUEVE'];
+  const decenas = ['', '','VEINTI','TREINTA','CUARENTA','CINCUENTA','SESENTA','SETENTA','OCHENTA','NOVENTA'];
+  const centenas = ['', 'CIENTO','DOSCIENTOS','TRESCIENTOS','CUATROCIENTOS','QUINIENTOS','SEISCIENTOS','SETECIENTOS','OCHOCIENTOS','NOVECIENTOS'];
+
+  function trio(n) {
+    if (n === 0) return '';
+    if (n === 100) return 'CIEN';
+    const c = Math.floor(n/100), d = Math.floor((n%100)/10), u = n%10;
+    let s = '';
+    if (c > 0) s += centenas[c] + ' ';
+    if (d === 1) s += especiales[u];
+    else if (d === 2 && u > 0) s += decenas[2] + unidades[u].toLowerCase();
+    else if (d >= 2) { s += decenas[d]; if (u > 0) s += ' Y ' + unidades[u]; }
+    else if (u > 0) s += unidades[u];
+    return s.trim();
+  }
+  if (entero === 0) return 'CERO PESOS ' + String(cent).padStart(2,'0') + '/100';
+  let txt = '';
+  const millones = Math.floor(entero / 1000000);
+  const miles = Math.floor((entero % 1000000) / 1000);
+  const resto = entero % 1000;
+  if (millones > 0) txt += (millones === 1 ? 'UN MILLÓN' : trio(millones) + ' MILLONES') + ' ';
+  if (miles > 0) txt += (miles === 1 ? 'MIL' : trio(miles) + ' MIL') + ' ';
+  if (resto > 0) txt += trio(resto);
+  return txt.trim().toUpperCase() + ' PESOS ' + String(cent).padStart(2,'0') + '/100';
+}
+
+
+return numeroALetras;
+})();
+let _erpEmpresa = null;
+async function erpEmpresa(){
+  if (_erpEmpresa) return _erpEmpresa;
+  try { const r = await erpApi({ accion:'obtener_empresa' }); _erpEmpresa = (r && r.ok && r.config) ? r.config : {}; } catch(e){ _erpEmpresa = {}; }
+  return _erpEmpresa;
+}
+async function erpXmlDe(uuid){
+  if (!uuid) return '';
+  for (const u of [String(uuid).toUpperCase(), String(uuid)]) {
+    try { const r = await erpApi({ accion:'cfdi_xml_get', uuid:u }); if (r && r.ok && r.xml) return r.xml; } catch(e){}
+  }
+  try { const s = JSON.parse(localStorage.getItem('nun_cfdi_store')||'{}'); const k = Object.keys(s).find(x => x.toUpperCase() === String(uuid).toUpperCase()); if (k && s[k].xml) return s[k].xml; } catch(e){}
+  return '';
+}
+function erpTimbreDeXml(xmlText){
+  try {
+    const xdoc = new DOMParser().parseFromString(xmlText, 'text/xml');
+    const all = Array.from(xdoc.getElementsByTagName('*'));
+    const find = ln => all.find(n => n.localName === ln);
+    const comp = xdoc.documentElement, tfd = find('TimbreFiscalDigital'), emi = find('Emisor'), rec = find('Receptor');
+    if (!tfd) return null;
+    const sello = tfd.getAttribute('SelloCFD') || comp.getAttribute('Sello') || '';
+    return { uuid: tfd.getAttribute('UUID')||'', ft: tfd.getAttribute('FechaTimbrado')||'', sc: sello, fe: sello.slice(-8),
+      ss: tfd.getAttribute('SelloSAT')||'', nc: comp.getAttribute('NoCertificado')||'', ns: tfd.getAttribute('NoCertificadoSAT')||'',
+      pac: tfd.getAttribute('RfcProvCertif')||'', re: emi ? (emi.getAttribute('Rfc')||'') : '', rr: rec ? (rec.getAttribute('Rfc')||'') : '', tt: comp.getAttribute('Total')||'' };
+  } catch(e){ return null; }
+}
+function erpTimbreHTML(t, uuid, total){
+  if (!t) return '<div style="margin-top:14px;padding:11px 14px;border-left:3px solid #2467e5;background:#f5f8ff;font-size:9.5px"><strong>Comprobante Fiscal Digital por Internet (CFDI 4.0)</strong><div style="font-family:Courier New,monospace;margin-top:4px">UUID: '+erpEsc(uuid)+'</div></div>';
+  const tt = (parseFloat(t.tt || total)||0).toFixed(6).padStart(17,'0').slice(0,18);
+  const verif = 'https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx?id='+t.uuid+'&re='+t.re+'&rr='+t.rr+'&tt='+tt+'&fe='+t.fe;
+  const qr = 'https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=0&data='+encodeURIComponent(verif);
+  let ft = t.ft; try { ft = new Date(t.ft).toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'medium'}); } catch(e){}
+  const row = (k,v) => v ? '<div style="display:flex;gap:8px;margin-top:3px"><span style="min-width:120px;color:#7a8190;font-weight:600">'+k+'</span><span style="font-family:Courier New,monospace;word-break:break-all;flex:1">'+erpEsc(v)+'</span></div>' : '';
+  return '<div style="margin-top:16px;padding:12px 14px;border:1px solid #d4dcf0;border-radius:10px;background:linear-gradient(90deg,#f5f8ff,#fafcff)">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong style="font-size:10px;letter-spacing:0.04em">COMPROBANTE FISCAL DIGITAL POR INTERNET · CFDI 4.0</strong><span style="font-size:8px;color:#7a8190">Timbrado: '+erpEsc(ft)+'</span></div>'
+    + '<div style="display:flex;gap:14px;align-items:flex-start"><img src="'+qr+'" width="108" height="108" style="flex-shrink:0;border:1px solid #e0e6f5;border-radius:6px;background:#fff" alt="QR SAT"/>'
+    + '<div style="flex:1;font-size:8px;line-height:1.5">' + row('Folio fiscal (UUID)', t.uuid) + row('No. certificado CSD', t.nc) + row('No. certificado SAT', t.ns) + row('RFC proveedor cert.', t.pac)
+    + row('Sello digital CFDI', (t.sc||'').substring(0,170)+'…') + row('Sello del SAT', (t.ss||'').substring(0,170)+'…') + '</div></div>'
+    + '<div style="margin-top:8px;font-size:7px;color:#9aa0ac;text-align:center;border-top:1px solid #e8edf7;padding-top:6px">Este documento es una representación impresa de un CFDI · Verifica en verificacfdi.facturaelectronica.sat.gob.mx</div></div>';
+}
+function erpFechaLarga(s){ const m = String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return String(s||''); const d = new Date(+m[1], +m[2]-1, +m[3]); return d.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'}); }
+function erpBuscarDoc(tabla, id){
+  const arr = tabla === 'facturas' ? erpData.facturas : (tabla === 'remisiones' ? erpData.remisiones : erpData.pedidos);
+  return (arr||[]).find(x => String(x.id) === String(id));
+}
+window.erpImprimirDoc = async function(tabla, id){
+  const doc = erpBuscarDoc(tabla, id);
+  if (!doc) { erpToast('No encontré el documento', 'error'); return; }
+  // Abrimos la ventana YA (si no, el navegador la bloquea) y luego la llenamos
+  const w = window.open('', '_blank', 'width=900,height=760');
+  if (w) w.document.write('<p style="font-family:sans-serif;padding:30px;color:#666">Preparando PDF…</p>');
+  try {
+    const emp = await erpEmpresa();
+    let clientes = []; try { clientes = await erpCargarTabla('clientes'); } catch(e){}
+    const cli = clientes.find(c => String(c.razon_social||'').trim().toUpperCase() === String(doc.cliente||'').trim().toUpperCase()) || {};
+    const items = erpItemsDe(doc);
+    const lbl = { facturas:'FACTURA', remisiones:'REMISIÓN', pedidos:'PEDIDO' }[tabla] || 'DOCUMENTO';
+    const sinIva = doc.sin_iva === true || doc.sin_iva === 'true';
+    const subtotal = +doc.subtotal || items.reduce((s,it)=>s+(+it.cantidad||0)*(+it.precio_unitario||0)*(1-(+it.descuento_pct||0)/100),0);
+    const iva = sinIva ? 0 : (+doc.iva || items.reduce((s,it)=>{const sub=(+it.cantidad||0)*(+it.precio_unitario||0)*(1-(+it.descuento_pct||0)/100);return s+sub*(+it.iva_pct||0)/100;},0));
+    const total = sinIva ? subtotal : (+doc.total || subtotal + iva);
+    let timbre = '';
+    if (tabla === 'facturas' && (doc.uuid_sat || doc.folio_fiscal)) {
+      const uuid = doc.uuid_sat || doc.folio_fiscal;
+      const xml = await erpXmlDe(uuid);
+      timbre = erpTimbreHTML(xml ? erpTimbreDeXml(xml) : null, uuid, total);
+    }
+    const f = n => erpFmt(n);
+    const filas = items.length ? items.map(it => { const c=+it.cantidad||0, pu=+it.precio_unitario||0, de=+it.descuento_pct||0, sub=c*pu*(1-de/100), iv=sub*(+it.iva_pct||0)/100;
+      return '<tr><td class="sku">'+erpEsc(it.sku||'—')+'</td><td>'+erpEsc(it.descripcion||'')+'</td><td class="r">'+c+'</td><td class="r" style="font-size:9.5px;color:#666">'+erpEsc(it.unidad||'pieza')+'</td><td class="r">'+f(pu)+'</td><td class="r">'+(de>0?de.toFixed(0)+'%':'—')+'</td><td class="r" style="font-weight:600">'+f(sub+iv)+'</td></tr>'; }).join('')
+      : '<tr><td colspan="7" style="padding:24px;text-align:center;color:#aaa;font-style:italic">Sin productos en el documento</td></tr>';
+    const est = tabla === 'facturas' ? (/cancel/i.test(doc.estatus||'') ? '<span class="stamp red">CANCELADA</span>' : (/timbr|pagad/i.test(doc.estatus||'') ? '<span class="stamp green">'+erpEsc(String(doc.estatus).toUpperCase())+'</span>' : '')) : '';
+    const notas = doc.notas && !/importad[ao] desde bind/i.test(doc.notas) && !/capturado desde crm/i.test(doc.notas) ? '<div class="notas"><strong>Notas:</strong> '+erpEsc(doc.notas)+'</div>' : '';
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${lbl} ${erpEsc((doc.serie||'')+(doc.folio||doc.numero||''))}</title><style>
+      @page{size:letter;margin:12mm 14mm}*{box-sizing:border-box}body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#0a0c0f;margin:0;font-size:10.5px;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .head{display:flex;justify-content:space-between;align-items:flex-start;padding:18px 22px;background:#0a0c0f;color:#fff;border-radius:10px;margin-bottom:8px}
+      .logo{font-size:30px;font-weight:900;letter-spacing:-0.04em;margin-bottom:8px}.en{font-size:13px;font-weight:700}.ed{font-size:9px;color:rgba(255,255,255,0.75);line-height:1.55}
+      .dt{text-align:right;min-width:200px}.dl{font-size:9px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.16em}.df{font-family:'Courier New',monospace;font-size:30px;font-weight:700;line-height:1}.dm{font-size:9.5px;color:rgba(255,255,255,0.75);margin-top:8px;line-height:1.5}
+      .stamp{display:inline-block;padding:3px 10px;border:1px solid;border-radius:100px;font-size:8.5px;font-weight:700;margin-top:6px}.stamp.green{color:#34d399}.stamp.red{color:#fb7185}
+      .parties{display:grid;grid-template-columns:1.4fr 1fr;gap:8px;margin:12px 0}.party{padding:11px 14px;background:#f5f6f8;border-radius:8px;border:1px solid #e9ecef}.lbl{font-size:8.5px;color:#8a8d94;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:4px;font-weight:700}.name{font-size:12px;font-weight:700}.info{font-size:9.5px;color:#555;line-height:1.55;margin-top:3px}
+      table{width:100%;border-collapse:collapse;font-size:10px}th{background:#0a0c0f;color:#fff;padding:9px 10px;text-align:left;text-transform:uppercase;font-size:8.5px;letter-spacing:0.1em}th.r,td.r{text-align:right}td{padding:8px 10px;border-bottom:1px solid #eef0f3;vertical-align:top}tbody tr:nth-child(even){background:#f9fafc}td.r{font-family:'Courier New',monospace}td.sku{font-family:'Courier New',monospace;font-size:9.5px;color:#555;font-weight:600}
+      .tw{display:grid;grid-template-columns:1fr 280px;gap:10px;margin-top:10px}.tl{padding:11px 14px;background:#f2f3f6;border-radius:8px;border-left:3px solid #0a0c0f;font-size:10.5px;font-weight:600}.tc .row{display:flex;justify-content:space-between;padding:7px 14px;background:#fafbfc;border-bottom:1px solid #eef0f3}.tc .gran{background:#0a0c0f;color:#fff;font-weight:700;font-size:14px;padding:11px 14px}.m{font-family:'Courier New',monospace;font-weight:600}
+      .notas{margin-top:12px;padding:11px 14px;background:#fffbf2;border-left:3px solid #e6a100;font-size:9.5px;color:#5a4500}.foot{margin-top:24px;padding-top:14px;border-top:1px solid #e9ecef;font-size:8.5px;color:#8a8d94;text-align:center}
+    </style></head><body>
+      <div class="head"><div><div class="logo">NUN</div><div class="en">${erpEsc(emp.razon_social||'Comercializadora Casraf SA de CV')}</div>
+        <div class="ed">${emp.rfc?'RFC: '+erpEsc(emp.rfc):''}${emp.regimen_fiscal?' · Régimen: '+erpEsc(emp.regimen_fiscal):''}<br>${erpEsc([emp.direccion,emp.ciudad,emp.estado].filter(Boolean).join(', '))}${emp.cp?' CP '+erpEsc(emp.cp):''}<br>${emp.email?'✉ '+erpEsc(emp.email):''}${emp.telefono?' · ☎ '+erpEsc(emp.telefono):''}</div></div>
+        <div class="dt"><div class="dl">${lbl}</div><div class="df">${erpEsc((doc.serie||'')+String(doc.folio||doc.numero||'—'))}</div>
+        <div class="dm">Fecha: <strong>${erpFechaLarga(doc.fecha||doc.fecha_emision)}</strong><br>${doc.vendedor?'Vendedor: <strong>'+erpEsc(doc.vendedor)+'</strong>':''}</div>${est}</div></div>
+      <div class="parties"><div class="party"><div class="lbl">Cliente</div><div class="name">${erpEsc(doc.cliente||'—')}</div>
+        ${cli.rfc?'<div class="info"><strong>RFC:</strong> '+erpEsc(cli.rfc)+'</div>':''}${cli.direccion?'<div class="info">'+erpEsc(cli.direccion)+'</div>':''}${cli.ciudad?'<div class="info">'+erpEsc(cli.ciudad)+(cli.estado?', '+erpEsc(cli.estado):'')+'</div>':''}${cli.telefono?'<div class="info">Tel: '+erpEsc(cli.telefono)+'</div>':''}</div>
+        <div class="party"><div class="lbl">Condiciones</div><div class="info">${cli.credito_dias?'Crédito: <strong>'+erpEsc(cli.credito_dias)+' días</strong><br>':''}${doc.metodo_pago?'Método: '+erpEsc(doc.metodo_pago)+'<br>':''}${doc.forma_pago?'Forma: '+erpEsc(doc.forma_pago)+'<br>':''}${doc.uso_cfdi?'Uso CFDI: '+erpEsc(doc.uso_cfdi)+'<br>':''}Moneda: <strong>MXN</strong></div></div></div>
+      <table><thead><tr><th style="width:12%">SKU</th><th>Descripción</th><th class="r" style="width:7%">Cant.</th><th class="r" style="width:7%">Unidad</th><th class="r" style="width:12%">P. Unit.</th><th class="r" style="width:7%">Desc.</th><th class="r" style="width:13%">Importe</th></tr></thead><tbody>${filas}</tbody></table>
+      <div class="tw"><div class="tl"><div class="lbl">Total con letra</div>${erpEsc(ERP_NUM_LETRAS(total))} M.N.</div>
+        <div class="tc"><div class="row"><span>Subtotal</span><span class="m">${f(subtotal)}</span></div><div class="row"><span>IVA</span><span class="m">${f(iva)}</span></div><div class="row gran"><span>TOTAL</span><span class="m">${f(total)}</span></div></div></div>
+      ${notas}${timbre}
+      <div class="foot">Comercializadora Casraf · NUN · ${new Date().toLocaleString('es-MX',{dateStyle:'long',timeStyle:'short'})}</div>
+    </body></html>`;
+    if (w) { w.document.open(); w.document.write(html); w.document.close(); setTimeout(() => { try { w.focus(); w.print(); } catch(e){} }, 900); }
+    else { const u = URL.createObjectURL(new Blob([html], {type:'text/html'})); location.href = u; }
+  } catch(e){ if (w) w.close(); erpToast('✗ No pude armar el PDF: ' + e.message, 'error'); }
+};
+window.erpDescargarXml = async function(tabla, id){
+  const doc = erpBuscarDoc(tabla, id);
+  const uuid = doc && (doc.uuid_sat || doc.folio_fiscal || String(doc.xml_url||'').replace('local:',''));
+  if (!uuid) { erpToast('Este documento no tiene XML (no está timbrado)', 'error'); return; }
+  const xml = await erpXmlDe(uuid);
+  if (!xml) { erpToast('No encontré el XML de este documento', 'error'); return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([xml],{type:'application/xml'}));
+  a.download = 'Factura_' + (doc.folio||'') + '_' + String(uuid).substring(0,8).toUpperCase() + '.xml'; document.body.appendChild(a); a.click(); setTimeout(()=>a.remove(), 500);
+};
+function erpBotonesDoc(tabla, d, chico){
+  const st = chico ? 'font-size:11px;padding:4px 10px' : '';
+  const esFact = tabla === 'facturas';
+  const tieneXml = esFact && (d.uuid_sat || d.folio_fiscal || /^local:/.test(String(d.xml_url||'')));
+  return `<button class="btn" style="${st}" onclick="event.stopPropagation();erpImprimirDoc('${tabla}','${erpEsc(d.id)}')">📄 PDF</button>`
+    + (tieneXml ? ` <button class="btn" style="${st}" onclick="event.stopPropagation();erpDescargarXml('${tabla}','${erpEsc(d.id)}')">⬇ XML</button>` : '');
+}
+
+/* ---- Imagen del pedido + WhatsApp ---- */
+function erpPedidoImagen(p){
+  const items = erpItemsDe(p);
+  const W = 1080, pad = 56, rowH = 58, headH = 330, footH = 200;
+  const H = headH + Math.max(1, items.length) * rowH + footH;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  x.fillStyle = '#ffffff'; x.fillRect(0,0,W,H);
+  x.fillStyle = '#0a0c0f'; x.fillRect(0,0,W,200);
+  x.fillStyle = '#ffffff'; x.font = '900 64px Helvetica, Arial, sans-serif'; x.fillText('NUN', pad, 105);
+  x.font = '400 24px Helvetica, Arial, sans-serif'; x.fillStyle = 'rgba(255,255,255,0.7)'; x.fillText('Comercializadora Casraf', pad, 150);
+  x.textAlign = 'right'; x.fillStyle = 'rgba(255,255,255,0.6)'; x.font = '600 22px Helvetica, Arial, sans-serif'; x.fillText('PEDIDO', W-pad, 70);
+  x.fillStyle = '#ffffff'; x.font = '700 48px Courier New, monospace'; x.fillText(String(p.folio||''), W-pad, 125);
+  x.font = '400 22px Helvetica, Arial, sans-serif'; x.fillStyle = 'rgba(255,255,255,0.75)'; x.fillText(erpFechaLarga(p.fecha), W-pad, 165);
+  x.textAlign = 'left'; x.fillStyle = '#8a8d94'; x.font = '700 20px Helvetica, Arial, sans-serif'; x.fillText('CLIENTE', pad, 245); x.fillText('VENDEDOR', W/2+40, 245);
+  x.fillStyle = '#0a0c0f'; x.font = '700 25px Helvetica, Arial, sans-serif';
+  const recorta = (t, max) => { t = String(t||''); while (x.measureText(t).width > max && t.length > 3) t = t.slice(0,-2); return t; };
+  x.fillText(recorta(p.cliente, W/2-pad+20), pad, 285); x.fillText(recorta(p.vendedor, W/2-pad-40), W/2+40, 285);
+  let y = headH; x.fillStyle = '#f2f3f6'; x.fillRect(pad-16, y-40, W-2*pad+32, 50);
+  x.fillStyle = '#555'; x.font = '700 19px Helvetica, Arial, sans-serif'; x.fillText('PRODUCTO', pad, y-8); x.textAlign='right'; x.fillText('CANT.', W-pad-260, y-8); x.fillText('P. UNIT.', W-pad-130, y-8); x.fillText('IMPORTE', W-pad, y-8); x.textAlign='left';
+  y += 20;
+  items.forEach(it => {
+    const cant = +it.cantidad||0, pu = +it.precio_unitario||0, imp = cant*pu*(1-(+it.descuento_pct||0)/100);
+    x.fillStyle = '#0a0c0f'; x.font = '700 22px Courier New, monospace'; x.fillText(String(it.sku||''), pad, y+24);
+    x.fillStyle = '#555'; x.font = '400 18px Helvetica, Arial, sans-serif'; x.fillText(recorta(it.descripcion, W-2*pad-420), pad+170, y+24);
+    x.textAlign='right'; x.fillStyle = '#0a0c0f'; x.font = '700 22px Helvetica, Arial, sans-serif'; x.fillText(String(cant), W-pad-260, y+24);
+    x.font = '400 20px Courier New, monospace'; x.fillText(erpFmt(pu), W-pad-130, y+24); x.font = '700 20px Courier New, monospace'; x.fillText(erpFmt(imp), W-pad, y+24); x.textAlign='left';
+    x.strokeStyle = '#eef0f3'; x.beginPath(); x.moveTo(pad-16, y+rowH-14); x.lineTo(W-pad+16, y+rowH-14); x.stroke();
+    y += rowH;
+  });
+  const piezas = items.reduce((s,it)=>s+(+it.cantidad||0),0);
+  y += 20; x.fillStyle = '#0a0c0f'; x.fillRect(W/2, y, W/2-pad+16, 90);
+  x.fillStyle = '#fff'; x.font = '700 24px Helvetica, Arial, sans-serif'; x.fillText('TOTAL', W/2+24, y+56);
+  x.textAlign='right'; x.font = '700 40px Courier New, monospace'; x.fillText(erpFmt(p.total), W-pad-8, y+60); x.textAlign='left';
+  x.fillStyle = '#555'; x.font = '400 22px Helvetica, Arial, sans-serif'; x.fillText(piezas + ' piezas' + ((p.sin_iva===true||p.sin_iva==='true')?' · sin IVA':' · IVA incluido'), pad, y+56);
+  return new Promise(res => c.toBlob(b => res(b), 'image/png'));
+}
+window.erpWhatsAppPedido = async function(id){
+  const p = erpBuscarDoc('pedidos', id) || (window._erpUltimoPedido && String(window._erpUltimoPedido.id) === String(id) ? window._erpUltimoPedido : null);
+  if (!p) { erpToast('No encontré el pedido', 'error'); return; }
+  const piezas = erpItemsDe(p).reduce((s,it)=>s+(+it.cantidad||0),0);
+  const texto = `🧳 *Pedido ${p.folio}* · ${p.cliente}\n${piezas} piezas · Total ${erpFmt(p.total)}\nVendedor: ${p.vendedor||''}\nYa está dado de alta en el sistema.`;
+  try {
+    const blob = await erpPedidoImagen(p);
+    const file = new File([blob], 'Pedido_' + (p.folio||'') + '.png', { type:'image/png' });
+    if (navigator.canShare && navigator.canShare({ files:[file] })) { await navigator.share({ files:[file], text: texto }); return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; document.body.appendChild(a); a.click(); setTimeout(()=>a.remove(), 500);
+    window.open('https://wa.me/?text=' + encodeURIComponent(texto + '\n(Adjunto la imagen del pedido)'), '_blank');
+    erpToast('Se descargó la imagen del pedido: adjúntala en el chat de WhatsApp', 'ok');
+  } catch(e){ if (e && e.name === 'AbortError') return; erpToast('✗ WhatsApp: ' + e.message, 'error'); }
+};
+function erpPedidoListo(item){
+  window._erpUltimoPedido = item;
+  erpModalBase(`
+    <div style="text-align:center;padding:10px 4px">
+      <div style="font-size:40px">✅</div>
+      <h3 style="margin:8px 0 4px">Pedido ${erpEsc(item.folio)} dado de alta</h3>
+      <div style="color:var(--mute);font-size:13px;margin-bottom:18px">${erpEsc(item.cliente)} · ${erpFmt(item.total)}</div>
+      <button class="btn primary" style="width:100%;padding:13px;font-weight:700;margin-bottom:8px" onclick="erpWhatsAppPedido('${erpEsc(item.id)}')">📲 Enviar por WhatsApp (con imagen)</button>
+      <button class="btn" style="width:100%;padding:10px" onclick="document.getElementById('erpModalDetalle').remove()">Listo</button>
+    </div>`);
+}
+
 /* ============ ROUTER + INYECCIÓN DE UI ============ */
 window.renderERPTab = function(tab, force){
   if (force) { erpCargado['pedidos'] = false; erpCargado['facturas'] = false; erpCargado['remisiones'] = false; erpCargado['productos'] = tab==='erp_inventario' ? false : erpCargado['productos']; }
@@ -10829,7 +11081,7 @@ function erpInyectarUI(){
     panePadre.appendChild(p);
   });
   // Botón espejo manual
-  if (!document.getElementById('erpEspejoBtn')) {
+  if (false && !document.getElementById('erpEspejoBtn')) { // v1.9.8 — una sola base: el espejo sobra
     const e = document.createElement('button');
     e.id = 'erpEspejoBtn'; e.className = 'tab';
     e.innerHTML = '⇄ <span style="font-size:9px;opacity:0.55;font-weight:700">ESPEJO</span>';

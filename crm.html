@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.10</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.11</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.10</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.11</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -10796,7 +10796,7 @@ window.erpConvertirPedido = async function(id, folio, destino){
     const antes = new Set((destino === 'remisiones' ? rems : facts).map(d => String(d.id)));
     const r = await erpApi({ accion:'convertir_documento', tabla_origen:'pedidos', id_origen:id, tabla_destino:destino, usuario: erpCodigo() });
     if (!(r && r.ok)) throw new Error((r && r.error) || 'el servidor no pudo convertirlo');
-    // Documento nuevo → folio NUN (R0001 / F0001), vendedor del pedido y alta en Cobranza
+    // Documento nuevo → folio NUN (R0001 / FT0001), vendedor del pedido y alta en Cobranza
     const lista = await erpCargarTabla(destino, true);
     let nuevo = (r.item && r.item.id) ? lista.find(d => String(d.id) === String(r.item.id)) : null;
     if (!nuevo) nuevo = lista.filter(d => !antes.has(String(d.id)) && claves.includes(String(d.pedido_origen||''))).pop();
@@ -11102,7 +11102,7 @@ function erpPedidoListo(item){
 }
 
 /* ============ v1.9.9 — FOLIOS NUN (P/R/F), SIN DOBLES, COBRANZA AUTOMÁTICA ============ */
-const ERP_PREF_FOLIO = { pedidos:'P', remisiones:'R', facturas:'F' };
+const ERP_PREF_FOLIO = { pedidos:'P', remisiones:'R', facturas:'FT' }; // v1.9.11 facturas FT0001
 function erpEsFolioNUN(tabla, folio){ const p = ERP_PREF_FOLIO[tabla]; return !!p && new RegExp('^' + p + '\\d{4,}$').test(String(folio||'').trim()); }
 async function erpFolioNUN(tabla){
   const pref = ERP_PREF_FOLIO[tabla]; if (!pref) return '';

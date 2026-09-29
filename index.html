@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.68 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.69 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4913,16 +4913,43 @@ function numeroALetras(num) {
 async function convertirDocConItems(origen, idOrigen, destino) {
   const ok = await confirmDialog({ title:'¿Convertir a '+destino.slice(0,-1)+'?', message:'Se genera un documento nuevo con los mismos productos. El folio se asigna automáticamente.', ok:'Convertir' });
   if (!ok) return;
+  window._nunConvirtiendo = window._nunConvirtiendo || {};
+  if (window._nunConvirtiendo[idOrigen]) return; // v3.69 — un solo clic cuenta
+  window._nunConvirtiendo[idOrigen] = true;
+  nunOcupado('Generando ' + destino.slice(0,-1) + '…');
+  try { // v3.69
+  const _orig = (await nunListarFresco(origen)).find(d => String(d.id) === String(idOrigen)) || {};
+  const _claves = [String(_orig.folio||''), String(idOrigen)].filter(Boolean);
+  if (origen === 'pedidos' && (destino === 'remisiones' || destino === 'facturas')) {
+    const [_rs, _fs] = await Promise.all([nunListarFresco('remisiones'), nunListarFresco('facturas')]);
+    const _previo = _rs.concat(_fs).find(d => !/cancel/i.test(d.estatus||'') && _claves.includes(String(d.pedido_origen||'')));
+    if (_previo) { toast('Este pedido ya tiene ' + (_rs.includes(_previo) ? 'la remisión ' : 'la factura ') + (_previo.folio||''), { type:'error', duration:6000 }); return; }
+  }
+  const _antes = new Set((await nunListarFresco(destino)).map(d => String(d.id)));
   // Primero intentamos por backend (si existe)
   try {
     const data = await api({ accion:'convertir_documento', tabla_origen:origen, id_origen:idOrigen, tabla_destino:destino, usuario:State.sesion.usuario.nombre });
     if (data.ok) {
+      if (NUN_PREF_FOLIO[destino]) { // v3.69 — folio NUN, vendedor y alta en Cobranza
+        const _lista = await nunListarFresco(destino);
+        let _nuevo = (data.item && data.item.id) ? _lista.find(d => String(d.id) === String(data.item.id)) : null;
+        if (!_nuevo) _nuevo = _lista.filter(d => !_antes.has(String(d.id)) && _claves.includes(String(d.pedido_origen||''))).pop();
+        if (_nuevo) {
+          const _cam = { id:_nuevo.id, folio: nunEsFolioNUN(destino, _nuevo.folio) ? _nuevo.folio : nunFolioNUNde(destino, _lista), pedido_origen: _orig.folio || idOrigen };
+          if (!_nuevo.vendedor && _orig.vendedor) _cam.vendedor = _orig.vendedor;
+          await api({ accion:'erp_upsert_batch', tabla:destino, items:[_cam] });
+          Object.assign(_nuevo, _cam); data.folio = _cam.folio;
+          try { await nunAltaCobranza(destino, _nuevo); } catch(e){}
+        }
+      }
       await Promise.all([cargarTabla(origen), cargarTabla(destino), cargarTabla('cobranza')]);
       renderCurrent(); cerrarDrawer();
       toast('✓ Convertido · '+data.folio);
       return;
     }
   } catch(e) { /* backend no disponible, hacemos demo */ }
+  } finally { delete window._nunConvirtiendo[idOrigen]; nunOcupado(''); } // v3.69
+  if (NUN_PREF_FOLIO[destino]) { toast('No se pudo convertir: el servidor no respondió. Revisa en la lista antes de reintentar.', { type:'error', duration:7000 }); return; } // v3.69 sin modo demo
 
   // Fallback demo: copiar local
   const docOrig = (State.data[origen]||[]).find(d => d.id === idOrigen);
@@ -6830,6 +6857,7 @@ window.acKey = acKey;
 
 // v3.44 — siguiente folio consecutivo (continúa el último de ese tipo de documento)
 function siguienteFolioLocal(tabla) {
+  if (typeof NUN_PREF_FOLIO !== 'undefined' && NUN_PREF_FOLIO[tabla]) return nunFolioNUNde(tabla, State.data[tabla]); // v3.69
   const docs = State.data[tabla] || [];
   let max = 0;
   docs.forEach(d => {
@@ -7126,11 +7154,56 @@ function recalDocTotal() {
   recalcularDocDesdeItems();
 }
 
+// ============================================================
+// v3.69 — FOLIOS NUN (P0001 / R0001 / F0001), SIN DOBLES, COBRANZA AUTOMÁTICA
+// ============================================================
+const NUN_PREF_FOLIO = { pedidos:'P', remisiones:'R', facturas:'F' };
+function nunEsFolioNUN(tabla, folio){ const p = NUN_PREF_FOLIO[tabla]; return !!p && new RegExp('^' + p + '\\d{4,}$').test(String(folio||'').trim()); }
+function nunFolioNUNde(tabla, rows){
+  const pref = NUN_PREF_FOLIO[tabla]; if (!pref) return '';
+  let max = 0; const re = new RegExp('^' + pref + '(\\d{4,})$');
+  (rows||[]).forEach(r => { const m = String(r.folio||'').trim().match(re); if (m) max = Math.max(max, parseInt(m[1],10)); });
+  return pref + String(max + 1).padStart(4,'0');
+}
+async function nunListarFresco(tabla){ const r = await api({ accion:'erp_listar', tabla }); return (r && r.items) || []; }
+async function nunFolioNUN(tabla){ return nunFolioNUNde(tabla, await nunListarFresco(tabla)); }
+function nunOcupado(msg){
+  let o = document.getElementById('nunOcupado');
+  if (!msg) { if (o) o.remove(); return; }
+  if (!o) { o = document.createElement('div'); o.id = 'nunOcupado'; o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99999;display:flex;align-items:center;justify-content:center'; document.body.appendChild(o); }
+  o.innerHTML = '<div style="background:var(--bg,#fff);color:var(--ink,#111);border-radius:14px;padding:22px 26px;font-size:15px;font-weight:600;box-shadow:0 20px 50px rgba(0,0,0,0.3)">⏳ ' + escapeHTML(msg) + '<div style="font-size:12px;font-weight:400;opacity:0.65;margin-top:6px">No cierres ni vuelvas a presionar, el servidor tarda unos segundos.</div></div>';
+}
+async function nunAltaCobranza(tabla, doc){
+  if (!doc || !doc.id || (tabla !== 'remisiones' && tabla !== 'facturas')) return false;
+  if (tabla === 'facturas' && /^R\d{4,}$/.test(String(doc.pedido_origen||''))) return false; // factura de una remisión: ya está en cobranza
+  const cob = await nunListarFresco('cobranza');
+  if (cob.some(c => c.factura_origen === doc.id || c.id === 'cob_' + doc.id)) return false;
+  const cli = (State.data.clientes||[]).find(c => String(c.razon_social||'').trim().toUpperCase() === String(doc.cliente||'').trim().toUpperCase()) || {};
+  const credito = +cli.credito_dias || 0;
+  const f = String(doc.fecha || new Date().toISOString()).substring(0,10);
+  const venc = new Date(f + 'T12:00:00'); venc.setDate(venc.getDate() + credito);
+  const total = +(+doc.total||0).toFixed(2);
+  const item = { id:'cob_' + doc.id, fecha_emision:f, fecha_entrega:f, fecha_vencimiento: venc.toISOString().substring(0,10), cliente:doc.cliente,
+    tipo: tabla === 'facturas' ? 'Factura' : 'Remisión', numero: doc.folio, estatus:'', vendedor: String(doc.vendedor||'').toUpperCase(),
+    descripcion: 'Alta automática desde ' + (tabla === 'facturas' ? 'factura ' : 'remisión ') + doc.folio + (doc.pedido_origen ? ' · pedido ' + doc.pedido_origen : ''),
+    credito: credito ? String(credito) : '', total, cobrado:0, pendiente: total, dias_vencido:0, sin_entregar:false, folio_fiscal: doc.uuid_sat || '', factura_origen: doc.id };
+  const w = await api({ accion:'erp_upsert_batch', tabla:'cobranza', items:[item] });
+  return !!(w && w.ok);
+}
 async function guardarDoc(tabla, id, opts) {
   opts = opts || {};
   const def = DOC_DEFS[tabla];
   const usaCli = def.usa === 'cliente' || def.usa === 'mixto';
   let folio = document.getElementById('dFolio').value.trim();
+  if (window._nunGuardandoDoc) return; // v3.69 — sin guardados dobles
+  window._nunGuardandoDoc = true;
+  try { // v3.69
+  let _nunFresco = null;
+  if (!id && NUN_PREF_FOLIO[tabla]) {
+    nunOcupado('Guardando…');
+    _nunFresco = await nunListarFresco(tabla);
+    if (!folio || _nunFresco.some(d => String(d.folio||'').trim() === folio)) folio = nunFolioNUNde(tabla, _nunFresco);
+  }
   if (!folio && !id) {
     try { const r = await api({ accion:'siguiente_folio', tipo_documento: def.folio_tipo, serie: new Date().getFullYear() }); folio = r.folio || 'AUTO-'+Date.now().toString().substring(-5); } catch(e) { folio = 'AUTO-'+Date.now().toString().substring(-5); }
   }
@@ -7149,11 +7222,13 @@ async function guardarDoc(tabla, id, opts) {
   };
   if (usaCli) item.cliente = (document.getElementById('dCliente').value||'').trim();
   else item.proveedor = (document.getElementById('dProveedor').value||'').trim();
+  const _nunIdNuevo = id ? null : ((window._nunIdPendiente && window._nunIdPendiente.tabla === tabla && window._nunIdPendiente.folio === folio) ? window._nunIdPendiente.id : (tabla.substring(0,3) + '_' + Date.now() + '_' + Math.random().toString(36).substring(2,6))); // v3.69
+  if (_nunIdNuevo) { item.id = _nunIdNuevo; window._nunIdPendiente = { tabla, folio, id:_nunIdNuevo }; }
   // v3.43/44 — validaciones
-  if (usaCli && !item.cliente) { toast('Falta el cliente (escríbelo o créalo con "+ Nuevo cliente")', { type:'error' }); return; }
+  if (usaCli && !item.cliente) { nunOcupado(''); toast('Falta el cliente (escríbelo o créalo con "+ Nuevo cliente")', { type:'error' }); return; }
   const pctEl = document.getElementById('dComisionPct');
   if (item.vendedor && (!pctEl || pctEl.value === '' || isNaN(parseFloat(pctEl.value)))) {
-    toast('Pusiste vendedor: ingresa su % de comisión', { type:'error' }); if (pctEl) pctEl.focus(); return;
+    nunOcupado(''); toast('Pusiste vendedor: ingresa su % de comisión', { type:'error' }); if (pctEl) pctEl.focus(); return;
   }
   // Limpiar líneas vacías (sin sku ni descripción) antes de guardar
   try { const its = (docItems||[]).filter(it => (it.sku||it.descripcion) && (+it.cantidad>0)); item.items_json = JSON.stringify(its); } catch(e){}
@@ -7165,6 +7240,8 @@ async function guardarDoc(tabla, id, opts) {
   while (intento < 2) {
     intento++;
     try {
+      // v3.69 — antes de reintentar, revisar si el primer intento sí se guardó (no se duplica)
+      if (intento > 1 && _nunIdNuevo && (await nunListarFresco(tabla)).some(d => String(d.id) === _nunIdNuevo)) { data = { ok:true, item:{ id:_nunIdNuevo } }; break; }
       data = await api({ accion: id?'erp_actualizar':'erp_crear', tabla, item: id?Object.assign({id},item):item });
       break;
     } catch(e) {
@@ -7177,11 +7254,16 @@ async function guardarDoc(tabla, id, opts) {
     }
   }
   if (!data || !data.ok) {
+    if (_nunIdNuevo && (await nunListarFresco(tabla).catch(()=>[])).some(d => String(d.id) === _nunIdNuevo)) data = { ok:true, item:{ id:_nunIdNuevo } }; // v3.69 sí se guardó
+  }
+  if (!data || !data.ok) {
     if (btnGuardar) { btnGuardar.disabled = false; btnGuardar.textContent = 'Guardar'; }
     toast('✗ El backend rechazó el guardado: ' + ((data&&data.error)||'error desconocido'), { type:'error', duration:6000 });
     return;
   }
-  const idGuardado = id || (data.item && data.item.id) || null;
+  window._nunIdPendiente = null; // v3.69
+  const idGuardado = id || (data.item && data.item.id) || _nunIdNuevo || null;
+  if (!id && (tabla === 'remisiones' || tabla === 'facturas')) { try { await nunAltaCobranza(tabla, Object.assign({}, item, { id: idGuardado, folio })); await cargarTabla('cobranza'); } catch(e){} } // v3.69
   await cargarTabla(tabla);
   // v3.47 — flujo "Guardar y Facturar": después de guardar, timbrar sin cerrar
   if (opts.luegoTimbrar && tabla === 'facturas' && idGuardado) {
@@ -7191,6 +7273,7 @@ async function guardarDoc(tabla, id, opts) {
   }
   renderCurrent(); cerrarDrawer();
   toast(id?'✓ Actualizado':'✓ Creado · '+folio);
+  } finally { window._nunGuardandoDoc = false; nunOcupado(''); } // v3.69
 }
 async function eliminarDoc(tabla, id) {
   const ok = await confirmDialog({ title:'¿Eliminar documento?', message:'Acción permanente.', ok:'Eliminar', danger:true });
@@ -12057,6 +12140,7 @@ function facturaACfdiFacturama(doc){
     CfdiType: 'I', NameId:'1',
     ExpeditionPlace: emp.cp || '',
     GlobalInformation: globalInfo,
+    Serie: (String(doc.folio||'').match(/^[A-Za-z]+/)||[])[0] || undefined, // v3.69 — F0001 → Serie F
     Folio: String(doc.folio||'').replace(/\D/g,'') || undefined,
     PaymentForm: doc.forma_pago || '03',   // 03 = transferencia
     PaymentMethod: doc.metodo_pago || 'PUE',

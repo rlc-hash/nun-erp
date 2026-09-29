@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.73 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.74 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7038,6 +7038,7 @@ function abrirDoc(tabla, id) {
     if (tabla === 'remisiones') acciones += `<button class="btn btn-secondary" onclick="nunFacturarRemisionDesdeDrawer('${id}')">→ Factura</button>`; // v3.72 guarda y luego factura
     if (tabla === 'ordenescompra') acciones += `<button class="btn btn-secondary" onclick="recibirOC('${id}')">Recibir mercancía</button>`;
     if (tabla === 'importaciones') acciones += `<button class="btn btn-secondary" onclick="cerrarImportacion('${id}')">Cerrar importación</button>`;
+    if ((tabla === 'remisiones' || tabla === 'facturas') && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunPagoDesdeDoc('${tabla}','${id}')">💵 Registrar pago</button>`; // v3.74
     acciones += `<button class="btn btn-secondary" onclick="imprimirDocumento('${tabla}','${id}')">📄 PDF</button>`;
     if (tabla === 'facturas') acciones += `<button class="btn btn-secondary" onclick="descargarXMLCFDI('${id}')">📃 XML CFDI</button>`;
     // v3.38 — Timbrar con Facturama (solo facturas sin timbrar)
@@ -7198,6 +7199,24 @@ async function nunFacturarRemisionDesdeDrawer(id){
   return nunFacturarRemision(id);
 }
 window.nunFacturarRemisionDesdeDrawer = nunFacturarRemisionDesdeDrawer;
+// v3.74 — Registrar pago directo desde la remisión o la factura (usa el mismo cobro de Cobranza: baja solo a Ingresos)
+async function nunPagoDesdeDoc(tabla, id){
+  const doc = (State.data[tabla]||[]).find(d => String(d.id) === String(id)); if (!doc) return;
+  await cargarTabla('cobranza');
+  const cob = State.data.cobranza || [];
+  let c = nunCobranzaDeDoc(doc, cob);
+  // factura que viene de una remisión: el cobro vive en la remisión
+  if (!c && tabla === 'facturas') {
+    const po = String(doc.pedido_origen||'').trim(); const fr = po.replace(/^REM\s+/, '');
+    if (/^(R\d{4,}|REM )/.test(po)) { const rem = (State.data.remisiones||[]).find(r => String(r.folio).trim() === fr); if (rem) c = nunCobranzaDeDoc(rem, cob); }
+  }
+  if (!c) { const f = String(doc.folio||'').trim(); c = cob.find(x => { const n = String(x.numero||'').trim(); return n === f || n === 'V01' + f; }); }
+  if (!c) { toast('No encontré el renglón de Cobranza de ' + (doc.folio||'este documento'), { type:'error', duration:6000 }); return; }
+  try { cerrarDrawer(); } catch(e){}
+  setTimeout(() => { abrirDrawerCobranza(c.id); setTimeout(() => { try { drawerCambiarTab('pago'); } catch(e){} }, 150); }, 200);
+}
+window.nunPagoDesdeDoc = nunPagoDesdeDoc;
+
 // Lectura de totales del CFDI timbrado (lo que quedó ante el SAT manda)
 function nunTotalesCfdi(xml){
   const g = a => { const m = String(xml||'').match(new RegExp('<cfdi:Comprobante[^>]*\\s' + a + '="([^"]*)"')); return m ? m[1] : ''; };
@@ -12168,10 +12187,12 @@ function facturaClienteFiscal(nombreCliente){
   // v3.47 — Público en General: RFC genérico + CP del EMISOR + régimen 616 + uso S01
   const esPublico = norm(nombreCliente).includes('publicoengeneral') || (cli.rfc||'').toUpperCase()==='XAXX010101000' || (!cli.rfc && norm(nombreCliente).includes('publico'));
   if (esPublico) {
-    return { rfc:'XAXX010101000', nombre:'PUBLICO EN GENERAL', cp: cli.cp || emp.cp || '', regimen:'616', uso:'S01', publico:true };
+    const _cpp = String(cli.cp || emp.cp || '').trim(); // v3.74
+    return { rfc:'XAXX010101000', nombre:'PUBLICO EN GENERAL', cp: /^\d{3,4}$/.test(_cpp) ? _cpp.padStart(5,'0') : _cpp, regimen:'616', uso:'S01', publico:true };
   }
   const _cod = v => (String(v||'').trim().match(/^[A-Z]*\d+/i)||[''])[0].toUpperCase(); // v3.70 — sin defaults: si falta, no se timbra
-  return { rfc:(cli.rfc||'').toUpperCase(), nombre:(cli.razon_social||nombreCliente||'').toUpperCase(), cp: String(cli.cp||'').trim(), regimen: _cod(cli.regimen_fiscal), uso: _cod(cli.uso_cfdi), publico:false, _cli: cli };
+  const _cp = String(cli.cp||'').trim(); // v3.74 — 6020 → 06020
+  return { rfc:(cli.rfc||'').toUpperCase(), nombre:(cli.razon_social||nombreCliente||'').toUpperCase(), cp: /^\d{3,4}$/.test(_cp) ? _cp.padStart(5,'0') : _cp, regimen: _cod(cli.regimen_fiscal), uso: _cod(cli.uso_cfdi), publico:false, _cli: cli };
 }
 // Mapear una factura del ERP → JSON que pide Facturama
 function facturaACfdiFacturama(doc){
@@ -12499,7 +12520,7 @@ async function facturaTimbradoConfirmar(idFactura){
     if (!/^\d{5}$/.test(cp)) e2.push('El código postal debe tener 5 dígitos');
     if (!reg) e2.push('Elige el régimen fiscal');
     if (e2.length) { err.textContent = '⚠ ' + e2.join('\n⚠ '); return; }
-    if (rfc !== String(cli._cli.rfc||'').toUpperCase() || cp !== String(cli._cli.cp||'') || reg !== String(cli.regimen||'') || uso !== String(cli._cli.uso_cfdi||'')) {
+    if (rfc !== String(cli._cli.rfc||'').toUpperCase() || cp !== String(cli._cli.cp||'').padStart(5,'0') || reg !== String(cli.regimen||'') || uso !== String(cli._cli.uso_cfdi||'')) {
       if (!cli._cli.id) { err.textContent = '⚠ Este cliente no está en el catálogo: dalo de alta en Clientes'; return; }
       _cliCambios = { id: cli._cli.id, rfc, cp, regimen_fiscal: reg, uso_cfdi: uso };
       Object.assign(cli._cli, _cliCambios); // para que la revisión use los datos nuevos

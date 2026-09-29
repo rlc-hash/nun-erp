@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.72 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.73 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3892,6 +3892,7 @@ function abrirContactoCRM(clienteRS) {
 async function guardarGenerico(modKey, id) {
   const schema = SCHEMAS[modKey];
   const item = readForm(schema);
+  if (item.vendedor) item.vendedor = String(item.vendedor).toUpperCase().trim(); // v3.73
   const req = schema.fields.filter(f => f.required);
   for (const f of req) {
     if (!item[f.key]) { toast(f.label + ' requerido', { type:'error' }); return; }
@@ -6613,7 +6614,7 @@ function renderDocOperativo(tabla) {
   const f = docFiltros[tabla];
 
   // Lista única de vendedores
-  const vendedores = [...new Set(rows.map(r => r.vendedor).filter(Boolean))];
+  const vendedores = [...new Set(rows.map(r => String(r.vendedor||'').toUpperCase().trim()).filter(Boolean))].sort(); // v3.73
   // Meses únicos
   const meses = [...new Set(rows.map(r => (r.fecha||'').substring(0,7)).filter(Boolean))].sort().reverse();
 
@@ -6676,7 +6677,7 @@ function afterDocOperativo(tabla) {
     else rows = rows.filter(r => r.estatus === f.estatus);
   }
   if (f.mes && f.mes !== 'todos') rows = rows.filter(r => (r.fecha||'').startsWith(f.mes));
-  if (f.vendedor && f.vendedor !== 'todos') rows = rows.filter(r => r.vendedor === f.vendedor);
+  if (f.vendedor && f.vendedor !== 'todos') rows = rows.filter(r => String(r.vendedor||'').toUpperCase().trim() === f.vendedor); // v3.73
 
   // Ordenar por fecha desc default
   rows.sort((a,b) => String(b.fecha||'').localeCompare(String(a.fecha||'')));
@@ -6710,7 +6711,7 @@ function afterDocOperativo(tabla) {
       { key:'vendedor', label:'Vendedor', render:r=>{
         if (!r.vendedor) return '<span style="color:var(--ink-4)">—</span>';
         // v3.23: badge con inicial estilo Oracle (Edgar=E, Yadah=Y, Luis=L, Esteban=Es)
-        const v = r.vendedor;
+        const v = String(r.vendedor).toUpperCase(); // v3.73
         const inicial = v.charAt(0).toUpperCase();
         return `<span style="display:inline-flex;align-items:center;gap:6px;font-weight:500"><span style="width:22px;height:22px;border-radius:50%;background:#0A0A0A;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">${inicial}</span>${escapeHTML(v)}</span>`;
       } },
@@ -6746,15 +6747,15 @@ let docSinIva = false; // v3.40
 // v3.43 — vendedores para el selector, con su % de comisión (de COMISIONES_CFG)
 function vendedoresParaSelect() {
   const fijos = [
-    { nombre:'Edgar',   pct: 6 },
-    { nombre:'Luis',    pct: 5 },
-    { nombre:'Yadah',   pct: 5 },
-    { nombre:'Esteban', pct: 5 }
-  ];
+    { nombre:'EDGAR',   pct: 6 },
+    { nombre:'LUIS',    pct: 5 },
+    { nombre:'YADAH',   pct: 5 },
+    { nombre:'ESTEBAN', pct: 5 }
+  ]; // v3.73 — siempre en mayúsculas
   // añadir cualquier vendedor extra que ya exista en los datos y no esté en la lista fija
   const extra = (State.data.vendedores||[])
-    .map(v => v.nombre)
-    .filter(n => n && !fijos.some(f => f.nombre.toLowerCase() === String(n).toLowerCase()))
+    .map(v => String(v.nombre||'').toUpperCase().trim())
+    .filter((n, k, arr) => n && arr.indexOf(n) === k && !fijos.some(f => f.nombre === n))
     .map(n => ({ nombre:n, pct:0 }));
   return fijos.concat(extra);
 }
@@ -7003,7 +7004,7 @@ function abrirDoc(tabla, id) {
       ${usaCli ? `<div class="field full"><label style="display:flex;justify-content:space-between;align-items:center">Cliente <button type="button" class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:11px" onclick="docNuevoClienteRapido()">+ Nuevo cliente</button></label>
         <input type="text" id="dCliente" data-ac="1" value="${escapeHTML(doc.cliente||'')}" placeholder="Escribe para buscar cliente por nombre o RFC..." autocomplete="off" oninput="acCliente(this)" onfocus="acCliente(this)" onkeydown="acKey(event)"></div>` :
       `<div class="field full"><label>Proveedor</label><input type="text" id="dProveedor" value="${escapeHTML(doc.proveedor||'')}" placeholder="Escribe el proveedor..." autocomplete="off"></div>`}
-      <div class="field"><label>Vendedor</label><select id="dVendedor" onchange="docVendedorCambio(this.value)"><option value="">— Sin vendedor —</option>${vendedoresParaSelect().map(v=>`<option value="${escapeHTML(v.nombre)}" ${doc.vendedor===v.nombre?'selected':''}>${escapeHTML(v.nombre)}${v.pct?' · '+v.pct+'%':''}</option>`).join('')}</select></div>
+      <div class="field"><label>Vendedor</label><select id="dVendedor" onchange="docVendedorCambio(this.value)"><option value="">— Sin vendedor —</option>${vendedoresParaSelect().map(v=>`<option value="${escapeHTML(v.nombre)}" ${String(doc.vendedor||'').toUpperCase()===v.nombre?'selected':''}>${escapeHTML(v.nombre)}${v.pct?' · '+v.pct+'%':''}</option>`).join('')}</select></div>
       <div class="field"><label>Comisión % ${'<span style="color:var(--ink-4);font-weight:400">(auto según vendedor, editable)</span>'}</label><input type="number" step="0.1" id="dComisionPct" value="${doc.comision_pct!=null?doc.comision_pct:(doc.vendedor?comisionPctDe(doc.vendedor):'')}" placeholder="%" oninput="this.dataset.tocado=1"></div>
       <div class="field"><label>Estatus</label><select id="dEstatus">${(doc.estatus && !def.estatus.includes(doc.estatus) ? [doc.estatus].concat(def.estatus) : def.estatus).map(e=>`<option value="${e}" ${doc.estatus===e?'selected':''}>${e}</option>`).join('')}</select></div>
       <div class="field full"><label>Notas</label><textarea id="dNotas">${escapeHTML(doc.notas||'')}</textarea></div>
@@ -7271,7 +7272,7 @@ async function guardarDoc(tabla, id, opts) {
   const item = {
     folio,
     fecha: document.getElementById('dFecha').value,
-    vendedor: document.getElementById('dVendedor').value,
+    vendedor: String(document.getElementById('dVendedor').value||'').toUpperCase().trim(), // v3.73
     estatus: document.getElementById('dEstatus').value,
     subtotal: parseFloat(document.getElementById('dSubtotal').value)||0,
     iva: parseFloat(document.getElementById('dIva').value)||0,
@@ -9321,7 +9322,7 @@ function aplicarVendedoresCacheados() {
     for (const f of (arr||[])) {
       const v = buscarVendedorReal(f);
       if (v) {
-        f.vendedor = v.charAt(0) + v.slice(1).toLowerCase();
+        f.vendedor = String(v).toUpperCase(); // v3.73
         aplicados++;
       }
     }
@@ -9339,7 +9340,7 @@ function aplicarVendedoresCacheados() {
       const nombre = (cli.razon_social||cli.nombre_comercial||'').trim().toUpperCase();
       if (cliMap[nombre]) {
         const v = cliMap[nombre];
-        cli.vendedor = v.charAt(0) + v.slice(1).toLowerCase();
+        cli.vendedor = String(v).toUpperCase(); // v3.73
         aplicados++;
       }
     }

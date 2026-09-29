@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.7</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.7</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -2618,7 +2618,26 @@ function normalizarNombreCliente(s) {
 //   2. Match exacto por alias (también normalizados)
 //   3. Match parcial: si el nombre buscado contiene un cliente del catálogo (o viceversa)
 // Devuelve '' si no encuentra match.
-function vendedorDeCliente(nombreCliente) {
+// v3.67 — cambio de vendedor por fecha (catálogo: notas "Vendedor antes: ESTEBAN hasta 2026-04-30")
+// v1.9.7 — fecha del documento que paga un ingreso (para cambios de vendedor por fecha)
+let _nunDocFechaIdx = null, _nunDocFechaLen = -1;
+function nunFechaDocDeIngreso(ing){
+  const num = x => String(x||'').toUpperCase().replace(/^F-/, '').replace(/[^A-Z0-9]/g,'').replace(/^([A-Z]*)0+(\d)/, '$1$2');
+  if (!_nunDocFechaIdx || _nunDocFechaLen !== (cobranza||[]).length) {
+    _nunDocFechaIdx = {}; _nunDocFechaLen = (cobranza||[]).length;
+    (cobranza||[]).forEach(c => { const n = num(c.numero); if (n) _nunDocFechaIdx[n] = c.fecha_emision || c.fecha_entrega || ''; });
+  }
+  const f = String(ing && ing.factura || '').split(/[,;/]/)[0];
+  return _nunDocFechaIdx[num(f)] || (ing && ing.fecha) || '';
+}
+function nunVendCambio(c, fechaRef){
+  const v = String(c && c.vendedor || '').toUpperCase().trim();
+  if (!fechaRef) return v;
+  const m = String(c && c.notas || '').match(/vendedor\s+antes\s*:\s*([A-Za-zÁÉÍÓÚÑáéíóúñ]+)\s+hasta\s+(\d{4}-\d{2}-\d{2})/i);
+  if (m && String(fechaRef).slice(0,10) <= m[2]) return m[1].toUpperCase().trim();
+  return v;
+}
+function vendedorDeCliente(nombreCliente, fechaRef) {
   if (!nombreCliente) return '';
   if (!clientesCatalogo || clientesCatalogo.length === 0) return '';
   
@@ -2629,14 +2648,14 @@ function vendedorDeCliente(nombreCliente) {
   for (const c of clientesCatalogo) {
     if (c.activo === 'no' || c.activo === false) continue;
     const norm = normalizarNombreCliente(c.nombre_normalizado || c.nombre);
-    if (norm === buscar) return (c.vendedor || '').toUpperCase().trim();
+    if (norm === buscar) return nunVendCambio(c, fechaRef);
   }
   
   // 2. Match exacto por alias
   for (const c of clientesCatalogo) {
     if (c.activo === 'no' || c.activo === false) continue;
     const aliases = String(c.aliases || '').split('|').map(a => normalizarNombreCliente(a.trim())).filter(Boolean);
-    if (aliases.includes(buscar)) return (c.vendedor || '').toUpperCase().trim();
+    if (aliases.includes(buscar)) return nunVendCambio(c, fechaRef);
   }
   
   // 3. Match parcial: substring directo
@@ -2644,13 +2663,13 @@ function vendedorDeCliente(nombreCliente) {
     if (c.activo === 'no' || c.activo === false) continue;
     const norm = normalizarNombreCliente(c.nombre_normalizado || c.nombre);
     if (norm.length >= 5 && (norm.includes(buscar) || buscar.includes(norm))) {
-      return (c.vendedor || '').toUpperCase().trim();
+      return nunVendCambio(c, fechaRef);
     }
     // También en aliases
     const aliases = String(c.aliases || '').split('|').map(a => normalizarNombreCliente(a.trim())).filter(Boolean);
     for (const al of aliases) {
       if (al.length >= 5 && (al.includes(buscar) || buscar.includes(al))) {
-        return (c.vendedor || '').toUpperCase().trim();
+        return nunVendCambio(c, fechaRef);
       }
     }
   }
@@ -2677,7 +2696,7 @@ function vendedorDeCliente(nombreCliente) {
           if (palabrasCand.has(p)) compartidas++;
         }
         if (compartidas >= 2) {
-          return (c.vendedor || '').toUpperCase().trim();
+          return nunVendCambio(c, fechaRef);
         }
       }
     }
@@ -4806,7 +4825,7 @@ function filtrarIngresos() {
     if (cli && i.cliente !== cli) return false;
     if (cta && i.cuenta !== cta) return false;
     if (vend) {
-      const v = vendedorDeCliente(i.cliente);
+      const v = vendedorDeCliente(i.cliente, nunFechaDocDeIngreso(i));
       if (vend === '__SIN__') {
         if (v) return false;
       } else {
@@ -4847,7 +4866,7 @@ function renderIngresos() {
         ? `<td><button class="btn ghost" style="padding:4px 10px;font-size:11px;color:#dc2626" onclick="eliminarPagoIngreso('${i.id}')">Eliminar</button></td>` 
         : '';
       // v1.3.7: vendedor computado vía catálogo
-      const vendCli = vendedorDeCliente(i.cliente);
+      const vendCli = vendedorDeCliente(i.cliente, nunFechaDocDeIngreso(i));
       const colorVend = {EDGAR:'#c47b00',LUIS:'#1d4ed8',YADAH:'#be185d',ESTEBAN:'#374151'}[vendCli] || 'var(--mute)';
       const vendDisplay = vendCli 
         ? `<span class="tag" style="font-size:10px;color:${colorVend};font-weight:600">${vendCli}</span>` 
@@ -4858,7 +4877,7 @@ function renderIngresos() {
       const btnEliminar = puedeEliminar 
         ? `<button class="btn ghost" style="padding:4px 10px;font-size:11px;color:#dc2626;margin-top:6px" onclick="event.stopPropagation();eliminarPagoIngreso('${i.id}')">Eliminar</button>` 
         : '';
-      const vendCli = vendedorDeCliente(i.cliente);
+      const vendCli = vendedorDeCliente(i.cliente, nunFechaDocDeIngreso(i));
       const vendTag = vendCli ? `<span class="tag" style="font-size:10px">${vendCli}</span>` : '';
       return `<div class="card"><div class="card-head"><div class="card-title">${i.cliente||''}</div><div class="card-amount paid">${fmtFull(i.monto)}</div></div><div class="card-sub">${i.factura ? 'Factura: ' + i.factura : '—'}</div><div class="card-tags"><span class="card-date">${fmtFecha(i.fecha)}</span><span class="tag bold">${i.cuenta||''}</span>${vendTag}</div>${btnEliminar}</div>`;
     }).join('');
@@ -5783,7 +5802,7 @@ function exportarCSV(tabla) {
   } else if (tabla === 'ingresos') {
     data = filtrarIngresos();
     headers = ['Fecha','Cliente','Vendedor','Factura','Cuenta','Tipo','Monto'];
-    getRow = i => [i.fecha, i.cliente, vendedorDeCliente(i.cliente), i.factura||'', i.cuenta, i.tipo, i.monto];
+    getRow = i => [i.fecha, i.cliente, vendedorDeCliente(i.cliente, nunFechaDocDeIngreso(i)), i.factura||'', i.cuenta, i.tipo, i.monto];
   } else if (tabla === 'clientes') {
     data = (clientesCatalogo || []).slice();
     headers = ['ID','Nombre','Nombre normalizado','Vendedor','Alias','Notas','Activo','Creado'];
@@ -6741,7 +6760,7 @@ function calcularDatosVendedor(vend, desde, hasta, comoVendedor) {
       if (!ing.fecha) continue;
       const f = nunFechaLocal(ing.fecha);
       if (f < desde || f > hasta) continue;
-      const v = vendedorDeCliente(ing.cliente) || nunVendDeDocsCliente(ing.cliente); // v1.9.5
+      const v = vendedorDeCliente(ing.cliente, nunFechaDocDeIngreso(ing)) || nunVendDeDocsCliente(ing.cliente); // v1.9.5 · v1.9.7 fecha del doc
       if (v === vendUpper) {
         cobrado += parseFloat(ing.monto || 0);
         ingresosAtribuidos.push(ing);

@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.77 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.78 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2626,7 +2626,7 @@ const fmtFecha = (f) => {
 };
 const fmtFechaLarga = (f) => {
   if (!f) return '—';
-  const d = (f instanceof Date) ? f : new Date(f);
+  const d = (f instanceof Date) ? f : new Date(/^\d{4}-\d{2}-\d{2}$/.test(String(f)) ? f + 'T12:00:00' : f); // v3.78
   if (isNaN(d.getTime())) return String(f).substring(0,10);
   return d.toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric' });
 };
@@ -4943,6 +4943,8 @@ async function convertirDocConItems(origen, idOrigen, destino) {
         if (!_nuevo) _nuevo = _lista.filter(d => !_antes.has(String(d.id)) && _claves.includes(String(d.pedido_origen||''))).pop();
         if (_nuevo) {
           const _cam = { id:_nuevo.id, folio: nunEsFolioNUN(destino, _nuevo.folio) ? _nuevo.folio : nunFolioNUNde(destino, _lista), pedido_origen: _orig.folio || idOrigen };
+          { let _its = [], _oits = []; try { _its = JSON.parse(_nuevo.items_json||'[]'); } catch(e){} try { _oits = JSON.parse(_orig.items_json||'[]'); } catch(e){} // v3.78
+            if (!_its.length && _oits.length) { const _t = nunCalcDoc(_oits); _cam.items_json = JSON.stringify(_oits); _cam.subtotal = _t.subtotal; _cam.iva = _t.iva; _cam.total = _t.total; } }
           if (!_nuevo.vendedor && _orig.vendedor) _cam.vendedor = _orig.vendedor;
           await api({ accion:'erp_upsert_batch', tabla:destino, items:[_cam] });
           Object.assign(_nuevo, _cam); data.folio = _cam.folio;
@@ -7042,8 +7044,8 @@ function abrirDoc(tabla, id) {
     if (tabla === 'importaciones') acciones += `<button class="btn btn-secondary" onclick="cerrarImportacion('${id}')">Cerrar importación</button>`;
     if (tabla === 'facturas' && doc.uuid_sat && String(doc.metodo_pago||'') === 'PPD' && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunAbrirComplementoPago('${id}')">💵 Pago + complemento</button>`; // v3.75
     else if ((tabla === 'remisiones' || tabla === 'facturas') && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunPagoDesdeDoc('${tabla}','${id}')">💵 Registrar pago</button>`; // v3.74
-    if (tabla === 'facturas') nunRepsDeFactura(doc).forEach(r => { acciones += `<button class="btn btn-secondary" onclick="nunDescargarREP('${r.uuid}')">📃 XML ${r.folio}</button>`; }); // v3.75
-    acciones += `<button class="btn btn-secondary" onclick="imprimirDocumento('${tabla}','${id}')">📄 PDF</button>`;
+    if (tabla === 'facturas') nunRepsDeFactura(doc).forEach(r => { acciones += `<button class="btn btn-secondary" onclick="nunPdfREP('${r.uuid}')">📄 PDF ${r.folio}</button><button class="btn btn-secondary" onclick="nunDescargarREP('${r.uuid}')">📃 XML ${r.folio}</button>`; }); // v3.78
+    acciones += `<button class="btn btn-secondary" onclick="${['pedidos','remisiones','facturas'].includes(tabla) ? `nunPdfDoc('${tabla}','${id}')` : `imprimirDocumento('${tabla}','${id}')`}">📄 PDF</button>`; // v3.78
     if (tabla === 'facturas') acciones += `<button class="btn btn-secondary" onclick="descargarXMLCFDI('${id}')">📃 XML CFDI</button>`;
     // v3.38 — Timbrar con Facturama (solo facturas sin timbrar)
     if (tabla === 'facturas' && !doc.uuid_sat) acciones += `<button class="btn btn-primary" onclick="facturaTimbrar('${id}')">⚡ Timbrar SAT</button>`;
@@ -7054,7 +7056,7 @@ function abrirDoc(tabla, id) {
     wide: true, // v3.44 — editor de documentos más ancho
     title: id ? 'Editar '+def.singular : 'Nueva '+def.singular,
     sub: id ? doc.folio || 'ID '+(doc.id||'').substring(0,8) : '',
-    tabs:[{ key:'datos', label:'Datos', body: (id ? nunPanelDoc(tabla, doc, acciones) : '') + fields }].concat(id && ['pedidos','remisiones','facturas'].includes(tabla) ? [{ key:'rel', label:'Relacionados', body:`<div id="nunRelMount" data-id="${escapeHTML(String(id))}">${nunRelacionadosHTML(tabla, doc)}</div>` }] : []), // v3.77
+    tabs:[{ key:'datos', label:'Datos', body: (id ? nunPanelDoc(tabla, doc, acciones) : '') + fields }].concat(id && ['pedidos','remisiones','facturas'].includes(tabla) ? [{ key:'rel', label:'Relacionados', body:`<div id="nunRelMount" data-id="${escapeHTML(String(id))}">${nunRelacionadosHTML(tabla, doc)}</div>` }, { key:'arch', label:'📎 Archivos', body:`<div id="nunArchMount" data-id="${escapeHTML(String(id))}">${nunArchivosHTML(tabla, doc)}</div>` }] : []), // v3.77 · v3.78 Archivos
     footer: `
       ${id && !(tabla === 'facturas' && doc.uuid_sat) ? `<button class="btn btn-danger" onclick="eliminarDoc('${tabla}','${id}')">Eliminar</button>` : ''}
       <div style="flex:1"></div>
@@ -7065,7 +7067,7 @@ function abrirDoc(tabla, id) {
   });
   // Renderizar items después de que el drawer haya pintado
   setTimeout(() => { renderDocItems(); recalcularDocDesdeItems(); }, 50);
-  if (id && ['pedidos','remisiones','facturas'].includes(tabla)) nunAsegurarRelacionados(tabla, id); // v3.77
+  if (id && ['pedidos','remisiones','facturas'].includes(tabla)) nunAsegurarArchivos(tabla, id); // v3.77 · v3.78 (incluye Relacionados)
 }
 
 function renderDocItems() {
@@ -7361,6 +7363,162 @@ window.nunConfirmarComplementoPago = nunConfirmarComplementoPago;
 async function nunDescargarREP(uuid){ return cfdiDescargarXML(uuid); }
 window.nunDescargarREP = nunDescargarREP;
 // ============================================================
+// v3.78 — PDF de complementos de pago y pestaña "Archivos" (PDF y XML de todo lo ligado al documento)
+// ============================================================
+window._nunXml = window._nunXml || {};
+function nunXmlCache(uuid){ const u = String(uuid||''); return window._nunXml[u] || window._nunXml[u.toUpperCase()] || window._nunXml[u.toLowerCase()] || ((cfdiGetStore()[u]||{}).xml) || ''; }
+async function nunXmlDe(uuid){
+  let xml = nunXmlCache(uuid);
+  if (xml) return xml;
+  for (const u of [uuid, String(uuid).toUpperCase(), String(uuid).toLowerCase()]) {
+    try { const r = await api({ accion:'cfdi_xml_get', uuid:u }); if (r && r.ok && r.xml) { xml = r.xml; break; } } catch(e){}
+  }
+  if (xml) window._nunXml[String(uuid)] = xml;
+  return xml;
+}
+// Para el PDF de la factura: el timbre (QR y sellos) se toma del XML guardado en el servidor
+function nunTimbreDesdeXml(uuid, xml){
+  if (!uuid || !xml) return false;
+  const tm = cfdiGetTimbres(); if (tm[uuid]) return true;
+  const td = cfdiTimbreData(xml); if (!td) return false;
+  tm[uuid] = td; cfdiSetTimbres(tm); return true;
+}
+function nunLogoPDF(){
+  const br = (typeof brandingActual === 'function') ? brandingActual() : { logo:'' };
+  if (br && br.logo) return br.logo.trim().startsWith('<svg') ? br.logo.replace('<svg', '<svg class="logo" preserveAspectRatio="xMidYMid meet"') : `<img class="logo" src="${br.logo}" style="object-fit:contain">`;
+  const m = String(imprimirDocumento).match(/<svg class="logo-svg" viewBox[\s\S]*?<\/svg>/);
+  return m ? m[0].replace('class="logo-svg"', 'class="logo"') : '';
+}
+function nunAbrirHTML(html, w){
+  try {
+    if (w && !w.closed) { w.document.open(); w.document.write(html); w.document.close(); setTimeout(() => { try { w.print(); } catch(e){} }, 700); return; }
+    const url = URL.createObjectURL(new Blob([html], { type:'text/html' }));
+    const v = window.open(url, '_blank', 'width=900,height=700');
+    if (!v) { if (confirm('El navegador bloqueó la ventana. ¿Abrir el PDF en esta pestaña?')) window.location.href = url; return; }
+    setTimeout(() => { try { v.print(); } catch(e){} }, 800);
+  } catch(e) { toast('No se pudo abrir el PDF: ' + e.message, { type:'error' }); }
+}
+function nunVentanaCargando(){
+  try { const w = window.open('', '_blank', 'width=900,height=700'); if (w) w.document.write('<p style="font-family:sans-serif;padding:24px">Cargando PDF…</p>'); return w; } catch(e){ return null; }
+}
+// Lee el XML de un complemento de pago (Pagos 2.0)
+function nunLeerREP(xml){
+  const x = new DOMParser().parseFromString(xml, 'text/xml');
+  const all = Array.from(x.getElementsByTagName('*'));
+  const uno = ln => all.find(n => n.localName === ln);
+  const todos = ln => all.filter(n => n.localName === ln);
+  const at = (n, a) => n ? (n.getAttribute(a) || '') : '';
+  const comp = x.documentElement, emi = uno('Emisor'), rec = uno('Receptor'), tfd = uno('TimbreFiscalDigital');
+  const pagos = todos('Pago').map(p => ({
+    fecha: at(p,'FechaPago'), forma: at(p,'FormaDePagoP'), moneda: at(p,'MonedaP'), monto: +at(p,'Monto') || 0, operacion: at(p,'NumOperacion'),
+    docs: Array.from(p.getElementsByTagName('*')).filter(n => n.localName === 'DoctoRelacionado').map(d => ({
+      uuid: at(d,'IdDocumento'), serie: at(d,'Serie'), folio: at(d,'Folio'), parc: at(d,'NumParcialidad'),
+      ant: +at(d,'ImpSaldoAnt') || 0, pagado: +at(d,'ImpPagado') || 0, insoluto: +at(d,'ImpSaldoInsoluto') || 0, objeto: at(d,'ObjetoImpDR') }))
+  }));
+  return {
+    serie: at(comp,'Serie'), folio: at(comp,'Folio'), fecha: at(comp,'Fecha'), lugar: at(comp,'LugarExpedicion'),
+    emisor: { rfc: at(emi,'Rfc'), nombre: at(emi,'Nombre'), regimen: at(emi,'RegimenFiscal') },
+    receptor: { rfc: at(rec,'Rfc'), nombre: at(rec,'Nombre'), cp: at(rec,'DomicilioFiscalReceptor'), regimen: at(rec,'RegimenFiscalReceptor'), uso: at(rec,'UsoCFDI') },
+    uuid: at(tfd,'UUID'), pagos, total: pagos.reduce((s, p) => s + p.monto, 0)
+  };
+}
+function nunHtmlREP(xml){
+  const R = nunLeerREP(xml);
+  const emp = State.data.empresa || {};
+  const forma = k => { const f = (typeof SAT_FORMA_PAGO !== 'undefined' ? SAT_FORMA_PAGO : []).find(([c]) => c === k); return k + (f ? ' · ' + f[1] : ''); };
+  const e = escapeHTML, m = n => fmtFull(n);
+  const fechaL = s => { try { return fmtFechaLarga(String(s).substring(0,10)); } catch(x){ return s; } };
+  const td = cfdiTimbreData(xml); if (td && R.uuid) { const tm = cfdiGetTimbres(); if (!tm[R.uuid]) { tm[R.uuid] = td; cfdiSetTimbres(tm); } }
+  const timbre = R.uuid ? cfdiTimbreHTML({ uuid_sat: R.uuid }, 0) : '';
+  const filasDocs = R.pagos.map(p => p.docs.map(d => `<tr>
+      <td class="mono">${e((d.serie||'') + (d.folio||''))}</td><td class="mono" style="font-size:8.5px">${e(d.uuid)}</td>
+      <td class="r">${e(d.parc)}</td><td class="r">${m(d.ant)}</td><td class="r"><b>${m(d.pagado)}</b></td><td class="r">${m(d.insoluto)}</td></tr>`).join('')).join('');
+  const bloquesPago = R.pagos.map(p => `<div class="caja"><div class="lbl">Pago recibido</div>
+      <div class="g4"><div><span>Fecha de pago</span><b>${e(fechaL(p.fecha))}</b></div><div><span>Forma de pago</span><b>${e(forma(p.forma))}</b></div>
+      <div><span>Monto</span><b>${m(p.monto)} ${e(p.moneda||'MXN')}</b></div><div><span>Núm. de operación</span><b>${e(p.operacion||'—')}</b></div></div></div>`).join('');
+  const css = `@page{size:letter;margin:12mm 14mm}*{box-sizing:border-box}body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#0a0c0f;margin:0;font-size:10.5px;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .head{display:flex;justify-content:space-between;padding:18px 22px;background:#0a0c0f;color:#fff;border-radius:10px}.logo{width:78px;height:40px;display:block;margin-bottom:10px}
+    .emp{font-size:13px;font-weight:700}.emp-d{font-size:9px;color:rgba(255,255,255,.75);line-height:1.55}.tit{text-align:right}.tit .l{font-size:9px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.16em}
+    .tit .f{font-family:'Courier New',monospace;font-size:28px;font-weight:700;line-height:1.1}.tit .x{font-size:9.5px;color:rgba(255,255,255,.75);margin-top:6px}
+    .dos{display:grid;grid-template-columns:1.3fr 1fr;gap:8px;margin:12px 0}.caja{padding:11px 14px;background:#f5f6f8;border:1px solid #e9ecef;border-radius:8px;margin-bottom:8px}
+    .lbl{font-size:8.5px;color:#8a8d94;text-transform:uppercase;letter-spacing:.12em;font-weight:700;margin-bottom:4px}.nom{font-size:12px;font-weight:700}.inf{font-size:9.5px;color:#555;margin-top:2px}
+    .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.g4 span{display:block;font-size:8.5px;color:#8a8d94}.g4 b{font-size:11px}
+    table{width:100%;border-collapse:collapse;font-size:10px;margin-top:4px}th{background:#0a0c0f;color:#fff;padding:8px 9px;text-align:left;font-size:8.5px;text-transform:uppercase;letter-spacing:.08em}
+    td{padding:8px 9px;border-bottom:1px solid #eef0f3}.r{text-align:right;font-family:'Courier New',monospace}.mono{font-family:'Courier New',monospace}
+    .tot{display:flex;justify-content:space-between;margin-top:10px;padding:11px 14px;background:#0a0c0f;color:#fff;border-radius:8px;font-weight:700;font-size:13px}
+    .letras{margin-top:8px;padding:9px 14px;background:#f5f6f8;border-left:3px solid #0a0c0f;border-radius:0 8px 8px 0;font-size:10px}
+    .pie{margin-top:20px;padding-top:12px;border-top:1px solid #e9ecef;font-size:8.5px;color:#8a8d94;text-align:center}`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Complemento de pago ${e(R.serie + R.folio)}</title><style>${css}</style></head><body>
+    <div class="head"><div>${nunLogoPDF()}<div class="emp">${e(R.emisor.nombre || emp.razon_social || '')}</div>
+      <div class="emp-d">RFC: ${e(R.emisor.rfc)} · Régimen: ${e(R.emisor.regimen)}<br>Lugar de expedición: CP ${e(R.lugar)}</div></div>
+      <div class="tit"><div class="l">Complemento de pago</div><div class="f">${e(R.serie + R.folio)}</div>
+      <div class="x">Emitido: <b>${e(fechaL(R.fecha))}</b><br>CFDI tipo P · Pagos 2.0</div></div></div>
+    <div class="dos"><div class="caja" style="margin:0"><div class="lbl">Cliente</div><div class="nom">${e(R.receptor.nombre)}</div>
+      <div class="inf"><b>RFC:</b> ${e(R.receptor.rfc)} · <b>CP:</b> ${e(R.receptor.cp)}</div><div class="inf"><b>Régimen:</b> ${e(R.receptor.regimen)} · <b>Uso CFDI:</b> ${e(R.receptor.uso)}</div></div>
+      <div class="caja" style="margin:0"><div class="lbl">Concepto</div><div class="inf">84111506 · Pago · Unidad ACT · Importe $0.00</div><div class="inf">Moneda del comprobante: XXX</div></div></div>
+    ${bloquesPago}
+    <div class="lbl" style="margin-top:6px">Factura(s) que se pagan</div>
+    <table><thead><tr><th>Factura</th><th>Folio fiscal (UUID)</th><th class="r">Parcialidad</th><th class="r">Saldo anterior</th><th class="r">Pagado</th><th class="r">Saldo pendiente</th></tr></thead><tbody>${filasDocs}</tbody></table>
+    <div class="tot"><span>TOTAL PAGADO</span><span class="mono">${m(R.total)}</span></div>
+    <div class="letras"><b>Con letra:</b> ${e(numeroALetras(R.total))} M.N.</div>
+    ${timbre}
+    <div class="pie">Generado por <b>NUN ERP</b> · ${new Date().toLocaleString('es-MX',{dateStyle:'long',timeStyle:'short'})}</div></body></html>`;
+}
+async function nunPdfREP(uuid){
+  let xml = nunXmlCache(uuid), w = null;
+  if (!xml) { w = nunVentanaCargando(); xml = await nunXmlDe(uuid); }
+  if (!xml) { if (w) w.close(); toast('No encontré el XML de este complemento en el servidor', { type:'error' }); return; }
+  let html; try { html = nunHtmlREP(xml); } catch(e) { if (w) w.close(); toast('No se pudo leer el XML del complemento: ' + e.message, { type:'error' }); return; }
+  nunAbrirHTML(html, w);
+}
+// PDF de un documento; en facturas timbradas primero asegura el timbre (QR y sellos) desde el XML del servidor
+async function nunPdfDoc(tabla, id){
+  const doc = (State.data[tabla]||[]).find(d => String(d.id) === String(id));
+  if (!doc) { toast('No encontré el documento', { type:'error' }); return; }
+  if (tabla === 'facturas' && doc.uuid_sat && !cfdiGetTimbres()[doc.uuid_sat]) {
+    const x = nunXmlCache(doc.uuid_sat);
+    if (x) nunTimbreDesdeXml(doc.uuid_sat, x);
+    else { const xml = await nunXmlDe(doc.uuid_sat); if (xml) nunTimbreDesdeXml(doc.uuid_sat, xml); }
+  }
+  imprimirDocumento(tabla, doc.id);
+}
+// Pestaña "Archivos": una fila por documento con sus botones PDF y XML
+function nunArchivosHTML(tabla, doc){
+  const R = nunRelDoc(tabla, doc);
+  const et = { pedidos:'Pedido', remisiones:'Remisión', facturas:'Factura', notascredito:'Nota de crédito' };
+  const b = (txt, on) => `<button class="btn btn-secondary" style="font-size:11.5px;padding:4px 10px" onclick="${on}">${txt}</button>`;
+  const nada = '<span style="font-size:11px;color:var(--ink-4)">—</span>';
+  const fila = (tipo, folio, sub, pdf, xml, actual) => `<tr style="border-top:1px solid var(--line);${actual ? 'background:var(--bg-2,#fafafa)' : ''}">
+      <td style="padding:8px 6px;font-size:12px"><b>${tipo}</b> <span class="mono">${escapeHTML(String(folio||''))}</span>${actual ? ' <span class="tag" style="font-size:10px">este</span>' : ''}<br><span style="color:var(--ink-3);font-size:11px">${sub}</span></td>
+      <td style="padding:8px 6px;text-align:center">${pdf || nada}</td><td style="padding:8px 6px;text-align:center">${xml || nada}</td></tr>`;
+  const docs = [];
+  [['pedidos', R.pedidos], ['remisiones', R.remisiones], ['facturas', R.facturas]].forEach(([t, arr]) => arr.forEach(d => {
+    const tim = t === 'facturas' && d.uuid_sat;
+    docs.push(fila(et[t], nunFolioStr(d), `${fmtFecha(d.fecha)} · ${fmtFull(d.total)}${tim ? ' · timbrada' : ''}${/cancel/i.test(d.estatus||'') ? ' · cancelada' : ''}`,
+      b('📄 PDF', `nunPdfDoc('${t}','${d.id}')`), tim ? b('📃 XML', `cfdiDescargarXML('${d.uuid_sat}')`) : (t === 'facturas' ? '<span style="font-size:11px;color:var(--ink-4)">sin timbrar</span>' : ''), t === tabla && d.id === doc.id));
+  }));
+  const reps = R.reps.map(r => fila('Complemento de pago', r.folio, `${fmtFecha(r.fecha)} · factura ${escapeHTML(String(r.factura))} · parcialidad ${r.parc} · ${fmtFull(r.monto)}`,
+    b('📄 PDF', `nunPdfREP('${r.uuid}')`), b('📃 XML', `nunDescargarREP('${r.uuid}')`)));
+  const ncs = R.ncs.map(n => fila(et.notascredito, nunFolioStr(n), `${fmtFecha(n.fecha)} · ${fmtFull(n.total)}`,
+    b('📄 PDF', `imprimirDocumento('notascredito','${n.id}')`), n.uuid_sat ? b('📃 XML', `cfdiDescargarXML('${n.uuid_sat}')`) : ''));
+  const seccion = (titulo, filas) => filas.length ? `<tr><td colspan="3" style="padding:12px 6px 4px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3)">${titulo} (${filas.length})</td></tr>${filas.join('')}` : '';
+  return `<table style="width:100%;border-collapse:collapse">
+    <thead><tr style="font-size:11px;color:var(--ink-3);text-align:left"><th style="padding:4px 6px">Documento</th><th style="width:90px;text-align:center">PDF</th><th style="width:90px;text-align:center">XML</th></tr></thead>
+    <tbody>${seccion('Documentos', docs)}${seccion('Complementos de pago', reps) || (tabla === 'facturas' ? '<tr><td colspan="3" style="padding:12px 6px;font-size:12px;color:var(--ink-4)">Sin complementos de pago</td></tr>' : '')}${seccion('Notas de crédito', ncs)}</tbody></table>
+    <div style="font-size:11.5px;color:var(--ink-3);margin-top:10px">El PDF se abre listo para imprimir o guardar como PDF. El XML se descarga tal como quedó ante el SAT.</div>`;
+}
+// Refresca la pestaña y deja listos los XML (para que el PDF salga con QR y abra sin esperar)
+async function nunAsegurarArchivos(tabla, id){
+  const pintar = () => { const m = document.getElementById('nunArchMount'); const doc = (State.data[tabla]||[]).find(d => d.id === id); if (m && doc && m.dataset.id === String(id)) m.innerHTML = nunArchivosHTML(tabla, doc); return doc; };
+  try { await nunAsegurarRelacionados(tabla, id); } catch(e){}
+  const doc = pintar(); if (!doc) return;
+  const R = nunRelDoc(tabla, doc);
+  const uuids = R.facturas.filter(f => f.uuid_sat).map(f => f.uuid_sat).concat(R.reps.map(r => r.uuid));
+  await Promise.all(uuids.filter(u => !nunXmlCache(u)).map(u => nunXmlDe(u).catch(() => '')));
+  R.facturas.forEach(f => { if (f.uuid_sat) nunTimbreDesdeXml(f.uuid_sat, nunXmlCache(f.uuid_sat)); });
+}
+window.nunPdfREP = nunPdfREP; window.nunPdfDoc = nunPdfDoc; window.nunAsegurarArchivos = nunAsegurarArchivos;
+// ============================================================
 // v3.77 — Documentos conectados: pedido → remisiones → facturas → complementos de pago, notas de crédito y pagos
 // ============================================================
 function nunFolioStr(d){ return String((d && d.folio) != null ? d.folio : '').trim(); }
@@ -7431,7 +7589,7 @@ function nunPanelDoc(tabla, doc, acciones){
   ].filter(Boolean).join(' · ');
   return `<div style="border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px;background:var(--bg-2,#fafafa)">
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${cadena.join('<span style="color:var(--ink-4)">→</span>') || '<span style="font-size:12px;color:var(--ink-3)">Sin documentos ligados</span>'}</div>
-    <div style="font-size:12.5px;margin-top:8px;color:var(--ink-2)">${info} <a onclick="drawerCambiarTab('rel')" style="cursor:pointer;text-decoration:underline;margin-left:6px">ver detalle</a></div>
+    <div style="font-size:12.5px;margin-top:8px;color:var(--ink-2)">${info} <a onclick="drawerCambiarTab('rel')" style="cursor:pointer;text-decoration:underline;margin-left:6px">ver detalle</a> · <a onclick="drawerCambiarTab('arch')" style="cursor:pointer;text-decoration:underline">📎 archivos</a></div>
     ${acciones ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">${acciones}</div>` : ''}
   </div>`;
 }
@@ -12613,7 +12771,7 @@ function facturaDatosTimbrado(idFactura){
         <div class="field"><label>Forma de pago *</label><select id="ftForma"><option value="">— Elige —</option>${opt(SAT_FORMA_PAGO, doc.forma_pago||'')}</select></div>
         <div class="field full"><label>Uso de CFDI *</label><select id="ftUso" ${cli.publico?'disabled':''}><option value="">— Elige —</option>${opt(SAT_USO_CFDI, usoIni)}</select></div>
       </div>
-      <div style="font-size:11.5px;color:var(--ink-3);margin:4px 0 12px">PUE = ya pagó (elige cómo). PPD = paga después: forma 99 y al cobrar se hace el complemento de pago (hoy desde Facturama).</div>
+      <div style="font-size:11.5px;color:var(--ink-3);margin:4px 0 12px">PUE = ya pagó (elige cómo). PPD = paga después: forma 99 y al cobrar se hace el complemento de pago desde la factura (botón 💵 Pago + complemento).</div>
       <table style="width:100%;border-collapse:collapse"><thead><tr style="font-size:11px;color:var(--ink-3);text-align:left"><th>Producto</th><th style="text-align:right">Cant.</th><th style="width:48%">Clave SAT *</th></tr></thead><tbody>${filas}</tbody></table>
       <label style="display:flex;gap:8px;align-items:center;font-size:12px;margin-top:10px"><input type="checkbox" id="ftGuardarClaves" checked> Guardar estas claves en el catálogo de productos (la próxima vez ya salen)</label>
       <div id="ftError" style="color:var(--red);font-size:12.5px;margin-top:10px;white-space:pre-line"></div>

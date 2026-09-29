@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.66 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.67 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -5652,7 +5652,7 @@ const _nunNumDoc = x => String(x||'').toUpperCase().replace(/^F-/, '').replace(/
 const _nunNormCli = s => String(s||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
 function nunVendedorDeDoc(c){
   let v = String(c && c.vendedor || '').toUpperCase().trim();
-  if (!v && typeof vendedorDeClienteCat === 'function' && typeof _catClientes !== 'undefined' && _catClientes.length) v = String(vendedorDeClienteCat(c.cliente)||'').toUpperCase().trim();
+  if (!v && typeof vendedorDeClienteCat === 'function' && typeof _catClientes !== 'undefined' && _catClientes.length) v = String(vendedorDeClienteCat(c.cliente, c.fecha_emision || c.fecha)||'').toUpperCase().trim(); // v3.67
   return v;
 }
 // Índices para ligar un ingreso con su documento de cobranza
@@ -5667,14 +5667,15 @@ function _nunIndicesCobranza(){
 function nunVendedorDeIngreso(i, idx){
   idx = idx || _nunIndicesCobranza();
   // v3.65 — igual que el CRM (validado vs Excel): primero el vendedor del CLIENTE en el catálogo
-  if (typeof vendedorDeClienteCat === 'function' && typeof _catClientes !== 'undefined' && _catClientes.length) { const vc = String(vendedorDeClienteCat(i.cliente)||'').toUpperCase().trim(); if (vc) return { v: vc, doc: null }; }
   const f = String(i.factura||'').split(/[,;/]/)[0];
   const d = idx.porNum[_nunNumDoc(f)];
+  // v3.67 — la fecha del documento decide si aplica un cambio de vendedor del catálogo
+  if (typeof vendedorDeClienteCat === 'function' && typeof _catClientes !== 'undefined' && _catClientes.length) { const vc = String(vendedorDeClienteCat(i.cliente, (d && (d.fecha_emision || d.fecha)) || i.fecha)||'').toUpperCase().trim(); if (vc) return { v: vc, doc: null }; }
   if (d) { const v = nunVendedorDeDoc(d); if (v) return { v, doc:d }; }
   const docs = idx.porCli[_nunNormCli(i.cliente)] || [];
   const cuenta = {}; docs.forEach(c => { const v = nunVendedorDeDoc(c); if (v) cuenta[v] = (cuenta[v]||0) + 1; });
   let v = Object.entries(cuenta).sort((a,b)=>b[1]-a[1])[0]; v = v ? v[0] : '';
-  if (!v && typeof vendedorDeClienteCat === 'function' && typeof _catClientes !== 'undefined' && _catClientes.length) v = String(vendedorDeClienteCat(i.cliente)||'').toUpperCase().trim();
+  if (!v && typeof vendedorDeClienteCat === 'function' && typeof _catClientes !== 'undefined' && _catClientes.length) v = String(vendedorDeClienteCat(i.cliente, (d && (d.fecha_emision || d.fecha)) || i.fecha)||'').toUpperCase().trim();
   return { v, doc: d || null };
 }
 // v3.61 — Notas de crédito desde el respaldo de Bind (completa cliente, factura origen y estatus; agrega las que faltan)
@@ -8756,7 +8757,15 @@ function _normCliCat(s) {
 }
 
 
-function vendedorDeClienteCat(nombreCliente) {
+// v3.67 — cambio de vendedor por fecha (catálogo: notas "Vendedor antes: ESTEBAN hasta 2026-04-30")
+function nunVendCambio(c, fechaRef){
+  const v = String(c && c.vendedor || '').toUpperCase().trim();
+  if (!fechaRef) return v;
+  const m = String(c && c.notas || '').match(/vendedor\s+antes\s*:\s*([A-Za-zÁÉÍÓÚÑáéíóúñ]+)\s+hasta\s+(\d{4}-\d{2}-\d{2})/i);
+  if (m && String(fechaRef).slice(0,10) <= m[2]) return m[1].toUpperCase().trim();
+  return v;
+}
+function vendedorDeClienteCat(nombreCliente, fechaRef) {
   if (!nombreCliente) return '';
   if (!_catClientes || _catClientes.length === 0) return '';
   
@@ -8767,14 +8776,14 @@ function vendedorDeClienteCat(nombreCliente) {
   for (const c of _catClientes) {
     if (c.activo === 'no' || c.activo === false) continue;
     const norm = _normCliCat(c.nombre_normalizado || c.nombre);
-    if (norm === buscar) return (c.vendedor || '').toUpperCase().trim();
+    if (norm === buscar) return nunVendCambio(c, fechaRef);
   }
   
   // 2. Match exacto por alias
   for (const c of _catClientes) {
     if (c.activo === 'no' || c.activo === false) continue;
     const aliases = String(c.aliases || '').split('|').map(a => _normCliCat(a.trim())).filter(Boolean);
-    if (aliases.includes(buscar)) return (c.vendedor || '').toUpperCase().trim();
+    if (aliases.includes(buscar)) return nunVendCambio(c, fechaRef);
   }
   
   // 3. Match parcial: substring directo
@@ -8782,13 +8791,13 @@ function vendedorDeClienteCat(nombreCliente) {
     if (c.activo === 'no' || c.activo === false) continue;
     const norm = _normCliCat(c.nombre_normalizado || c.nombre);
     if (norm.length >= 5 && (norm.includes(buscar) || buscar.includes(norm))) {
-      return (c.vendedor || '').toUpperCase().trim();
+      return nunVendCambio(c, fechaRef);
     }
     // También en aliases
     const aliases = String(c.aliases || '').split('|').map(a => _normCliCat(a.trim())).filter(Boolean);
     for (const al of aliases) {
       if (al.length >= 5 && (al.includes(buscar) || buscar.includes(al))) {
-        return (c.vendedor || '').toUpperCase().trim();
+        return nunVendCambio(c, fechaRef);
       }
     }
   }
@@ -8815,7 +8824,7 @@ function vendedorDeClienteCat(nombreCliente) {
           if (palabrasCand.has(p)) compartidas++;
         }
         if (compartidas >= 2) {
-          return (c.vendedor || '').toUpperCase().trim();
+          return nunVendCambio(c, fechaRef);
         }
       }
     }

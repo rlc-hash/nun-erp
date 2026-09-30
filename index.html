@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.88 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.89 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3704,7 +3704,7 @@ function abrirFormGenerico(modKey, id) {
     body:`<div class="form-grid"><div class="field full"><label>ID</label><input type="text" readonly value="${escapeHTML(item.id||'')}"></div></div>` });
 
   const footer = `
-    ${id ? `<button class="btn btn-danger" onclick="eliminarGenerico('${modKey}','${id}')">Eliminar</button>` : ''}
+    ${id ? (schema.tabla === 'ingresos' ? `<button class="btn btn-danger" onclick="nunCancelarIngreso('${id}')">Cancelar pago</button>` : `<button class="btn btn-danger" onclick="eliminarGenerico('${modKey}','${id}')">Eliminar</button>`) : ''}
     <div style="flex:1"></div>
     <button class="btn btn-secondary" onclick="cerrarDrawer()">Cancelar</button>
     <button class="btn btn-primary" onclick="guardarGenerico('${modKey}','${id||''}')">Guardar</button>
@@ -4009,7 +4009,7 @@ async function eliminarGenerico(modKey, id) {
     cambio = { id, monto:0 }; cambio[campo] = 'CANCELADO ' + nunHoy() + ' (era ' + fmtFull(row.monto) + ') · ' + String(row[campo]||'');
     texto = 'Se marca CANCELADO con monto $0 (no se borra; el monto original queda escrito en ' + campo + ').';
   }
-  else if (tabla === 'ingresos') { toast('Un pago se quita desde Cobranza (abre el documento → Eliminar pago) para que el saldo cuadre', { type:'error', duration:7000 }); return; }
+  else if (tabla === 'ingresos') { return nunCancelarIngreso(id); } // v3.89 — se cancela el pago y regresa el saldo
   else { toast('Por regla del sistema no se borran datos', { type:'error', duration:5000 }); return; }
   const ok = await confirmDialog({ title: '¿Cancelar ' + schema.singular.toLowerCase() + '?', message: texto, ok: 'Sí, cancelar', danger: true });
   if (!ok) return;
@@ -4638,6 +4638,48 @@ async function eliminarPagoManual(timestamp, idDoc) {
     toast('✓ Pago anulado');
   } catch(e) { toast('Error: ' + e.message, { type:'error' }); }
 }
+// v3.89 — CANCELAR UN PAGO desde Ingresos (también los que vinieron de Bind). No se borra nada:
+// el ingreso queda con tipo CANCELADO (ya no suma) y el documento en Cobranza recupera ese saldo.
+// Si el pago se capturó en el sistema (tiene renglón en PagosClientes) se usa la anulación del servidor (v0.9.9+).
+async function nunCancelarIngreso(idIngreso){
+  if (!(nunEsAdmin() || esSesionDueno())) { toast('Solo un administrador puede cancelar pagos', { type:'error' }); return; }
+  await Promise.all([cargarTabla('ingresos'), cargarTabla('cobranza'), cargarTabla('pagosclientes')]);
+  const ing = (State.data.ingresos||[]).find(i => String(i.id) === String(idIngreso));
+  if (!ing) { toast('No encontré ese pago (¿ya estaba cancelado?)', { type:'error' }); return; }
+  const monto = +ing.monto || 0;
+  const k = _nunNumDoc(String(ing.factura||'').split(/[,;/]/)[0]);
+  const cobs = (State.data.cobranzaTodos || State.data.cobranza || []).filter(c => k && _nunNumDoc(c.numero) === k && String(c.cliente||'').trim().toUpperCase() === String(ing.cliente||'').trim().toUpperCase());
+  const cob = cobs.length === 1 ? cobs[0] : null;
+  const pc = (State.data.pagosclientes||[]).find(p => String(p.ingreso_id||'') === String(ing.id) && (+p.monto||0) > 0);
+  const efecto = cob ? 'El documento ' + (cob.numero||'') + ' pasa de cobrado ' + fmtFull(cob.cobrado) + ' a ' + fmtFull(Math.max(0, nunR2((+cob.cobrado||0) - monto))) + ' (su saldo sube ' + fmtFull(monto) + ').'
+    : (cobs.length > 1 ? '⚠ Hay ' + cobs.length + ' documentos con la referencia «' + (ing.factura||'') + '»: el saldo NO se toca; ajústalo en el Cuadre del cliente.' : '⚠ No encontré el documento «' + (ing.factura||'sin referencia') + '» en Cobranza: solo se cancela el pago; revisa el saldo en el Cuadre del cliente.');
+  const motivo = prompt('Cancelar el pago de ' + fmtFull(monto) + ' de ' + (ing.cliente||'') + ' (' + fmtFecha(ing.fecha) + ', ' + (ing.cuenta||'') + ').\n\n' + efecto + '\n\nEscribe el motivo:', '');
+  if (motivo === null) return;
+  if (!String(motivo).trim()) { toast('Escribe el motivo para cancelar el pago', { type:'error' }); return; }
+  const ok = await confirmDialog({ title:'¿Cancelar este pago?', message: fmtFull(monto) + ' · ' + (ing.cliente||'') + '. ' + efecto + ' El pago no se borra: queda como CANCELADO.', ok:'Cancelar pago', danger:true });
+  if (!ok) return;
+  nunOcupado('Cancelando el pago…');
+  try {
+    if (pc && await nunServidorAlMenos(0,9,9)) {
+      const r = await api({ accion:'editar_pago_manual', timestamp: pc.timestamp, id_doc: pc.id_doc, nuevo_monto:0, codigo_usuario: State.sesion.codigo });
+      if (!(r && r.ok)) throw new Error((r && r.error) || 'el servidor no confirmó');
+      await nunGuardarSeguro('ingresos', { id: ing.id, comentarios: 'CANCELADO ' + nunHoy() + ' · ' + motivo + ' · ' + String(ing.comentarios||'') });
+    } else {
+      const ok1 = await nunGuardarSeguro('ingresos', { id: ing.id, tipo: 'CANCELADO', comentarios: 'CANCELADO ' + nunHoy() + ' · ' + motivo + ' · ' + String(ing.comentarios||'') });
+      if (!ok1) throw new Error('no se pudo marcar el pago como cancelado');
+      if (cob) {
+        const cobrado = Math.max(0, nunR2((+cob.cobrado||0) - monto));
+        const ok2 = await nunGuardarSeguro('cobranza', { id: cob.id, cobrado, pendiente: Math.max(0, nunR2((+cob.total||0) - cobrado)), descripcion: String(cob.descripcion||'') + ' · Pago ' + fmtFull(monto) + ' del ' + nunHoy() + ' cancelado: ' + motivo });
+        if (!ok2) toast('⚠ El pago quedó cancelado pero no se pudo ajustar el saldo de ' + (cob.numero||'') + '. Ajústalo en el Cuadre.', { type:'error', duration:12000 });
+      }
+    }
+    nunOcupado('');
+    await Promise.all([cargarTabla('ingresos'), cargarTabla('cobranza'), cargarTabla('pagosclientes')]);
+    try { cerrarDrawer(); } catch(e){} renderCurrent();
+    toast('✓ Pago cancelado' + (cob ? ' · ' + (cob.numero||'') + ' recuperó su saldo' : ''), { type:'success', duration:7000 });
+  } catch(e) { nunOcupado(''); toast('✗ No se canceló: ' + e.message, { type:'error', duration:9000 }); }
+}
+window.nunCancelarIngreso = nunCancelarIngreso;
 // v3.82 — corregir el monto de un pago parcial (ej. se capturó 5,000 y eran 4,500)
 async function nunCambiarMontoPago(timestamp, idDoc, montoActual) {
   if (!(nunEsAdmin() || esSesionDueno())) { toast('Solo un administrador puede cambiar pagos', { type:'error' }); return; }

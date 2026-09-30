@@ -26,6 +26,6 @@ setTimeout(async()=>{const r={};try{
  const precios=()=>filas().map(f=>f.querySelectorAll('input[type=number]')[1].value);
  r.precios=precios(); r.totales=d.getElementById('erpPedTotales').textContent.replace(/\s+/g,' ').trim();
  d.getElementById('erpPrecioTodos').value='0'; w.eval("erpAplicarPrecioTodos()"); r.ceroNoCambia=precios().every(v=>v==='1550');
- r.fallas=[]; if(r.version!=='v1.9.13') r.fallas.push('version'); if(!r.dueno.admin||!r.dueno.todos) r.fallas.push('dueno');
+ r.fallas=[]; if(!/^v1\.9\.(1[3-9]|[2-9]\d)$/.test(r.version)) r.fallas.push('version'); if(!r.dueno.admin||!r.dueno.todos) r.fallas.push('dueno');
  if(r.precios.join()!=='1550,1550,1550'||!/Total: \$10,788\.00/.test(r.totales)||!r.ceroNoCambia) r.fallas.push('precioTodos');
 }catch(e){r.error=String(e.stack).slice(0,600)} r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();},3000);

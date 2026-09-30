@@ -38,7 +38,7 @@ setTimeout(async()=>{const r={};try{
  r.dueno={admin:w.eval("nunEsAdmin()"),soloConsulta:w.eval("nunSoloConsulta()"),usuarios:w.eval("moduloPermitido('usuarios')"),gastos:w.eval("moduloPermitido('gastos')")};
  // 2) Bind apagado: no se pide nada a Bind
  const antes=enviados.length; await w.eval("sincronizarConBindAhora(false)"); await w.eval("bindFetch('/api/Clients').catch(e=>window.__bindErr=e.message)");
- r.bind={pidioBind:enviados.slice(antes).some(b=>b.accion==='bind_proxy'),error:w.__bindErr||''};
+ r.bind={pidioBind:enviados.slice(antes).some(b=>b.accion==='bind_proxy'),mensaje:w.__bindErr||''};
  // 3) complemento para factura de Bind
  await w.eval("nunAbrirComplementoPago('bind_fac_1')"); await sleep(200);
  const mr=d.getElementById('modalREP'); const fb=DB.facturas.find(f=>f.id==='bind_fac_1');
@@ -65,7 +65,7 @@ setTimeout(async()=>{const r={};try{
  await w.eval("nunCambiarCodigoUsuario('EDGAR-K7P2QX9',{codigo:'ABC',nombre:'Edgar',rol:'vendedor',vendedor_asignado:'EDGAR',permisos:{}})"); r.codigo.cortoRechazado=DB.usuarios.length===2;
  r.fallas=[];
  if(!r.dueno.admin||r.dueno.soloConsulta||!r.dueno.gastos) r.fallas.push('dueno');
- if(r.bind.pidioBind||!/ya no se usa/.test(r.bind.error)) r.fallas.push('bind');
+ if(r.bind.pidioBind||!/ya no se usa/.test(r.bind.mensaje)) r.fallas.push('bind');
  if(!r.repBind.abre||r.repBind.metodoGuardado!=='PPD'||r.repBind.saldoAnt!=='1000'||!/parcialidad/.test(r.repBind.sinParc||'')) r.fallas.push('repBindAbre');
  if(!r.repBind.cfdi||r.repBind.cfdi.parc!==2||r.repBind.cfdi.ant!==1000||r.repBind.cfdi.insoluto!==600||r.repBind.saldoDespues!==600) r.fallas.push('repBindCfdi');
  if(r.nc.tipo!=='E'||r.nc.serie!=='NC'||r.nc.folio!=='0001'||r.nc.uso!=='G02'||!/^01:aaaa0000/.test(r.nc.rel)||r.nc.item!=='84111506 ACT 200.00 32.00 232.00') r.fallas.push('ncCfdi');

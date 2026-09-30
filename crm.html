@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.13</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.14</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.13</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.14</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -2557,6 +2557,22 @@ const KEY_CACHE_CLI = 'nun_cache_clientes';
 // ============================================================
 // Escapa texto de la base antes de meterlo en HTML (evita que un nombre con <img onerror> ejecute código)
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+// v1.9.14 — el servidor (v0.9.9) pide el código del usuario en TODAS las llamadas: se agrega solo
+// a cualquier llamada al servidor que no lo traiga (así no falla ninguna pantalla vieja)
+(function(){
+  const f0 = window.fetch; if (!f0 || f0._nunCodigo) return;
+  const f1 = function(url, init){
+    try {
+      const u = String(url || ''); const cod = (typeof sesionActual !== 'undefined' && sesionActual && sesionActual.codigo) ? sesionActual.codigo : '';
+      if (cod && /^https:\/\/script\.google(usercontent)?\.com\//.test(u)) {
+        if (init && typeof init.body === 'string') { const b = JSON.parse(init.body); if (b && typeof b === 'object' && !b.codigo) { b.codigo = cod; init = Object.assign({}, init, { body: JSON.stringify(b) }); } }
+        else if ((!init || !init.body) && /[?&]tabla=/.test(u) && !/[?&]codigo=/.test(u)) url = u + '&codigo=' + encodeURIComponent(cod);
+      }
+    } catch(e){}
+    return f0.call(this, url, init);
+  };
+  f1._nunCodigo = true; window.fetch = f1;
+})();
 // Para onclick="fn(${jsq(id)})": cadena JS segura dentro de un atributo HTML
 function jsq(s){ return esc(JSON.stringify(String(s==null?'':s))); }
 // Solo ligas http(s) (nada de javascript:)
@@ -10294,7 +10310,7 @@ function erpPaneError(id, e){
 
 function erpDocLinks(d){
   const realId = String(d.id||'').replace(/^bind_/,'');
-  const pdf = d.pdf_url || (realId && /^[0-9a-f-]{30,}$/i.test(realId) ? 'https://app.bind.com.mx/InvoicesAPI/ShowInvoiceDocument?InvoiceRemissionID=' + realId : '');
+  const pdf = (/bind\.com\.mx/i.test(String(d.pdf_url||'')) ? '' : (d.pdf_url || '')) || '' /* v1.9.14 — sin ligas a Bind (ya no se usa): el PDF lo arma la app */;
   let xml = d.xml_url || '';
   let xmlLocal = '';
   if (/^local:/.test(xml)) { xmlLocal = xml.replace('local:',''); xml = ''; } // XML guardado por el importador CFDI del ERP
@@ -10427,7 +10443,7 @@ async function renderERPPedidos(force){
         <thead><tr><th style="${erpThStyle}">Folio</th><th style="${erpThStyle}">Fecha</th><th style="${erpThStyle}">Cliente</th><th style="${erpThStyle}">Pedido origen</th><th style="${erpThStyle}">Estatus</th><th style="${erpThStyle};text-align:right">Total</th><th style="${erpThStyle}">Docs</th></tr></thead>
         <tbody>${docs.slice(0,300).map(d => {
           const realId = String(d.id||'').replace(/^bind_/,'');
-          const pdfUrl = d.pdf_url || (realId && /^[0-9a-f-]{30,}$/i.test(realId) ? 'https://app.bind.com.mx/InvoicesAPI/ShowInvoiceDocument?InvoiceRemissionID=' + realId : '');
+          const pdfUrl = (/bind\.com\.mx/i.test(String(d.pdf_url||'')) ? '' : (d.pdf_url || '')) || '' /* v1.9.14 — sin ligas a Bind (ya no se usa): el PDF lo arma la app */;
           const xu = String(d.xml_url||''); const xmlCell = /^local:/.test(xu) ? '<a onclick="event.stopPropagation();erpXmlLocal('+jsq(xu.replace('local:',''))+')" style="color:inherit;font-weight:600;cursor:pointer">XML</a>' : (nunUrlSegura(xu) ? '<a href="'+esc(nunUrlSegura(xu))+'" target="_blank" rel="noopener" style="color:inherit;font-weight:600">XML</a>' : ''); // v1.9.12 solo http(s)
           const links = erpBotonesDoc(filtro, d, true); // v1.9.8 PDF propio (ya no Bind)
           return `<tr onclick="erpVerDoc('${filtro}',${jsq(d.id)})" style="cursor:pointer">
@@ -10735,6 +10751,7 @@ window.erpGuardarPedido = async function(){
       };
       let r = null;
       try { r = await erpApi({ accion:'erp_crear', tabla:'pedidos', item }); } catch(e){ r = null; }
+      if (r && r.ok && r.item && r.item.folio && r.item.folio !== item.folio) { window._erpAvisoFolio = item.folio; item.folio = r.item.folio; if (modal) modal.dataset.folio = r.item.folio; } // v1.9.14 el servidor dio otro folio (el nuestro ya lo tenía otro)
       if (!(r && r.ok)) {
         // ¿Se guardó aunque la respuesta falló? Revisar antes de decir que no
         await new Promise(z => setTimeout(z, 1500));
@@ -10743,7 +10760,7 @@ window.erpGuardarPedido = async function(){
       }
     }
     // v1.9.12 — ¿otro pedido quedó con el mismo folio al mismo tiempo? se renombra el nuestro
-    let avisoFolio = '';
+    let avisoFolio = window._erpAvisoFolio || ''; window._erpAvisoFolio = '';
     try {
       const todos = await erpCargarTabla('pedidos', true);
       if (todos.some(x => String(x.id) !== id && String(x.folio||'').trim() === String(item.folio||'').trim())) {

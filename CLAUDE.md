@@ -28,8 +28,10 @@ Este repo puede ser público: no escribas aquí datos de clientes, montos, RFC n
 - `index.html` — ERP completo (~800 KB, un solo archivo, JS en línea). Publicado en GitHub Pages:
   https://rlc-hash.github.io/nun-erp/ (tarda ~1 min en actualizarse después del push).
 - `crm.html` — app de vendedores (misma base de datos). `importar.html` — importador de XML.
-- Backend: Google Apps Script (la URL está en index.html). **Su código NO está en este repo** (pendiente traerlo con clasp).
-  Nunca usar el backend viejo `AKfycbz9oHW…`.
+- Backend: Google Apps Script. Su código está en `backend/Codigo.gs` (v0.9.9, sin códigos de acceso: el maestro va en
+  Propiedades del script → `codigo_maestro`). Claude NO puede publicarlo: Rafa lo pega en el editor de Apps Script y hace
+  Implementar → Administrar implementaciones → editar la activa (…Dt2A) → Versión nueva (la URL no cambia).
+  Prueba: `node pruebas/prueba_backend_v099.js` (hoja simulada). Nunca usar el backend viejo `AKfycbz9oHW…`.
 - `pruebas/` — pruebas con jsdom y backend simulado. Correr desde la raíz del repo:
   `for f in pruebas/*.js; do node $f; done` (requiere `npm i jsdom`). Cada una imprime un JSON; revisar que no haya "error".
   `NUN_INDEX=otra/ruta/index.html node pruebas/prueba_v379.js` prueba otra copia.

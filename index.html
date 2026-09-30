@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.81 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.82 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3830,9 +3830,10 @@ function abrirDetalleCliente(id) {
         ${todoTimeline.map(d => {
           const realID = (d.id||'').replace('bind_','').replace('bind_rem_','').replace('bind_nc_','').replace('bind_ord_','');
           const esFiscal = d._tipo === 'Factura CFDI' || (d.uuid_sat && d.uuid_sat.length > 10);
-          const pdfUrl = `https://app.bind.com.mx/InvoicesAPI/ShowInvoiceDocument?InvoiceRemissionID=${realID}`;
-          const xmlUrl = `https://app.bind.com.mx/AccountantsAPI/GetXML?ID=${realID}`;
-          const ncUrl = `https://app.bind.com.mx/Credits/CreditNotesList?invoiceID=${realID}`;
+          // v3.82 — PDF, XML y nota de crédito propios (antes abrían Bind, que ya no se usa)
+          const tablaD = d._tipo === 'Factura CFDI' ? 'facturas' : (d._tipo === 'Remisión' ? 'remisiones' : (d._tipo === 'Pedido' ? 'pedidos' : 'notascredito'));
+          const idJs = escapeHTML(JSON.stringify(String(d.id||'')));
+          const pdfOnclick = ['pedidos','remisiones','facturas'].includes(tablaD) ? `nunPdfDoc('${tablaD}',${idJs})` : `imprimirDocumento('${tablaD}',${idJs})`;
           return `
           <div style="padding:12px 14px;background:var(--bg-2);border-left:3px solid var(--${d._color});border-radius:0 8px 8px 0">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
@@ -3849,11 +3850,11 @@ function abrirDetalleCliente(id) {
               </div>
               <div style="font-size:14px;font-weight:600;font-family:JetBrains Mono,monospace">${fmt(d.total||0)}</div>
             </div>
-            ${d._tipo !== 'Pedido' ? `<div style="display:flex;gap:6px;flex-wrap:wrap">
-              <a class="btn btn-secondary" href="${pdfUrl}" target="_blank" style="font-size:11px;padding:4px 10px">📄 PDF</a>
-              ${esFiscal ? `<a class="btn btn-secondary" href="${xmlUrl}" target="_blank" style="font-size:11px;padding:4px 10px">📋 XML</a>` : ''}
-              ${esFiscal && d._tipo === 'Factura CFDI' ? `<a class="btn btn-secondary" href="${ncUrl}" target="_blank" style="font-size:11px;padding:4px 10px">💳 Solicitar nota crédito</a>` : ''}
-              <button class="btn btn-secondary" onclick="cerrarDrawer();setTimeout(()=>{navegar('${d._tipo==='Factura CFDI'?'facturas':(d._tipo==='Remisión'?'remisiones':'notascredito')}');setTimeout(()=>abrirDoc('${d._tipo==='Factura CFDI'?'facturas':(d._tipo==='Remisión'?'remisiones':'notascredito')}','${d.id}'),50)},100)" style="font-size:11px;padding:4px 10px">🔎 Ver en ERP</button>
+            ${true ? `<div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn btn-secondary" onclick="${pdfOnclick}" style="font-size:11px;padding:4px 10px">📄 PDF</button>
+              ${d.uuid_sat ? `<button class="btn btn-secondary" onclick="cfdiDescargarXML(${escapeHTML(JSON.stringify(String(d.uuid_sat)))})" style="font-size:11px;padding:4px 10px">📋 XML</button>` : ''}
+              ${d.uuid_sat && d._tipo === 'Factura CFDI' && !/cancel/i.test(d.estatus||'') ? `<button class="btn btn-secondary" onclick="nunNuevaNCDeFactura(${idJs})" style="font-size:11px;padding:4px 10px">💳 Nota de crédito</button>` : ''}
+              <button class="btn btn-secondary" onclick="cerrarDrawer();setTimeout(()=>{navegar('${tablaD}');setTimeout(()=>abrirDoc('${tablaD}',${idJs}),50)},100)" style="font-size:11px;padding:4px 10px">🔎 Ver en ERP</button>
             </div>` : ''}
             ${d.notas && d.notas !== 'Importada desde Bind ERP' && d.notas !== 'Importado desde Bind ERP' ? `<div style="font-size:11px;color:var(--mute);margin-top:6px">${escapeHTML(d.notas)}</div>` : ''}
           </div>`;
@@ -7958,12 +7959,14 @@ async function guardarDoc(tabla, id, opts) {
     return;
   }
   window._nunIdPendiente = null; // v3.69
+  // v3.82 — el servidor (v0.9.9) da el siguiente folio libre si alguien más ya usó el nuestro
+  if (!id && data && data.item && data.item.folio && String(data.item.folio) !== String(folio)) { toast('⚠ El folio ' + folio + ' ya lo tenía otro documento: el tuyo quedó como ' + data.item.folio, { type:'error', duration:10000 }); folio = String(data.item.folio); }
   const idGuardado = id || (data.item && data.item.id) || _nunIdNuevo || null;
   window._nunDocGuardadoOk = idGuardado; // v3.72
   // v3.80 — si otra persona guardó al mismo tiempo con el mismo folio, el nuestro pasa al siguiente libre
   if (!id && NUN_PREF_FOLIO[tabla] && idGuardado) folio = await nunResolverFolioDuplicado(tabla, idGuardado, folio);
   // v3.80 — si algo de Cobranza falla, se avisa (antes decía "✓ Creado" aunque el cobro no existiera)
-  if (id && /cancel/i.test(item.estatus||'') && _previo && !/cancel/i.test(_previo.estatus||'')) await nunCancelarCobranzaDoc(tabla, Object.assign({}, _previo, item, { id, folio }));
+  if (id && /cancel/i.test(item.estatus||'') && _previo && !/cancel/i.test(_previo.estatus||'')) { await nunCancelarCobranzaDoc(tabla, Object.assign({}, _previo, item, { id, folio })); if (tabla === 'pedidos') await nunLiberarApartado(id); } // v3.82
   else if (id) { try { await nunSyncCobranzaDoc(tabla, Object.assign({}, _previo||{}, item, { id, folio })); await cargarTabla('cobranza'); } catch(e){ toast('⚠ Se guardó el documento pero no se pudo actualizar Cobranza: ' + e.message, { type:'error', duration:9000 }); } } // v3.72
   if (!id && (tabla === 'remisiones' || tabla === 'facturas')) { try { const _r = await nunAltaCobranza(tabla, Object.assign({}, item, { id: idGuardado, folio })); if (_r === false) throw new Error('el servidor no confirmó'); await cargarTabla('cobranza'); } catch(e){ toast('⚠ Se creó ' + folio + ' pero NO su renglón de Cobranza (' + e.message + '). Avísame o créalo a mano.', { type:'error', duration:12000 }); } } // v3.69
   await cargarTabla(tabla);
@@ -7992,6 +7995,10 @@ async function nunResolverFolioDuplicado(tabla, idNuevo, folio){
   } catch(e){}
   return folio;
 }
+// v3.82 — pedido cancelado: el servidor regresa lo apartado (comprometido) del inventario
+async function nunLiberarApartado(idPedido){
+  try { const r = await api({ accion:'pedido_liberar', id: idPedido }); if (r && r.ok && r.liberados) toast('Inventario apartado liberado (' + r.liberados + ' producto(s))', { duration:4000 }); } catch(e){}
+}
 // v3.80 — regla: nunca se borran datos. "Eliminar" ahora marca el documento como cancelado (y su cobro).
 async function eliminarDoc(tabla, id) {
   const doc = (State.data[tabla]||[]).find(d => String(d.id) === String(id)) || { id };
@@ -8001,6 +8008,7 @@ async function eliminarDoc(tabla, id) {
   const est = /^(remisiones|facturas|notascredito)$/.test(tabla) ? 'cancelada' : 'cancelado';
   const bien = await nunGuardarSeguro(tabla, { id, estatus: est });
   if (!bien) { toast('✗ No se pudo cancelar. Inténtalo de nuevo.', { type:'error', duration:7000 }); return; }
+  if (tabla === 'pedidos') await nunLiberarApartado(id); // v3.82
   await nunCancelarCobranzaDoc(tabla, doc);
   await cargarTabla(tabla); renderCurrent(); cerrarDrawer(); toast('✓ Marcado como cancelado');
 }
@@ -13043,6 +13051,18 @@ async function facturaTimbrar(idFactura){
 }
 window.facturaTimbrar = facturaTimbrar;
 // ============================================================
+// v3.82 — Nota de crédito nueva ya ligada a una factura (desde la ficha del cliente)
+function nunNuevaNCDeFactura(idFactura){
+  const f = (State.data.facturas||[]).find(x => String(x.id) === String(idFactura)); if (!f) return;
+  cerrarDrawer();
+  setTimeout(() => { navegar('notascredito'); setTimeout(() => {
+    abrirDoc('notascredito');
+    setTimeout(() => { const c = document.getElementById('dCliente'), o = document.getElementById('dDocOrigen');
+      if (c) c.value = f.cliente || ''; if (o) o.value = String(f.folio||'');
+      toast('Nota de crédito para la factura ' + (f.folio||'') + ': captura el monto, guarda y luego "⚡ Timbrar nota de crédito"', { duration:7000 }); }, 150);
+  }, 50); }, 100);
+}
+window.nunNuevaNCDeFactura = nunNuevaNCDeFactura;
 // v3.81 — NOTA DE CRÉDITO TIMBRADA (CFDI de Egreso, serie NC) — ya sin Bind
 // Se liga a la factura que corrige (Relación 01). Dos tipos:
 //  · Descuento / bonificación: un solo concepto (clave SAT 84111506, unidad ACT)

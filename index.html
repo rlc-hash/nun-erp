@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.86 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.87 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4475,9 +4475,9 @@ function abrirDrawerCobranza(idDoc) {
       <div style="font-size:24px;font-weight:600;font-family:'JetBrains Mono',monospace;margin-top:4px;color:${saldo>0?'var(--accent)':'var(--green)'}">${fmtFull(saldo)}</div>
     </div>
     <div class="form-grid">
-      <div class="field"><label>Monto a cobrar</label><input type="number" id="pcMonto" step="0.01" value="${saldo}"></div>
+      <div class="field"><label>Monto a cobrar</label><input type="number" id="pcMonto" step="0.01" value="${nunR2(saldo)}"></div>
       <div class="field"><label>Fecha</label><input type="date" id="pcFecha" value="${nunHoy()}"></div>
-      <div class="field full"><label>Cuenta destino</label>
+      <div class="field full"><label>Cuenta destino ${nunEsAdmin() ? '<a style="cursor:pointer;font-weight:400;margin-left:8px;text-decoration:underline" onclick="nunAdminCuentas()">⚙ Cuentas</a>' : ''}</label>
         <select id="pcCuenta"><option value="">— Selecciona —</option>${cuentas.map(c=>`<option value="${escapeHTML(c.nombre)}">${escapeHTML(c.nombre)}</option>`).join('')}</select>
       </div>
       <div class="field full"><label>Notas (opcional)</label><textarea id="pcNotas"></textarea></div>
@@ -7523,7 +7523,7 @@ async function nunAbrirComplementoPago(idFactura){
         <div class="field"><label>Fecha del pago *</label><input type="date" id="repFecha" value="${nunHoy()}"></div>
         <div class="field"><label>Forma de pago *</label><select id="repForma"><option value="">— Elige —</option>${opt(SAT_FORMA_PAGO.filter(([k]) => k !== '99'), '')}</select></div>
         <div class="field"><label>Núm. de operación <span style="color:var(--ink-4);font-weight:400">(opcional)</span></label><input type="text" id="repOperacion" maxlength="40"></div>
-        <div class="field full"><label>Cuenta donde entró *</label><select id="repCuenta"><option value="">— Selecciona —</option>${cuentas.map(x => `<option value="${escapeHTML(x.nombre)}">${escapeHTML(x.nombre)}</option>`).join('')}</select></div>
+        <div class="field full"><label>Cuenta donde entró * ${nunEsAdmin() ? '<a style="cursor:pointer;font-weight:400;margin-left:8px;text-decoration:underline" onclick="nunAdminCuentas()">⚙ Cuentas</a>' : ''}</label><select id="repCuenta"><option value="">— Selecciona —</option>${cuentas.map(x => `<option value="${escapeHTML(x.nombre)}">${escapeHTML(x.nombre)}</option>`).join('')}</select></div>
       </div>
       <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:10px"><input type="checkbox" id="repCobranza" ${c ? 'checked' : 'disabled'}> Registrar también el pago en Cobranza ${c ? '(' + escapeHTML(String(c.numero||'')) + ', saldo ' + fmtFull(c.pendiente) + ') → baja solo a Ingresos' : '<span style="color:var(--red)">(no encontré su renglón de Cobranza)</span>'}</label>
       <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:6px"><input type="checkbox" id="repTimbrar" checked> Timbrar el complemento de pago ante el SAT (serie CP, folio ${nunSiguienteFolioREP()})</label>
@@ -10811,6 +10811,40 @@ async function cargarVendedores() {
     if (d.ok) State.data.vendedores = (d.vendedores||[]).filter(v=>v.activo);
   } catch(e){}
 }
+// v3.87 — dar de alta / activar cuentas donde entra el dinero (BBVA, Efectivo, …) desde el ERP. No se borran: se desactivan.
+async function nunAdminCuentas(){
+  if (!nunEsAdmin()) { toast('Solo un administrador maneja las cuentas', { type:'error' }); return; }
+  let todas = [];
+  try { const d = await api({ accion:'listar_cuentas' }); todas = (d && d.cuentas) || []; } catch(e){ toast('No pude leer las cuentas', { type:'error' }); return; }
+  window._nunCtas = todas.map(c => ({ nombre: String(c.nombre||'').trim(), tipo: c.tipo || '', activa: c.activa !== false && c.activa !== 'false', notas: c.notas || '' })).filter(c => c.nombre);
+  let m = document.getElementById('modalCtas'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalCtas';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:140;display:flex;align-items:center;justify-content:center;padding:16px';
+  document.body.appendChild(m); nunAdminCuentasPintar();
+}
+function nunAdminCuentasPintar(){
+  const m = document.getElementById('modalCtas'); if (!m) return; const L = window._nunCtas || [];
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:520px;width:100%;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><h3 style="margin:0">Cuentas donde entra el dinero</h3>
+      <button class="icon-btn" onclick="document.getElementById('modalCtas').remove()">✕</button></div>
+    <div style="padding:14px 20px">${L.map((c, i) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)">
+        <span style="${c.activa ? '' : 'color:var(--mute);text-decoration:line-through'}">${escapeHTML(c.nombre)}${c.notas ? ' <span style="color:var(--mute);font-size:11px">' + escapeHTML(c.notas) + '</span>' : ''}</span>
+        <button class="btn btn-sm btn-secondary" onclick="window._nunCtas[${i}].activa=!window._nunCtas[${i}].activa;nunAdminCuentasPintar()">${c.activa ? 'Desactivar' : 'Activar'}</button></div>`).join('') || '<div style="color:var(--mute)">No hay cuentas</div>'}
+      <div style="display:flex;gap:8px;margin-top:12px"><input id="ctaNueva" placeholder="Nombre de la cuenta nueva (ej. Efectivo)" style="flex:1"><button class="btn btn-secondary" onclick="const n=document.getElementById('ctaNueva').value.trim(); if(!n) return; if((window._nunCtas||[]).some(c=>c.nombre.toUpperCase()===n.toUpperCase())){ toast('Ya existe esa cuenta',{type:'error'}); return; } window._nunCtas.push({nombre:n,tipo:'',activa:true,notas:''}); nunAdminCuentasPintar()">+ Agregar</button></div>
+      <div style="font-size:11.5px;color:var(--ink-3);margin-top:8px">Las cuentas no se borran: se desactivan (los pagos viejos conservan su cuenta).</div></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)"><button class="btn" onclick="document.getElementById('modalCtas').remove()">Cancelar</button><button class="btn btn-primary" onclick="nunAdminCuentasGuardar()">Guardar</button></div></div>`;
+}
+async function nunAdminCuentasGuardar(){
+  const L = window._nunCtas || [];
+  try { const r = await api({ accion:'guardar_cuentas', cuentas: L, codigo_admin: State.sesion.codigo }); if (!(r && r.ok)) throw new Error((r && r.error) || 'sin respuesta'); }
+  catch(e){ toast('✗ No se guardaron las cuentas: ' + e.message, { type:'error', duration:7000 }); return; }
+  document.getElementById('modalCtas').remove(); await cargarCuentas();
+  // refresca el selector abierto (pago o complemento) sin perder lo capturado
+  ['pcCuenta','repCuenta'].forEach(idSel => { const sel = document.getElementById(idSel); if (!sel) return; const v = sel.value;
+    sel.innerHTML = '<option value="">— Selecciona —</option>' + (State.data.cuentas||[]).map(c => `<option value="${escapeHTML(c.nombre)}">${escapeHTML(c.nombre)}</option>`).join(''); sel.value = v; });
+  toast('✓ Cuentas guardadas: ' + (State.data.cuentas||[]).map(c => c.nombre).join(', '), { duration:6000 });
+}
+window.nunAdminCuentas = nunAdminCuentas; window.nunAdminCuentasPintar = nunAdminCuentasPintar; window.nunAdminCuentasGuardar = nunAdminCuentasGuardar;
 async function cargarCuentas() {
   try {
     const d = await api({ accion:'listar_cuentas' });

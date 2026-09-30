@@ -4536,9 +4536,17 @@ function esSesionDueno() {
   const u = s.usuario || {};
   return u.rol === 'admin' && /^RAFA-./i.test(String(s.codigo || '').trim()); // v3.80
 }
+// v3.82 — versión del servidor (el anular sin borrar necesita v0.9.9 o más nueva)
+async function nunVersionServidor(){
+  if (window._nunVerSrv) return window._nunVerSrv;
+  try { const r = await fetch(State.url); const j = await r.json(); const m = String(j.mensaje||'').match(/v(\d+)\.(\d+)\.(\d+)/); if (m) window._nunVerSrv = [+m[1], +m[2], +m[3]]; } catch(e){}
+  return window._nunVerSrv || [0,0,0];
+}
+async function nunServidorAlMenos(a, b, c){ const v = await nunVersionServidor(); return v[0] > a || (v[0] === a && (v[1] > b || (v[1] === b && v[2] >= c))); }
 // v3.82 — los administradores (no solo Rafa) pueden anular o corregir un pago; nada se borra
 async function eliminarPagoManual(timestamp, idDoc) {
   if (!(nunEsAdmin() || esSesionDueno())) { toast('Solo un administrador puede anular pagos', { type:'error' }); return; }
+  if (!(await nunServidorAlMenos(0,9,9))) { toast('Para anular pagos primero hay que poner el servidor nuevo (v0.9.9): el anterior borraba el renglón de Ingresos.', { type:'error', duration:9000 }); return; }
   const ok = await confirmDialog({
     title:'¿Anular pago?', message:'Se resta del cobrado y vuelve al saldo. El ingreso queda marcado como CANCELADO (no se borra) y queda en la bitácora.',
     ok:'Anular pago', danger:true

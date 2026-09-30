@@ -25,7 +25,7 @@ setTimeout(async()=>{const r={};try{
  w.eval("abrirDrawerCobranza('bind_cob_7')"); await sleep(300);
  const h=d.getElementById('histPagos'); r.pagos={tab:[...d.querySelectorAll('.drawer-tabs button, .drawer button, .drawer [data-tab]')].map(b=>b.textContent.trim()).find(t=>/^Pagos \(/.test(t)),items:h.querySelectorAll('.timeline-item').length,cancelar:h.querySelectorAll('button.btn-danger').length,cuadra:/cuadra/.test(h.textContent)&&!/no cuadra/.test(h.textContent),cancelado:/cancelado/.test(h.textContent)};
  w.eval("cerrarDrawer()");
- const sit=(t,id)=>w.eval(`nunSituacionHTML('${t}', State.data.${t}.find(x=>x.id==='${id}'))`).replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim();
+ const sit=(t,id)=>w.eval(`nunSituacionHTML('${t}', State.data.${t}.find(x=>x.id==='${id}'))`).replace(/<[^>]+>/g,'').replace(/\s+/g,' ').replace(/ ✓ Es facturada$/,'').trim(); // v3.91: botón para marcarla facturada
  r.pedidos=['p1','p2','p3','p4'].map(id=>sit('pedidos',id)); r.remisiones=['r1','r2','r3'].map(id=>sit('remisiones',id));
  w.eval("navegar('remisiones')"); await sleep(300); r.columna=[...d.querySelectorAll('th')].some(th=>th.textContent.trim()==='Situación');
  r.fallas=[]; if(r.pagos.tab!=='Pagos (2)'||r.pagos.items!==3||r.pagos.cancelar!==2||!r.pagos.cuadra||!r.pagos.cancelado) r.fallas.push('pagos');

@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.90 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.91 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -1701,7 +1701,7 @@ body.dark .app-main iframe {
     <div class="rwd-menu-tab" data-menu="ventas">Ventas
       <div class="rwd-menu-dropdown">
         <a onclick="navegar('cobranza')">Cobranza</a>
-        <a onclick="navegar('cuadre')">Cuadre Excel vs Bind</a>
+        <a onclick="navegar('cuadre')">Cuadre Excel vs Sistema</a>
         <a onclick="navegar('clientes')">Clientes</a>
         <a onclick="navegar('productos')">Productos</a>
         <a onclick="navegar('cotizaciones')">Cotizaciones</a>
@@ -1826,7 +1826,7 @@ body.dark .app-main iframe {
   </button>
   <button class="nav-btn" data-mod="cuadre" onclick="navegar('cuadre')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="3" x2="12" y2="21"/><path d="M5 7l7-4 7 4"/><path d="M2 13l3-6 3 6a3 3 0 0 1-6 0z"/><path d="M16 13l3-6 3 6a3 3 0 0 1-6 0z"/></svg></span>
-    <span class="nav-text">Cuadre Excel vs Bind</span><span class="nav-count" id="navCuadre"></span>
+    <span class="nav-text">Cuadre Excel vs Sistema</span><span class="nav-count" id="navCuadre"></span>
   </button>
   <button class="nav-btn" data-mod="import_cfdi" onclick="navegar('import_cfdi')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg></span>
@@ -6734,7 +6734,7 @@ async function cargarEstadoCuenta(cli) {
 const MODULOS = {
   dashboard:    { label:'Dashboard',    render: renderDashboard, afterRender: afterRenderDashboard },
   cobranza:     { label:'Cobranza',     render: renderCobranza,    afterRender: afterRenderCobranza },
-  cuadre:       { label:'Cuadre Excel vs Bind', render: renderCuadreModule, afterRender: afterRenderCuadre },
+  cuadre:       { label:'Cuadre Excel vs Sistema', render: renderCuadreModule, afterRender: afterRenderCuadre },
   import_cfdi:  { label:'Importar CFDI (XML)', render: renderImportCFDI, afterRender: afterRenderImportCFDI },
   estados_fin:  { label:'Estados Financieros', render: renderEstadosNUN, afterRender: afterRenderEstadosNUN },
   clientes:     { label:'Clientes',     render: ()=>renderModuloGenerico('clientes'),     afterRender: ()=>afterRenderGenerico('clientes') },
@@ -6833,6 +6833,7 @@ function renderDocOperativo(tabla) {
       </div>
       <div class="actions">
         ${(tabla === 'remisiones' || tabla === 'facturas') && nunEsAdmin() && nunFoliosServidor(tabla).length ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunRevisarFoliosServidor('${tabla}')">🧹 Folios REM/FAC (${nunFoliosServidor(tabla).length})</button>` : ''}
+        ${tabla === 'remisiones' && nunEsAdmin() ? `<button class="btn btn-secondary" onclick="nunRemMarcarFacturadas()" title="Remisiones canceladas en Bind que sí se facturaron">🔎 Canceladas que se facturaron</button>` : ''}
         <button class="btn btn-secondary" onclick="exportarTabla('${tabla}')">Exportar</button>
         <button class="btn btn-primary" onclick="abrirDoc('${tabla}')">+ Nueva ${escapeHTML(def.singular)}</button>
       </div>
@@ -6966,7 +6967,8 @@ function nunSituacionIdx(){
     try { JSON.parse(d.items_json||'[]').forEach(it => { if (it.pedido) add(it.pedido, d, t); }); } catch(e){}
     if (t === 'F' && nunEsDeRemision(d)) { const k = nunRemFolioDeFactura(d); if (!facDeRem.has(k)) facDeRem.set(k, []); facDeRem.get(k).push(d); }
   });
-  _nunSitFirma = firma; _nunSitIdx = { porPedido, facDeRem }; return _nunSitIdx;
+  const usadas = new Set((D.remisiones||[]).map(x => (String(x.notas||'').match(/Facturada en [^·(]*\(id ([^)]+)\)/)||[])[1]).filter(Boolean)); // v3.91
+  _nunSitFirma = firma; _nunSitIdx = { porPedido, facDeRem, usadas }; return _nunSitIdx;
 }
 function nunSituacionHTML(tabla, r){
   const I = nunSituacionIdx(), gris = t => `<span style="color:var(--mute);font-size:11.5px">${t}</span>`, fol = d => escapeHTML(String(d.folio||''));
@@ -6985,15 +6987,78 @@ function nunSituacionHTML(tabla, r){
   const facs = (I.facDeRem.get(nunFolioStr(r)) || []);
   if (/cancel/i.test(r.estatus||'')) {
     if (/refactur|sustitu/i.test(String(r.notas||''))) return `<span class="tag red">cancelada</span> ${gris(escapeHTML(String(r.notas).match(/[^·]*(refactur|sustitu)[^·]*/i)[0].trim().substring(0,60)))}`;
-    const t = +r.total||0, cli = String(r.cliente||'').trim().toUpperCase(), f0 = String(r.fecha||'').substring(0,10);
-    const cand = (State.data.facturas||[]).find(f => !/cancel/i.test(f.estatus||'') && String(f.cliente||'').trim().toUpperCase() === cli && Math.abs((+f.total||0) - t) < 1 && String(f.fecha||'').substring(0,10) >= f0);
-    return `<span class="tag red">cancelada</span> ${cand ? gris('¿se facturó en ' + fol(cand) + '? (mismo total)') : gris('sin factura igual')}`;
+    const cand = nunRemFacturaCandidata(r, I.usadas);
+    return `<span class="tag red">cancelada</span> ${cand ? gris('¿se facturó en ' + fol(cand) + '? (mismo total)') + (nunEsAdmin() ? ` <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="event.stopPropagation();nunRemMarcarFacturadas(['${escapeHTML(String(r.id)).replace(/'/g,'')}'])">✓ Es facturada</button>` : '') : gris('sin factura igual')}`;
   }
+  const facNota = (String(r.notas||'').match(/Facturada en ([^·(]+)/)||[])[1]; // v3.91 — cancelada en Bind que sí se facturó
+  if (r.estatus === 'facturada' && !facs.length && facNota) return `<span class="tag blue">facturada</span> ${gris('en ' + escapeHTML(facNota.trim()))}`;
   const ped = String(r.pedido_origen||'').trim();
   const de = ped ? gris('de ' + escapeHTML(ped)) : '';
   if (facs.length) return `<span class="tag blue">facturada</span> ${gris('en ' + facs.map(fol).join(', '))} ${de}`;
   return `${gris('sin facturar')} ${de}`;
 }
+// v3.91 — Remisiones que se cancelaron en Bind pero en realidad se facturaron: se marcan "facturada" (no "cancelada").
+// Candidata: factura vigente del mismo cliente, mismo total (±$1) y fecha igual o posterior. Una factura no se usa para dos remisiones.
+function nunRemFacturaCandidata(r, usadas){
+  const t = +r.total||0, cli = String(r.cliente||'').trim().toUpperCase(), f0 = String(r.fecha||'').substring(0,10);
+  if (!(t > 0) || !cli) return null;
+  const tomadas = usadas || new Set((State.data.remisiones||[]).map(x => (String(x.notas||'').match(/Facturada en [^·(]*\(id ([^)]+)\)/)||[])[1]).filter(Boolean));
+  return (State.data.facturas||[]).filter(f => !/cancel/i.test(f.estatus||'') && !tomadas.has(String(f.id)) && String(f.cliente||'').trim().toUpperCase() === cli && Math.abs((+f.total||0) - t) < 1 && String(f.fecha||'').substring(0,10) >= f0)
+    .sort((a, b) => String(a.fecha||'').localeCompare(String(b.fecha||'')))[0] || null;
+}
+function nunRemCanceladasCandidatas(){
+  const usadas = new Set((State.data.remisiones||[]).map(x => (String(x.notas||'').match(/Facturada en [^·(]*\(id ([^)]+)\)/)||[])[1]).filter(Boolean));
+  const out = [];
+  (State.data.remisiones||[]).filter(r => /cancel/i.test(r.estatus||'') && !/refactur|sustitu/i.test(String(r.notas||'')))
+    .sort((a, b) => String(a.fecha||'').localeCompare(String(b.fecha||'')))
+    .forEach(r => { const f = nunRemFacturaCandidata(r, usadas); if (f) { usadas.add(String(f.id)); out.push({ r, f }); } });
+  return out;
+}
+async function nunRemMarcarFacturadas(ids){
+  if (!nunEsAdmin()) { toast('Solo un administrador puede hacer esto', { type:'error' }); return; }
+  await Promise.all([cargarTabla('remisiones'), cargarTabla('facturas'), cargarTabla('cobranza')]);
+  const todas = nunRemCanceladasCandidatas();
+  const lista = ids ? todas.filter(x => ids.includes(String(x.r.id))) : todas;
+  if (!lista.length) { toast('No hay remisiones canceladas con una factura igual', { type:'info' }); return; }
+  let m = document.getElementById('modalRCF'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalRCF';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  window._nunRCF = lista;
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:900px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)">
+      <div><h3 style="margin:0">Remisiones canceladas que se facturaron</h3>
+      <div style="font-size:12px;color:var(--ink-3)">${lista.length} remisión(es) con una factura del mismo cliente y el mismo total</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalRCF').remove()">✕</button></div>
+    <div style="padding:10px 20px;font-size:12.5px;background:rgba(245,158,11,0.08)">Las marcadas quedan como <b>facturada</b> (en vez de cancelada) con la factura anotada. No suman a lo vendido ni a Cobranza: el cobro va en la factura. No se borra nada. Revisa que la factura sea la correcta.</div>
+    <div style="overflow:auto;padding:0 20px;flex:1"><table class="dt" style="font-size:12px"><thead><tr><th></th><th>Remisión</th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Total</th><th>Factura</th><th>Fecha factura</th></tr></thead>
+      <tbody>${lista.map((x, i) => `<tr><td><input type="checkbox" class="rcfChk" data-i="${i}" checked></td><td class="mono">${escapeHTML(String(x.r.folio||''))}</td><td>${fmtFecha(x.r.fecha)}</td>
+        <td>${escapeHTML(x.r.cliente||'')}</td><td class="mono" style="text-align:right">${fmtFull(+x.r.total||0)}</td><td class="mono"><b>${escapeHTML(String(x.f.folio||''))}</b></td><td>${fmtFecha(x.f.fecha)}</td></tr>`).join('')}</tbody></table></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)">
+      <button class="btn" onclick="document.getElementById('modalRCF').remove()">Cerrar</button>
+      <button class="btn btn-primary" id="rcfBoton" onclick="nunRemMarcarFacturadasGuardar()">Marcar como facturadas</button></div></div>`;
+  document.body.appendChild(m);
+}
+async function nunRemMarcarFacturadasGuardar(){
+  const lista = window._nunRCF || [];
+  const marcadas = [...document.querySelectorAll('#modalRCF .rcfChk:checked')].map(x => lista[+x.dataset.i]).filter(Boolean);
+  if (!marcadas.length) { toast('No marcaste nada', { type:'error' }); return; }
+  const ok = await confirmDialog({ title:'¿Marcar como facturadas?', message: marcadas.length + ' remisión(es) pasan de cancelada a facturada, con su factura anotada. Su cobro se queda cancelado (el cobro es de la factura). No se borra nada.', ok:'Marcar' });
+  if (!ok) return;
+  const btn = document.getElementById('rcfBoton'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  const hoy = nunHoy();
+  const items = marcadas.map(x => ({ id: x.r.id, estatus:'facturada',
+    notas: (x.r.notas ? String(x.r.notas) + ' · ' : '') + 'Facturada en ' + String(x.f.folio||'') + ' (id ' + x.f.id + ') · estaba cancelada, se corrigió ' + hoy }));
+  // el cobro de la remisión NO se revive: si quedara abierto se cobraría dos veces (remisión y factura)
+  const cobros = [];
+  marcadas.forEach(x => { const c = nunCobranzaDeDoc(x.r, State.data.cobranza||[]); if (c && !/^cancelad/i.test(c.estatus||'') && !((+c.cobrado||0) > 0.005)) cobros.push({ id:c.id, estatus:'cancelado', pendiente:0 }); });
+  let bien = 0, mal = 0;
+  for (let i = 0; i < items.length; i += 40) { const parte = items.slice(i, i+40); try { const r = await api({ accion:'erp_upsert_batch', tabla:'remisiones', items: parte }); if (r && r.ok) bien += parte.length; else mal += parte.length; } catch(e){ mal += parte.length; } }
+  if (cobros.length) { try { await api({ accion:'erp_upsert_batch', tabla:'cobranza', items: cobros }); } catch(e){ toast('⚠ No pude cancelar ' + cobros.length + ' cobro(s) de esas remisiones: revísalos en Cobranza', { type:'error', duration:10000 }); } }
+  const mm = document.getElementById('modalRCF'); if (mm) mm.remove();
+  await Promise.all([cargarTabla('remisiones'), cargarTabla('cobranza')]); renderCurrent();
+  toast('✓ ' + bien + ' remisión(es) marcadas como facturadas' + (mal ? ' · ⚠ ' + mal + ' no se guardaron' : ''), { type: mal ? 'error' : 'success', duration:8000 });
+}
+window.nunRemMarcarFacturadas = nunRemMarcarFacturadas; window.nunRemMarcarFacturadasGuardar = nunRemMarcarFacturadasGuardar;
 // v3.0 — estado de items del documento abierto
 let docItems = [];
 let docSinIva = false; // v3.40
@@ -12311,7 +12376,7 @@ function abrirCargaExcelCobranza(){
         <div style="font-size:12.5px;font-weight:600;margin-bottom:6px">Formato esperado del Excel</div>
         <div style="font-size:11.5px;color:#5A5A5A;line-height:1.6">
           Columnas: <strong>Fecha · Fecha Entrega · Cliente · Pago Total · Pago Cobrado · Pago Faltante · Espera · Descripción · Crédito · VENDEDOR · Factura · Comisión</strong><br>
-          El sistema cruzará esta info con la cobranza que tienes en Bind para detectar diferencias.
+          El sistema cruzará esta info con la Cobranza del sistema para detectar diferencias (por folio, cliente y monto).
         </div>
       </div>
     </div>
@@ -12375,7 +12440,7 @@ function procesarExcelCobranza(file){
       reader.onload = (e) => {
         try {
           const data = new Uint8Array(e.target.result);
-          const wb = XLSX.read(data, { type: 'array' });
+          const wb = XLSX.read(data, { type: 'array', cellDates: true });
           const totalSheets = wb.SheetNames.length;
           const detalleSheets = wb.SheetNames.map(name => {
             const sheet = wb.Sheets[name];
@@ -12387,9 +12452,10 @@ function procesarExcelCobranza(file){
               ✓ Excel cargado: <strong>${totalSheets} hojas</strong>
             </div>
             <div style="background:#F4F4F4;border-radius:8px;padding:12px;font-size:12px;line-height:1.6">
-              ${detalleSheets.map(s => `<div><strong>${escapeHTML(s.name)}</strong>: ${s.rows} filas</div>`).join('')}
+              <div style="margin-bottom:6px;color:#5A5A5A">Marca las hojas que quieres comparar:</div>
+              ${detalleSheets.map((s, i) => `<label style="display:block"><input type="checkbox" class="cuadreHojaChk" value="${escapeHTML(s.name)}" ${i < 2 ? 'checked' : ''}> <strong>${escapeHTML(s.name)}</strong>: ${s.rows} filas</label>`).join('')}
             </div>
-            <button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="procesarSheetCuadre()">⚖️ Cuadrar vs Bind (detectar diferencias)</button>
+            <button class="btn btn-primary" style="margin-top:14px;width:100%" onclick="procesarSheetCuadre()">⚖️ Comparar con el sistema</button>
             <button class="btn btn-secondary" style="margin-top:8px;width:100%" onclick="procesarSheetCobranza(${JSON.stringify(wb.SheetNames).replace(/"/g,'&quot;')})">Importar a Cobranza (wizard)</button>
           `;
           window._xlsxWB = wb; // guardar workbook temporalmente
@@ -12455,97 +12521,191 @@ async function cuadreCargarJSONProyecto(){
 window.cuadreCargarJSONProyecto = cuadreCargarJSONProyecto;
 
 // Mapear filas crudas de un Excel subido (headers flexibles) al formato canónico
-function cuadreMapearFilas(raw){
+// v3.91 — lee "PAGO HASTA EL MOMENTO" como cobrado, fechas de Excel, la hoja de origen y folios tipo "R - V0184" / "F - 1028" / "P - 1105"
+function cuadreFechaISO(v){
+  if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v)) return v.getFullYear() + '-' + String(v.getMonth()+1).padStart(2,'0') + '-' + String(v.getDate()).padStart(2,'0');
+  if (typeof v === 'number' && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 86400000)); return d.toISOString().substring(0,10); }
+  const t = String(v||'').trim(), m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (m) return (m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + m[2].padStart(2,'0') + '-' + m[1].padStart(2,'0');
+  return /^\d{4}-\d{2}-\d{2}/.test(t) ? t.substring(0,10) : t;
+}
+function cuadreFolioExcel(raw){
+  const n = cuadreNormFactura(raw);
+  if (/^P\d+$/.test(n)) return { tipo:'P', norm:'' };            // pedido: no tiene cobro propio
+  if (/^R(V\d+|\d+)$/.test(n)) return { tipo:'R', norm: n.substring(1) }; // R - V0184 → V0184
+  if (/^F\d+$/.test(n)) return { tipo:'F', norm: n.substring(1) };        // F - 1028 → 1028
+  if (n.length < 3 || /^(FAC|FACT|REM)$/.test(n)) return { tipo:'', norm:'' };
+  return { tipo:'', norm:n };
+}
+function cuadreMapearFilas(raw, hoja){
   const pick = (r, names) => {
-    for (const k of Object.keys(r)) {
-      const nk = cuadreNormTexto(k);
-      if (names.some(n => nk.includes(n))) return r[k];
-    }
+    for (const n of names) for (const k of Object.keys(r)) { if (cuadreNormTexto(k).includes(n)) return r[k]; }
     return '';
   };
   const num = v => { const n = parseFloat(String(v).replace(/[$,\s]/g,'')); return isNaN(n) ? 0 : n; };
   return raw.map((r,i) => {
-    const fact = String(pick(r,['factura','folio'])||'').trim();
+    const fact = String(pick(r,['factura','folio'])||'').trim(), ff = cuadreFolioExcel(fact);
+    const k0 = Object.keys(r)[0];
     return {
-      id: 'xl_up_'+i,
-      fecha: String(pick(r,['fecha'])||'').trim(),
+      id: 'xl_up_'+(hoja||'')+'_'+i,
+      hoja: hoja || '',
+      fila: (r.__rowNum__ != null ? r.__rowNum__ + 1 : i + 2),
+      fecha: cuadreFechaISO(k0 && /columna1|^fecha$/.test(cuadreNormTexto(k0)) ? r[k0] : pick(r,['fecha'])),
       cliente: String(pick(r,['cliente'])||'').trim(),
       pago_total: num(pick(r,['pagototal','total'])),
-      pago_cobrado: num(pick(r,['pagocobrado','cobrado'])),
+      pago_cobrado: num(pick(r,['pagocobrado','pagohasta','cobrado','pagado'])),
       pago_faltante: num(pick(r,['pagofaltante','faltante','saldo','pendiente'])),
-      vendedor: String(pick(r,['vendedor'])||'').trim(),
+      vendedor: String(pick(r,['vendedor'])||'').trim().toUpperCase(),
       descripcion: String(pick(r,['descripcion','observ'])||'').trim(),
       factura_raw: fact,
-      factura_norm: cuadreNormFactura(fact)
+      factura_tipo: ff.tipo,
+      factura_norm: ff.norm
     };
-  }).filter(r => r.cliente || r.factura_norm || r.pago_total > 0);
+  }).filter(r => r.cliente && (r.pago_total > 0 || r.pago_faltante > 0));
 }
 window.cuadreMapearFilas = cuadreMapearFilas;
 
-// Procesar hoja de Excel ya cargada en window._xlsxWB directo al cuadre
-function procesarSheetCuadre(){
+// Procesar hojas de Excel ya cargadas en window._xlsxWB directo al cuadre (v3.91: las hojas marcadas; por omisión las dos primeras)
+async function procesarSheetCuadre(){
   const wb = window._xlsxWB;
   if (!wb) return;
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const raw = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-  const rows = cuadreMapearFilas(raw);
+  let hojas = [...document.querySelectorAll('.cuadreHojaChk:checked')].map(x => x.value);
+  if (!hojas.length) hojas = wb.SheetNames.slice(0, 2);
+  let rows = [];
+  hojas.forEach(h => { const sh = wb.Sheets[h]; if (sh) rows = rows.concat(cuadreMapearFilas(XLSX.utils.sheet_to_json(sh, { defval: '' }), h)); });
   if (!rows.length) { toast('No encontré filas válidas (revisa headers: Cliente, Pago Total, Factura...)', 'error'); return; }
-  cuadreSetExcelRows(rows, 'Excel subido');
+  cuadreSetExcelRows(rows, 'Excel: ' + hojas.join(' + '));
   toast(`✓ ${rows.length} filas listas para cuadre`, 'success');
   cerrarDrawer();
+  try { await Promise.all([cargarTabla('cobranza'), cargarTabla('clientes')]); } catch(e){}
   setTimeout(() => navegar('cuadre'), 200);
 }
 window.procesarSheetCuadre = procesarSheetCuadre;
 
 // === MOTOR DE MATCHING ===
-// 1) Por folio de factura normalizado · 2) Por cliente + monto · 3) Por monto exacto único
+// 1) Por folio (R - V0184 → V0184, F - 1028 → 1028) · 2) Por cliente + monto · 3) Por monto exacto único
+// v3.91 — compara contra la Cobranza del SISTEMA (ya sin Bind): sin cobros cancelados/duplicados; nombres parecidos se juntan por palabras
+const CUADRE_PALABRAS_FUERA = new Set(['DE','DEL','LA','LAS','LOS','EL','Y','SA','CV','SC','RL','MTY','SLP','GDL','CDMX']);
+function cuadreTokens(s){ return String(s||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Z0-9 ]/g,' ').split(/\s+/).filter(t => t.length >= 3 && !CUADRE_PALABRAS_FUERA.has(t)); }
+function cuadreClienteSistema(nombreXl, clientesSis, alias){
+  const cx = cuadreNormTexto(nombreXl); if (!cx) return '';
+  if (alias && alias.has(cx)) return alias.get(cx);
+  const exact = clientesSis.find(c => cuadreNormTexto(c) === cx); if (exact) return exact;
+  const tx = cuadreTokens(nombreXl); if (tx.length < 2) return '';
+  const cands = clientesSis.filter(c => { const tc = new Set(cuadreTokens(c)); return tx.every(t => tc.has(t)); });
+  if (cands.length === 1) return cands[0];
+  const cands2 = clientesSis.filter(c => { const tc = cuadreTokens(c); return tc.length >= 2 && tc.every(t => tx.includes(t)); });
+  return cands2.length === 1 ? cands2[0] : '';
+}
+function cuadreDias(b, f){ const d1 = Date.parse(String(b.fecha_entrega||b.fecha||'').substring(0,10)), d2 = Date.parse(String(f||'').substring(0,10)); return (isNaN(d1) || isNaN(d2)) ? 1e9 : Math.abs(d1 - d2); }
 function cuadreCalcular(){
   const excel = cuadreGetExcelRows();
-  const bind = (State.data.cobranza||[]).filter(c => !c.sin_entregar);
+  const bind = (State.data.cobranza||[]).filter(c => !c.sin_entregar && !/cancel|duplic/i.test(String(c.estatus||'')));
   const bindUsed = new Set();
   const porNumero = new Map();
-  bind.forEach(b => {
-    const n = cuadreNormFactura(b.numero);
-    if (n) { if (!porNumero.has(n)) porNumero.set(n, []); porNumero.get(n).push(b); }
+  const addK = (k, b) => { if (!k) return; if (!porNumero.has(k)) porNumero.set(k, []); if (!porNumero.get(k).includes(b)) porNumero.get(k).push(b); };
+  bind.forEach(b => { const n = cuadreNormFactura(b.numero); addK(n, b); if (/^(A|F|FT)\d+$/.test(n)) addK(n.replace(/^[A-Z]+/, ''), b); });
+  const clientesSis = [...new Set(bind.map(b => String(b.cliente||'').trim()).filter(Boolean))];
+  const alias = new Map(), folioVisto = new Map();
+  const res = new Array(excel.length);
+  const cerrar = (i, x, match, via) => {
+    bindUsed.add(match.id);
+    const cx = cuadreNormTexto(x.cliente); if (cx && !alias.has(cx)) alias.set(cx, String(match.cliente||'').trim());
+    const difTotal = (x.pago_total||0) - (+match.total||0);
+    const difCobrado = (x.pago_cobrado||0) - (+match.cobrado||0);
+    const difSaldo = (x.pago_faltante||0) - (+match.pendiente||0);
+    let estado = 'OK';
+    if (Math.abs(difTotal) > CUADRE_TOL) estado = 'DIF_TOTAL';
+    else if (Math.abs(difCobrado) > CUADRE_TOL) estado = 'DIF_COBRADO';
+    else if (Math.abs(difSaldo) > CUADRE_TOL) estado = 'DIF_SALDO';
+    res[i] = { tipo:'MATCH', estado, via, excel:x, bind:match, difTotal, difCobrado, difSaldo };
+  };
+  // 1) folio
+  excel.forEach((x, i) => {
+    if (!x.factura_norm) return;
+    if (folioVisto.has(x.factura_norm)) { x.folio_repetido = folioVisto.get(x.factura_norm); return; }
+    folioVisto.set(x.factura_norm, (x.hoja ? x.hoja + ' ' : '') + 'fila ' + x.fila);
+    const cands = (porNumero.get(x.factura_norm)||[]).filter(b => !bindUsed.has(b.id));
+    if (cands.length) cerrar(i, x, cands[0], 'folio');
   });
-  const resultados = [];
-  for (const x of excel) {
+  // 2) cliente + monto  3) monto único
+  excel.forEach((x, i) => {
+    if (res[i]) return;
+    const cs = cuadreClienteSistema(x.cliente, clientesSis, alias);
     let match = null, via = '';
-    if (x.factura_norm && x.factura_norm.length >= 3) {
-      const cands = (porNumero.get(x.factura_norm)||[]).filter(b => !bindUsed.has(b.id));
-      if (cands.length) { match = cands[0]; via = 'folio'; }
-    }
-    if (!match && x.cliente) {
-      const cx = cuadreNormTexto(x.cliente);
-      const cands = bind.filter(b => !bindUsed.has(b.id) && cuadreNormTexto(b.cliente) === cx && Math.abs((+b.total||0) - x.pago_total) <= CUADRE_TOL);
+    if (cs) {
+      const cands = bind.filter(b => !bindUsed.has(b.id) && String(b.cliente||'').trim() === cs && Math.abs((+b.total||0) - x.pago_total) <= CUADRE_TOL)
+        .sort((a, b) => cuadreDias(a, x.fecha) - cuadreDias(b, x.fecha)); // el más cercano en fecha
       if (cands.length) { match = cands[0]; via = 'cliente+monto'; }
     }
-    if (!match && x.pago_total > 0) {
+    if (!match && !cs && x.pago_total > 0) {
       const cands = bind.filter(b => !bindUsed.has(b.id) && Math.abs((+b.total||0) - x.pago_total) <= 0.01);
       if (cands.length === 1) { match = cands[0]; via = 'monto único'; }
     }
-    if (match) {
-      bindUsed.add(match.id);
-      const difTotal = (x.pago_total||0) - (+match.total||0);
-      const difCobrado = (x.pago_cobrado||0) - (+match.cobrado||0);
-      const difSaldo = (x.pago_faltante||0) - (+match.pendiente||0);
-      let estado = 'OK';
-      if (Math.abs(difTotal) > CUADRE_TOL) estado = 'DIF_TOTAL';
-      else if (Math.abs(difCobrado) > CUADRE_TOL) estado = 'DIF_COBRADO';
-      else if (Math.abs(difSaldo) > CUADRE_TOL) estado = 'DIF_SALDO';
-      resultados.push({ tipo:'MATCH', estado, via, excel:x, bind:match, difTotal, difCobrado, difSaldo });
-    } else {
-      resultados.push({ tipo:'SOLO_EXCEL', estado:'SOLO_EXCEL', via:'', excel:x, bind:null, difTotal:0, difCobrado:0, difSaldo:0 });
-    }
-  }
+    if (match) cerrar(i, x, match, via);
+    else res[i] = { tipo:'SOLO_EXCEL', estado:'SOLO_EXCEL', via:'', excel:x, bind:null, difTotal:0, difCobrado:0, difSaldo:0, clienteSis: cs };
+  });
+  const resultados = res.filter(Boolean);
   for (const b of bind) {
     if (!bindUsed.has(b.id)) resultados.push({ tipo:'SOLO_BIND', estado:'SOLO_BIND', via:'', excel:null, bind:b, difTotal:0, difCobrado:0, difSaldo:0 });
   }
-  return { resultados, excel, bind };
+  resultados.forEach(r => { r.porque = cuadrePorque(r); });
+  return { resultados, excel, bind, alias, clientesSis };
+}
+// Qué está mal y dónde (en palabras simples)
+function cuadrePorque(r){
+  const x = r.excel, b = r.bind;
+  if (r.estado === 'OK') return '';
+  if (r.estado === 'SOLO_EXCEL') {
+    if (x.folio_repetido) return 'Tu Excel: el folio ' + x.factura_raw + ' ya está en ' + x.folio_repetido + ' (folio repetido)';
+    if (x.factura_tipo === 'P') return 'Tu Excel apunta a un pedido; en el sistema el cobro va en la remisión o factura';
+    return r.clienteSis ? 'El cliente sí está en el sistema, pero no hay un documento de ' + fmt(x.pago_total) : 'No encontré ni el documento ni el cliente en el sistema';
+  }
+  if (r.estado === 'SOLO_BIND') return (+b.pendiente||0) > CUADRE_TOL ? 'Debe ' + fmt(+b.pendiente) + ' según el sistema y no está en tu Excel' : 'Pagado en el sistema, no está en tu Excel';
+  if (r.estado === 'DIF_TOTAL') return 'El total es distinto (¿descuento, devolución o nota de crédito?)';
+  if (r.difCobrado > 0) return 'Tu Excel tiene ' + fmt(r.difCobrado) + ' más cobrado: falta registrar ese pago en el sistema (o sobra en tu Excel)';
+  if (r.difCobrado < 0) return 'El sistema tiene ' + fmt(-r.difCobrado) + ' más cobrado: falta anotarlo en tu Excel (o el pago está mal en el sistema)';
+  return 'El saldo no coincide aunque el total y lo cobrado sí: revisa la columna de faltante de tu Excel';
+}
+// Por cliente: cuánto debe según tu Excel y según el sistema, y el vendedor de cada lado (con cambios de vendedor por fecha)
+function cuadrePorCliente(){
+  const { resultados, alias, clientesSis, bind } = cuadreCalcular();
+  const grupos = new Map();
+  const g = (k, nombre) => { if (!grupos.has(k)) grupos.set(k, { key:k, nombreSis:'', nombresXl:new Set(), xlPend:0, xlTotal:0, sisPend:0, sisTotal:0, hist:[], filas:0 }); const o = grupos.get(k); if (nombre) o.nombresXl.add(nombre); return o; };
+  resultados.forEach(r => {
+    if (r.excel) {
+      const cs = r.bind ? String(r.bind.cliente||'').trim() : cuadreClienteSistema(r.excel.cliente, clientesSis, alias);
+      const o = g(cs ? 'S:' + cs : 'X:' + cuadreNormTexto(r.excel.cliente), r.excel.cliente);
+      if (cs) o.nombreSis = cs;
+      o.xlPend += r.excel.pago_faltante||0; o.xlTotal += r.excel.pago_total||0; o.filas++;
+      if (r.excel.vendedor) o.hist.push({ f: r.excel.fecha||'', v: r.excel.vendedor });
+    }
+  });
+  bind.forEach(b => { const cs = String(b.cliente||'').trim(); if (!cs) return; const o = grupos.get('S:' + cs) || ((+b.pendiente||0) > CUADRE_TOL ? g('S:' + cs) : null); if (!o) return; o.nombreSis = cs; o.sisPend += +b.pendiente||0; o.sisTotal += +b.total||0; });
+  const cat = State.data.clientes || [];
+  return [...grupos.values()].map(o => {
+    o.hist.sort((a, b) => String(a.f).localeCompare(String(b.f)));
+    const cambios = []; o.hist.forEach(h => { if (!cambios.length || cambios[cambios.length-1].v !== h.v) cambios.push(h); });
+    o.vendXl = cambios.length ? cambios[cambios.length-1].v : '';
+    o.cambiosVend = cambios.length > 1 ? cambios.map(c => c.v + (c.f ? ' desde ' + fmtFecha(c.f) : '')).join(' → ') : '';
+    const cli = o.nombreSis ? cat.find(c => cuadreNormTexto(c.razon_social) === cuadreNormTexto(o.nombreSis)) : null;
+    o.clienteId = cli ? cli.id : '';
+    o.vendSis = String((cli && cli.vendedor) || '').toUpperCase().trim();
+    o.dif = o.xlPend - o.sisPend;
+    const p = [];
+    if (!o.nombreSis) p.push('Cliente no encontrado en el sistema');
+    else if (!o.filas) p.push('Debe ' + fmt(o.sisPend) + ' según el sistema y no está en tu Excel');
+    else if (Math.abs(o.dif) > CUADRE_TOL) p.push(o.dif > 0 ? 'Tu Excel dice que debe ' + fmt(o.dif) + ' más' : 'El sistema dice que debe ' + fmt(-o.dif) + ' más');
+    if (o.vendXl && o.vendSis && o.vendXl !== o.vendSis) p.push('Vendedor: Excel ' + o.vendXl + ' / sistema ' + o.vendSis);
+    if (o.vendXl && o.nombreSis && !o.vendSis) p.push('Sin vendedor en el catálogo (Excel: ' + o.vendXl + ')');
+    o.porque = p.join(' · ');
+    o.estado = p.length ? 'DIF' : 'OK';
+    return o;
+  }).sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif));
 }
 window.cuadreCalcular = cuadreCalcular;
 
-const cuadreFiltroState = { vista:'diferencias' };
+const cuadreFiltroState = { vista:'clientes' };
 function cuadreFiltro(v){ cuadreFiltroState.vista = v; afterRenderCuadre(); }
 window.cuadreFiltro = cuadreFiltro;
 
@@ -12554,34 +12714,35 @@ function renderCuadreModule(){
   if (!excel.length) {
     return `
       <div class="page-title">
-        <div><h1>Cuadre Excel vs Bind</h1><div class="sub">Compara el Excel de cobranza del equipo contra lo que hay en Bind</div></div>
+        <div><h1>Cuadre Excel vs Sistema</h1><div class="sub">Compara tu Excel de cobranza contra la Cobranza del sistema</div></div>
       </div>
       <div class="placeholder-pane" style="text-align:center;padding:60px 24px">
         <div style="font-size:48px;margin-bottom:14px">⚖️</div>
         <h3>Aún no hay Excel cargado</h3>
-        <p style="color:var(--ink-3);max-width:440px;margin:8px auto 22px">Sube tu Excel de cobranza (o usa el que ya está en el proyecto) y te muestro fila por fila qué cuadra con Bind y qué no.</p>
+        <p style="color:var(--ink-3);max-width:440px;margin:8px auto 22px">Sube tu Excel de cobranza y te muestro, cliente por cliente y documento por documento, qué cuadra con el sistema y qué no.</p>
         <div style="display:flex;gap:10px;justify-content:center">
           <button class="btn btn-primary" onclick="abrirCargaExcelCobranza()">📁 Subir Excel</button>
-          <button class="btn btn-secondary" onclick="cuadreCargarJSONProyecto()">Usar cobranza_excel.json del proyecto</button>
         </div>
       </div>`;
   }
-  const { resultados } = cuadreCalcular();
+  const { resultados, bind } = cuadreCalcular();
   const ok = resultados.filter(r => r.estado === 'OK');
   const difs = resultados.filter(r => ['DIF_TOTAL','DIF_COBRADO','DIF_SALDO'].includes(r.estado));
   const soloXl = resultados.filter(r => r.estado === 'SOLO_EXCEL');
-  const soloBd = resultados.filter(r => r.estado === 'SOLO_BIND');
+  const soloBd = resultados.filter(r => r.estado === 'SOLO_BIND' && (+r.bind.pendiente||0) > CUADRE_TOL);
   const montoDif = difs.reduce((s,r)=>s+Math.max(Math.abs(r.difTotal),Math.abs(r.difCobrado),Math.abs(r.difSaldo)),0);
-  const montoSoloXl = soloXl.reduce((s,r)=>s+(r.excel?.pago_total||0),0);
-  const montoSoloBd = soloBd.reduce((s,r)=>s+(+r.bind?.total||0),0);
+  const montoSoloXl = soloXl.reduce((s,r)=>s+(r.excel?.pago_faltante||0),0);
+  const montoSoloBd = soloBd.reduce((s,r)=>s+(+r.bind?.pendiente||0),0);
+  const xlPend = excel.reduce((s,r)=>s+(r.pago_faltante||0),0), sisPend = bind.reduce((s,b)=>s+(+b.pendiente||0),0);
   const origen = localStorage.getItem('nun_cuadre_origen')||'archivo';
   const fechaCarga = localStorage.getItem('nun_cuadre_fecha');
   const fechaTxt = fechaCarga ? new Date(fechaCarga).toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'}) : '';
+  const v = cuadreFiltroState.vista;
   return `
     <div class="page-title">
       <div>
-        <h1>Cuadre Excel vs Bind</h1>
-        <div class="sub">${excel.length} filas del Excel (${escapeHTML(origen)}${fechaTxt ? ' · '+fechaTxt : ''}) vs ${(State.data.cobranza||[]).filter(c=>!c.sin_entregar).length} docs entregados en Bind</div>
+        <h1>Cuadre Excel vs Sistema</h1>
+        <div class="sub">${excel.length} renglones del Excel (${escapeHTML(origen)}${fechaTxt ? ' · '+fechaTxt : ''}) vs ${bind.length} cobros en el sistema</div>
       </div>
       <div class="actions">
         <button class="btn btn-secondary" onclick="abrirCargaExcelCobranza()">📁 Subir otro Excel</button>
@@ -12589,19 +12750,21 @@ function renderCuadreModule(){
       </div>
     </div>
     <div class="kpi-grid">
-      <div class="kpi"><div class="kpi-label">✓ Cuadran</div><div class="kpi-value green">${ok.length}</div><div class="kpi-sub">${resultados.length ? (ok.length/(ok.length+difs.length+soloXl.length)*100).toFixed(0) : 0}% del Excel</div></div>
+      <div class="kpi"><div class="kpi-label">Te deben según tu Excel</div><div class="kpi-value">${fmt(xlPend)}</div><div class="kpi-sub">según el sistema ${fmt(sisPend)} · diferencia ${fmt(xlPend - sisPend)}</div></div>
+      <div class="kpi"><div class="kpi-label">✓ Documentos que cuadran</div><div class="kpi-value green">${ok.length}</div><div class="kpi-sub">${excel.length ? Math.round(ok.length/excel.length*100) : 0}% de tu Excel</div></div>
       <div class="kpi"><div class="kpi-label">⚠ Con diferencia</div><div class="kpi-value amber">${difs.length}</div><div class="kpi-sub">${fmt(montoDif)} en diferencias</div></div>
-      <div class="kpi"><div class="kpi-label">Solo en Excel</div><div class="kpi-value red">${soloXl.length}</div><div class="kpi-sub">${fmt(montoSoloXl)} sin match en Bind</div></div>
-      <div class="kpi"><div class="kpi-label">Solo en Bind</div><div class="kpi-value">${soloBd.length}</div><div class="kpi-sub">${fmt(montoSoloBd)} no están en el Excel</div></div>
+      <div class="kpi"><div class="kpi-label">Solo en tu Excel</div><div class="kpi-value red">${soloXl.length}</div><div class="kpi-sub">${fmt(montoSoloXl)} pendiente sin documento en el sistema</div></div>
+      <div class="kpi"><div class="kpi-label">Solo en el sistema (con saldo)</div><div class="kpi-value">${soloBd.length}</div><div class="kpi-sub">${fmt(montoSoloBd)} que no están en tu Excel</div></div>
     </div>
     <div class="filter-bar">
       <select onchange="cuadreFiltro(this.value)" id="cuadreVista">
-        <option value="diferencias" ${cuadreFiltroState.vista==='diferencias'?'selected':''}>Solo problemas (diferencias + faltantes)</option>
-        <option value="dif" ${cuadreFiltroState.vista==='dif'?'selected':''}>Solo diferencias de monto</option>
-        <option value="solo_excel" ${cuadreFiltroState.vista==='solo_excel'?'selected':''}>Solo en Excel</option>
-        <option value="solo_bind" ${cuadreFiltroState.vista==='solo_bind'?'selected':''}>Solo en Bind</option>
-        <option value="ok" ${cuadreFiltroState.vista==='ok'?'selected':''}>Los que cuadran</option>
-        <option value="todos" ${cuadreFiltroState.vista==='todos'?'selected':''}>Todo</option>
+        <option value="clientes" ${v==='clientes'?'selected':''}>Por cliente (cuánto debe y vendedor)</option>
+        <option value="diferencias" ${v==='diferencias'?'selected':''}>Documentos con problema</option>
+        <option value="dif" ${v==='dif'?'selected':''}>Solo diferencias de monto</option>
+        <option value="solo_excel" ${v==='solo_excel'?'selected':''}>Solo en tu Excel</option>
+        <option value="solo_bind" ${v==='solo_bind'?'selected':''}>Solo en el sistema (con saldo)</option>
+        <option value="ok" ${v==='ok'?'selected':''}>Los que cuadran</option>
+        <option value="todos" ${v==='todos'?'selected':''}>Todo</option>
       </select>
     </div>
     <div id="cuadreMount"></div>
@@ -12611,13 +12774,32 @@ function renderCuadreModule(){
 function afterRenderCuadre(){
   const m = document.getElementById('cuadreMount');
   if (!m) return;
-  const { resultados } = cuadreCalcular();
   const v = cuadreFiltroState.vista;
+  if (v === 'clientes') {
+    const filas = cuadrePorCliente();
+    m.innerHTML = renderDataTable({
+      id:'dt_cuadre_cli', pageSize: 50,
+      columns: [
+        { key:'estado', label:'Estado', render: o => o.estado === 'OK' ? '<span class="tag green">✓ CUADRA</span>' : '<span class="tag amber">REVISAR</span>' },
+        { key:'cliente', label:'Cliente (tu Excel)', render: o => escapeHTML([...o.nombresXl].join(' / ') || '—') + (o.nombreSis && ![...o.nombresXl].some(n => cuadreNormTexto(n) === cuadreNormTexto(o.nombreSis)) ? `<div style="font-size:11px;color:var(--ink-3)">sistema: ${escapeHTML(o.nombreSis)}</div>` : '') },
+        { key:'xl', label:'Debe (Excel)', right:true, render: o => `<span class="mono">${fmt(o.xlPend)}</span>` },
+        { key:'sis', label:'Debe (sistema)', right:true, render: o => `<span class="mono">${fmt(o.sisPend)}</span>` },
+        { key:'dif', label:'Diferencia', right:true, render: o => Math.abs(o.dif) > CUADRE_TOL ? `<span class="mono" style="font-weight:600;color:${o.dif>0?'var(--red)':'var(--amber)'}">${o.dif>0?'+':''}${fmt(o.dif)}</span>` : '<span style="color:var(--ink-4)">—</span>' },
+        { key:'vend', label:'Vendedor', render: o => `${escapeHTML(o.vendXl||'—')}${o.vendSis && o.vendSis !== o.vendXl ? ` <span style="font-size:11px;color:var(--ink-3)">(catálogo: ${escapeHTML(o.vendSis)})</span>` : ''}${o.cambiosVend ? `<div style="font-size:11px;color:var(--ink-3)">${escapeHTML(o.cambiosVend)}</div>` : ''}` },
+        { key:'porque', label:'Qué revisar', render: o => `<span style="font-size:11.5px">${escapeHTML(o.porque||'')}</span>` }
+      ],
+      rows: filas,
+      emptyTitle:'Sin clientes', emptySub:'',
+      onRowClick: (o) => { if (o.clienteId) { navegar('clientes'); setTimeout(() => abrirDetalleCliente(o.clienteId), 150); } }
+    });
+    return;
+  }
+  const { resultados } = cuadreCalcular();
   let rows = resultados;
-  if (v === 'diferencias') rows = resultados.filter(r => r.estado !== 'OK');
+  if (v === 'diferencias') rows = resultados.filter(r => r.estado !== 'OK' && !(r.estado === 'SOLO_BIND' && !((+r.bind.pendiente||0) > CUADRE_TOL)));
   else if (v === 'dif') rows = resultados.filter(r => ['DIF_TOTAL','DIF_COBRADO','DIF_SALDO'].includes(r.estado));
   else if (v === 'solo_excel') rows = resultados.filter(r => r.estado === 'SOLO_EXCEL');
-  else if (v === 'solo_bind') rows = resultados.filter(r => r.estado === 'SOLO_BIND');
+  else if (v === 'solo_bind') rows = resultados.filter(r => r.estado === 'SOLO_BIND' && (+r.bind.pendiente||0) > CUADRE_TOL);
   else if (v === 'ok') rows = resultados.filter(r => r.estado === 'OK');
   const tagEstado = r => ({
     OK: '<span class="tag green">✓ CUADRA</span>',
@@ -12625,32 +12807,26 @@ function afterRenderCuadre(){
     DIF_COBRADO: '<span class="tag amber">DIF COBRADO</span>',
     DIF_SALDO: '<span class="tag amber">DIF SALDO</span>',
     SOLO_EXCEL: '<span class="tag red">SOLO EXCEL</span>',
-    SOLO_BIND: '<span class="tag">SOLO BIND</span>'
+    SOLO_BIND: '<span class="tag">SOLO SISTEMA</span>'
   }[r.estado] || r.estado);
-  const difCell = r => {
-    if (r.tipo !== 'MATCH') return '—';
-    const d = [['Total',r.difTotal],['Cobrado',r.difCobrado],['Saldo',r.difSaldo]].filter(([,v])=>Math.abs(v)>CUADRE_TOL);
-    if (!d.length) return '<span style="color:var(--ink-4)">—</span>';
-    return d.map(([l,v])=>`<div style="font-size:11px"><span style="color:var(--ink-3)">${l}:</span> <span class="mono" style="color:${v>0?'var(--red)':'var(--amber)'};font-weight:600">${v>0?'+':''}${fmt(v)}</span></div>`).join('');
-  };
   m.innerHTML = renderDataTable({
     id:'dt_cuadre',
     pageSize: 50,
     columns: [
       { key:'estado', label:'Estado', render: tagEstado },
-      { key:'cliente', label:'Cliente', render: r => escapeHTML(r.excel?.cliente || r.bind?.cliente || '—') },
-      { key:'factura', label:'Factura', render: r => `<span class="mono">${escapeHTML(r.excel?.factura_raw || r.bind?.numero || '—')}</span>` },
+      { key:'cliente', label:'Cliente', render: r => escapeHTML(r.excel?.cliente || r.bind?.cliente || '—') + (r.excel ? `<div style="font-size:10.5px;color:var(--ink-4)">${escapeHTML(r.excel.hoja||'')} fila ${r.excel.fila||''}${r.excel.fecha ? ' · ' + escapeHTML(String(r.excel.fecha)) : ''}</div>` : '') },
+      { key:'factura', label:'Folio', render: r => `<span class="mono">${escapeHTML(r.excel?.factura_raw || '')}${r.bind ? (r.excel?.factura_raw ? ' → ' : '') + escapeHTML(r.bind.numero||'') : ''}</span>` },
       { key:'vendedor', label:'Vendedor', render: r => escapeHTML(r.excel?.vendedor || r.bind?.vendedor || '—') },
       { key:'xl_total', label:'Excel Total', right:true, render: r => r.excel ? `<span class="mono">${fmt(r.excel.pago_total||0)}</span>` : '—' },
-      { key:'bind_total', label:'Bind Total', right:true, render: r => r.bind ? `<span class="mono">${fmt(+r.bind.total||0)}</span>` : '—' },
+      { key:'bind_total', label:'Sistema Total', right:true, render: r => r.bind ? `<span class="mono">${fmt(+r.bind.total||0)}</span>` : '—' },
       { key:'xl_cobrado', label:'Excel Cobrado', right:true, render: r => r.excel ? `<span class="mono">${fmt(r.excel.pago_cobrado||0)}</span>` : '—' },
-      { key:'bind_cobrado', label:'Bind Cobrado', right:true, render: r => r.bind ? `<span class="mono">${fmt(+r.bind.cobrado||0)}</span>` : '—' },
-      { key:'dif', label:'Diferencia', render: difCell },
-      { key:'via', label:'Match', render: r => r.via ? `<span style="font-size:10.5px;color:var(--ink-4)">${escapeHTML(r.via)}</span>` : '—' }
+      { key:'bind_cobrado', label:'Sistema Cobrado', right:true, render: r => r.bind ? `<span class="mono">${fmt(+r.bind.cobrado||0)}</span>` : '—' },
+      { key:'porque', label:'Qué revisar', render: r => `<span style="font-size:11.5px">${escapeHTML(r.porque||'')}</span>` },
+      { key:'via', label:'Cómo se juntó', render: r => r.via ? `<span style="font-size:10.5px;color:var(--ink-4)">${escapeHTML(r.via)}</span>` : '—' }
     ],
     rows,
     emptyTitle: v === 'diferencias' ? '🎉 Todo cuadra' : 'Sin filas en esta vista',
-    emptySub: v === 'diferencias' ? 'No hay diferencias entre tu Excel y Bind' : 'Cambia el filtro para ver otras categorías',
+    emptySub: v === 'diferencias' ? 'No hay diferencias entre tu Excel y el sistema' : 'Cambia el filtro para ver otras categorías',
     onRowClick: (r) => { if (r.bind?.id) abrirDrawerCobranza(r.bind.id); }
   });
   const nav = document.getElementById('navCuadre');
@@ -12658,30 +12834,27 @@ function afterRenderCuadre(){
 }
 
 function cuadreExportarCSV(){
-  const { resultados } = cuadreCalcular();
-  const probs = resultados.filter(r => r.estado !== 'OK');
   const esc = s => '"' + String(s==null?'':s).replace(/"/g,'""') + '"';
-  const lines = [['Estado','Cliente','Factura','Vendedor','Excel Total','Bind Total','Excel Cobrado','Bind Cobrado','Dif Total','Dif Cobrado','Dif Saldo','Match via'].join(',')];
-  probs.forEach(r => {
-    lines.push([
-      r.estado,
-      esc(r.excel?.cliente || r.bind?.cliente || ''),
-      esc(r.excel?.factura_raw || r.bind?.numero || ''),
-      esc(r.excel?.vendedor || r.bind?.vendedor || ''),
-      r.excel ? (r.excel.pago_total||0) : '',
-      r.bind ? (+r.bind.total||0) : '',
-      r.excel ? (r.excel.pago_cobrado||0) : '',
-      r.bind ? (+r.bind.cobrado||0) : '',
-      r.difTotal.toFixed(2), r.difCobrado.toFixed(2), r.difSaldo.toFixed(2),
-      r.via
-    ].join(','));
-  });
+  const lines = [];
+  if (cuadreFiltroState.vista === 'clientes') {
+    const filas = cuadrePorCliente();
+    lines.push(['Estado','Cliente (Excel)','Cliente (sistema)','Debe Excel','Debe sistema','Diferencia','Vendedor Excel','Cambios de vendedor','Vendedor catálogo','Qué revisar'].join(','));
+    filas.forEach(o => lines.push([o.estado, esc([...o.nombresXl].join(' / ')), esc(o.nombreSis), o.xlPend.toFixed(2), o.sisPend.toFixed(2), o.dif.toFixed(2), esc(o.vendXl), esc(o.cambiosVend), esc(o.vendSis), esc(o.porque)].join(',')));
+  } else {
+    const { resultados } = cuadreCalcular();
+    lines.push(['Estado','Hoja','Fila','Fecha','Cliente','Folio Excel','Folio sistema','Vendedor','Excel Total','Sistema Total','Excel Cobrado','Sistema Cobrado','Excel Faltante','Sistema Pendiente','Qué revisar','Cómo se juntó'].join(','));
+    resultados.filter(r => r.estado !== 'OK').forEach(r => lines.push([
+      r.estado, esc(r.excel?.hoja||''), r.excel?.fila||'', esc(r.excel?.fecha||''), esc(r.excel?.cliente || r.bind?.cliente || ''), esc(r.excel?.factura_raw||''), esc(r.bind?.numero||''),
+      esc(r.excel?.vendedor || r.bind?.vendedor || ''), r.excel ? (r.excel.pago_total||0) : '', r.bind ? (+r.bind.total||0) : '', r.excel ? (r.excel.pago_cobrado||0) : '', r.bind ? (+r.bind.cobrado||0) : '',
+      r.excel ? (r.excel.pago_faltante||0) : '', r.bind ? (+r.bind.pendiente||0) : '', esc(r.porque||''), r.via
+    ].join(',')));
+  }
   const blob = new Blob(['﻿' + lines.join('\n')], { type:'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `cuadre_excel_vs_bind_${nunHoy()}.csv`;
+  a.download = `cuadre_excel_vs_sistema_${nunHoy()}.csv`;
   a.click();
-  toast(`✓ Exportadas ${probs.length} diferencias a CSV`, 'success');
+  toast(`✓ Exportados ${lines.length - 1} renglones a CSV`, 'success');
 }
 window.cuadreExportarCSV = cuadreExportarCSV;
 

@@ -51,7 +51,7 @@ setTimeout(async()=>{const r={};try{
  await w.eval("nunAbrirComplementoPago('f5')"); await sleep(200);
  r.caso2={monto:d.getElementById('repMonto').value,timbrar:d.getElementById('repTimbrar').checked,cobro:/V01600/.test(d.getElementById('modalREP').textContent),v600:[C('bind_cob_30').cobrado,C('bind_cob_30').pendiente].join('/')};
  r.fallas=[];
- if(!r.boton||r.lista.join()!=='V01600,V01500') r.fallas.push('lista');
+ if(!r.boton||r.lista.join()!=='V01600,V01500,V01700') r.fallas.push('lista');
  if(r.caso1.v500!=='71000/24000'||r.caso1.propio!=='cancelado'||r.caso1.ingreso!=='V01500'||!r.caso1.nota||r.caso1.saldoFactura!==0||r.caso1.repAvisa||!r.caso1.repCobro) r.fallas.push('caso1');
  if(r.caso2.monto!=='10000'||r.caso2.timbrar||!r.caso2.cobro||r.caso2.v600!=='0/30000') r.fallas.push('caso2');
 }catch(e){r.error=String(e.stack).slice(0,600)} r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();},3500);

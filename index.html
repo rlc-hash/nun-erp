@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.94 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.95 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7830,27 +7830,35 @@ window.nunConfirmarComplementoPago = nunConfirmarComplementoPago;
 function nunPagosDeCobro(c){ const n = String(c.numero||'').trim(); return n ? (State.data.ingresos||[]).filter(i => nunPagoCuenta(i) && String(i.factura||'').trim() === n) : []; }
 async function nunCobrarEnOtraVenta(idFac){
   if (!nunEsAdmin()) { toast('Solo un administrador puede hacer esto', { type:'error' }); return; }
-  await Promise.all([cargarTabla('facturas'), cargarTabla('cobranza'), cargarTabla('ingresos')]);
+  await Promise.all([cargarTabla('facturas'), cargarTabla('cobranza'), cargarTabla('ingresos'), cargarTabla('remisiones')]);
   const f = (State.data.facturas||[]).find(x => x.id === idFac); if (!f) return;
-  const propio = nunCobranzaDeDoc(f, State.data.cobranza||[]);
+  // v3.95 — la remisión de la que salió la factura (ej. REM-2026-0001 hecha desde un pedido viejo de Bind): no es venta nueva
+  const rem = nunEsDeRemision(f) ? (State.data.remisiones||[]).find(r => nunFolioStr(r) === nunRemFolioDeFactura(f) && !/cancel/i.test(r.estatus||'')) : null;
+  const propios = [nunCobranzaDeDoc(f, State.data.cobranza||[]), rem ? nunCobranzaDeDoc(rem, State.data.cobranza||[]) : null]
+    .filter((c, i, a) => c && !/cancel/i.test(String(c.estatus||'')) && a.findIndex(y => y && y.id === c.id) === i);
+  const propio = propios[0] || null;
   const cli = String(f.cliente||'').trim().toUpperCase();
-  const L = (State.data.cobranza||[]).filter(c => String(c.cliente||'').trim().toUpperCase() === cli && !/cancel|duplic/i.test(String(c.estatus||'')) && (!propio || c.id !== propio.id))
-    .map(c => { const pagos = nunPagosDeCobro(c); return { c, suma: nunR2(pagos.reduce((a, i) => a + (+i.monto||0), 0)), n: pagos.length }; })
-    .sort((a, b) => String(b.c.fecha_entrega||b.c.fecha_emision||'').localeCompare(String(a.c.fecha_entrega||a.c.fecha_emision||'')));
-  window._nunCOV = { f, propio, L };
-  const movidos = propio ? nunPagosDeCobro(propio) : [];
+  // v3.95 — también de otros clientes (la venta vieja pudo quedar a otro nombre); primero los del mismo cliente
+  const L = (State.data.cobranza||[]).filter(c => !/cancel|duplic/i.test(String(c.estatus||'')) && !propios.some(p => p.id === c.id) && !c.sin_entregar)
+    .map(c => { const pagos = nunPagosDeCobro(c); return { c, suma: nunR2(pagos.reduce((a, i) => a + (+i.monto||0), 0)), n: pagos.length, mismo: String(c.cliente||'').trim().toUpperCase() === cli }; })
+    .sort((a, b) => (b.mismo - a.mismo) || String(b.c.fecha_entrega||b.c.fecha_emision||'').localeCompare(String(a.c.fecha_entrega||a.c.fecha_emision||'')));
+  window._nunCOV = { f, propio, propios, rem, L };
+  const movidos = propios.flatMap(c => nunPagosDeCobro(c));
   let m = document.getElementById('modalCOV'); if (m) m.remove();
   m = document.createElement('div'); m.id = 'modalCOV';
   m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
   m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:900px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><div><h3 style="margin:0">Cobrar ${escapeHTML(f.folio||'')} en otra venta</h3>
-      <div style="font-size:12px;color:var(--ink-3)">${escapeHTML(f.cliente||'')} · factura ${fmtFull(f.total)}${propio ? ' · su cobro ' + escapeHTML(String(propio.numero||'')) + ' tiene ' + movidos.length + ' pago(s) por ' + fmtFull(movidos.reduce((a, i) => a + (+i.monto||0), 0)) + ' que se pasan a la venta que elijas' : ' · no tiene cobro propio'}</div></div>
+      <div style="font-size:12px;color:var(--ink-3)">${escapeHTML(f.cliente||'')} · factura ${fmtFull(f.total)}${propios.length ? ' · su cobro ' + propios.map(c => escapeHTML(String(c.numero||''))).join(', ') + ' tiene ' + movidos.length + ' pago(s) por ' + fmtFull(movidos.reduce((a, i) => a + (+i.monto||0), 0)) + ' que se pasan a la venta que elijas' : ' · no tiene cobro propio'}</div></div>
       <button class="icon-btn" onclick="document.getElementById('modalCOV').remove()">✕</button></div>
     <div style="padding:10px 20px;font-size:12.5px;background:rgba(245,158,11,0.08)">Elige la venta de la que es esta factura. Desde ahora el pago de la factura se aplica a esa venta y la factura no cuenta como deuda aparte. No se borra nada.</div>
-    <div style="overflow:auto;padding:0 20px;flex:1">${L.length ? `<table class="dt" style="font-size:12px"><thead><tr><th></th><th>Venta (Cobranza)</th><th>Fecha</th><th class="right">Total</th><th class="right">Dice cobrado</th><th class="right">Suman sus pagos</th><th class="right">Saldo</th></tr></thead><tbody>
-      ${L.map((x, i) => `<tr><td><input type="radio" name="covSel" value="${i}"></td><td class="mono">${escapeHTML(String(x.c.numero||''))}</td><td>${fmtFecha(x.c.fecha_entrega||x.c.fecha_emision)}</td><td class="right mono">${fmtFull(x.c.total)}</td>
+    <div style="padding:10px 20px 0"><input type="text" id="covBuscar" placeholder="Buscar por folio, cliente o monto (ej. 95000)…" style="width:100%" oninput="nunCOVFiltrar(this.value)"></div>
+    <div style="overflow:auto;padding:0 20px;flex:1">${L.length ? `<table class="dt" style="font-size:12px"><thead><tr><th></th><th>Venta (Cobranza)</th><th>Cliente</th><th>Fecha</th><th class="right">Total</th><th class="right">Dice cobrado</th><th class="right">Suman sus pagos</th><th class="right">Saldo</th></tr></thead><tbody>
+      ${L.map((x, i) => `<tr class="covFila" data-txt="${escapeHTML((String(x.c.numero||'') + ' ' + String(x.c.cliente||'') + ' ' + (+x.c.total||0) + ' ' + String(x.c.descripcion||'')).toUpperCase())}" ${x.mismo ? '' : 'style="display:none"'}><td><input type="radio" name="covSel" value="${i}"></td><td class="mono">${escapeHTML(String(x.c.numero||''))}</td><td style="font-size:11px">${escapeHTML(String(x.c.cliente||''))}</td><td>${fmtFecha(x.c.fecha_entrega||x.c.fecha_emision)}</td><td class="right mono">${fmtFull(x.c.total)}</td>
         <td class="right mono">${fmtFull(x.c.cobrado)}</td><td class="right mono" style="${Math.abs((+x.c.cobrado||0) - x.suma) > 0.5 ? 'color:var(--red);font-weight:600' : ''}">${fmtFull(x.suma)} <span style="color:var(--ink-4)">(${x.n})</span></td><td class="right mono">${fmtFull(x.c.pendiente)}</td></tr>`).join('')}</tbody></table>` : '<div style="padding:24px;text-align:center;color:var(--mute)">Este cliente no tiene otras ventas en Cobranza</div>'}
-      <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin:12px 0"><input type="checkbox" id="covAjustar" checked> Si "dice cobrado" no es igual a lo que suman sus pagos (en rojo), ajustarlo a lo que suman sus pagos</label></div>
+      <div style="font-size:11.5px;color:var(--ink-3);margin-top:6px">Se ven las ventas de ${escapeHTML(f.cliente||'')}. Si la venta quedó a otro nombre, búscala arriba (folio, nombre o monto).</div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin:12px 0 4px"><input type="checkbox" id="covAjustar" checked> Si "dice cobrado" no es igual a lo que suman sus pagos (en rojo), ajustarlo a lo que suman sus pagos</label>
+      ${rem ? `<label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin:4px 0 12px"><input type="checkbox" id="covCancRem" checked> Cancelar la remisión <b class="mono">${escapeHTML(nunFolioStr(rem))}</b> (${fmtFull(rem.total)}) de la que salió la factura: era parte de la misma venta, no es venta nueva</label>` : ''}</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)"><button class="btn" onclick="document.getElementById('modalCOV').remove()">Cerrar</button>
       ${L.length ? '<button class="btn btn-primary" id="covBoton" onclick="nunCobrarEnOtraVentaGuardar()">Ligar y cuadrar</button>' : ''}</div></div>`;
   document.body.appendChild(m);
@@ -7860,25 +7868,29 @@ async function nunCobrarEnOtraVentaGuardar(){
   const sel = document.querySelector('#modalCOV input[name=covSel]:checked'); if (!sel) { toast('Elige la venta', { type:'error' }); return; }
   const x = S.L[+sel.value], f = S.f, propio = S.propio, X = x.c;
   const ajustar = document.getElementById('covAjustar').checked && Math.abs((+X.cobrado||0) - x.suma) > 0.5;
-  const movidos = propio ? nunPagosDeCobro(propio) : [], sumMov = nunR2(movidos.reduce((a, i) => a + (+i.monto||0), 0));
+  const movidos = (S.propios || []).flatMap(c => nunPagosDeCobro(c)), sumMov = nunR2(movidos.reduce((a, i) => a + (+i.monto||0), 0));
+  const cancRem = !!(S.rem && (document.getElementById('covCancRem')||{}).checked);
   const cobrado = nunR2((ajustar ? x.suma : (+X.cobrado||0)) + sumMov), pendiente = Math.max(0, nunR2((+X.total||0) - cobrado));
   const ok = await confirmDialog({ title:'¿Cobrar ' + (f.folio||'') + ' en ' + (X.numero||'') + '?',
-    message: (X.numero||'') + ': cobrado ' + fmtFull(X.cobrado) + ' → ' + fmtFull(cobrado) + ', saldo ' + fmtFull(X.pendiente) + ' → ' + fmtFull(pendiente) + '.' + (sumMov ? ' Se pasan ' + movidos.length + ' pago(s) por ' + fmtFull(sumMov) + ' de ' + (propio.numero||'') + ' y ese cobro se cancela.' : '') + ' No se borra nada.', ok:'Ligar y cuadrar' });
+    message: (X.numero||'') + ': cobrado ' + fmtFull(X.cobrado) + ' → ' + fmtFull(cobrado) + ', saldo ' + fmtFull(X.pendiente) + ' → ' + fmtFull(pendiente) + '.' + (sumMov ? ' Se pasan ' + movidos.length + ' pago(s) por ' + fmtFull(sumMov) + ' a ' + (X.numero||'') + '.' : '') + ((S.propios||[]).length ? ' Se cancela el cobro ' + S.propios.map(c => c.numero).join(', ') + '.' : '') + (cancRem ? ' Se cancela la remisión ' + nunFolioStr(S.rem) + '.' : '') + ' No se borra nada.', ok:'Ligar y cuadrar' });
   if (!ok) return;
   const btn = document.getElementById('covBoton'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
   const hoy = nunHoy(); let mal = 0;
   try {
-    if (movidos.length) { const r = await api({ accion:'erp_upsert_batch', tabla:'ingresos', items: movidos.map(i => ({ id: i.id, factura: String(X.numero||''), comentarios: '(pasado de ' + (propio.numero||'') + ' el ' + hoy + ') ' + String(i.comentarios||'') })) }); if (!(r && r.ok)) throw new Error('no se pasaron los pagos'); }
+    if (movidos.length) { const r = await api({ accion:'erp_upsert_batch', tabla:'ingresos', items: movidos.map(i => ({ id: i.id, factura: String(X.numero||''), comentarios: '(pasado de ' + String(i.factura||'') + ' el ' + hoy + ') ' + String(i.comentarios||'') })) }); if (!(r && r.ok)) throw new Error('no se pasaron los pagos'); }
     if (!(await nunGuardarSeguro('cobranza', { id: X.id, cobrado, pendiente, descripcion: String(X.descripcion||'') + ' · ' + hoy + ': se le liga la factura ' + (f.folio||'') + (ajustar ? ' · cobrado ajustado ' + (+X.cobrado||0).toFixed(2) + '→' + x.suma.toFixed(2) + ' (lo que suman sus pagos)' : '') + (sumMov ? ' · +' + sumMov.toFixed(2) + ' pagos de ' + (propio.numero||'') : '') }))) mal++;
-    if (propio && !(await nunGuardarSeguro('cobranza', { id: propio.id, estatus:'cancelado', cobrado:0, pendiente:0, descripcion: String(propio.descripcion||'') + ' · ' + hoy + ': se cobra en ' + (X.numero||'') }))) mal++;
+    for (const pc of (S.propios || [])) if (!(await nunGuardarSeguro('cobranza', { id: pc.id, estatus:'cancelado', cobrado:0, pendiente:0, descripcion: String(pc.descripcion||'') + ' · ' + hoy + ': se cobra en ' + (X.numero||'') }))) mal++;
+    if (cancRem && !(await nunGuardarSeguro('remisiones', { id: S.rem.id, estatus:'cancelada', notas: (S.rem.notas ? String(S.rem.notas) + ' · ' : '') + 'Cancelada ' + hoy + ': era parte de la venta ' + (X.numero||'') + ' (no es venta nueva); la factura ' + (f.folio||'') + ' se cobra ahí' }))) mal++; // v3.95
     if (!(await nunGuardarSeguro('facturas', { id: f.id, notas: (f.notas ? String(f.notas) + ' · ' : '') + 'Cobro en ' + (X.numero||'') + ' (id ' + X.id + ')' }))) mal++;
   } catch(e){ mal++; toast('✗ ' + e.message, { type:'error', duration:8000 }); }
   const mm = document.getElementById('modalCOV'); if (mm) mm.remove();
-  await Promise.all([cargarTabla('facturas'), cargarTabla('cobranza'), cargarTabla('ingresos')]);
+  await Promise.all([cargarTabla('facturas'), cargarTabla('cobranza'), cargarTabla('ingresos'), cargarTabla('remisiones')]);
   try { cerrarDrawer(); } catch(e){} renderCurrent();
   toast(mal ? '⚠ No todo se guardó: revisa ' + (X.numero||'') + ' en Cobranza' : '✓ ' + (f.folio||'') + ' se cobra en ' + (X.numero||'') + ' · saldo ' + fmtFull(pendiente), { type: mal ? 'error' : 'success', duration:9000 });
 }
-window.nunCobrarEnOtraVenta = nunCobrarEnOtraVenta; window.nunCobrarEnOtraVentaGuardar = nunCobrarEnOtraVentaGuardar;
+function nunCOVFiltrar(q){ q = String(q||'').toUpperCase().replace(/[$,\s]+/g, ' ').trim(); const S = window._nunCOV || { L:[] };
+  document.querySelectorAll('#modalCOV .covFila').forEach((tr, i) => { const x = S.L[i]; tr.style.display = !q ? (x && x.mismo ? '' : 'none') : (q.split(' ').every(w => tr.dataset.txt.replace(/,/g,'').includes(w)) ? '' : 'none'); }); }
+window.nunCOVFiltrar = nunCOVFiltrar; window.nunCobrarEnOtraVenta = nunCobrarEnOtraVenta; window.nunCobrarEnOtraVentaGuardar = nunCobrarEnOtraVentaGuardar;
 
 // XML del complemento
 async function nunDescargarREP(uuid){ return cfdiDescargarXML(uuid); }

@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.96 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.97 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7369,6 +7369,7 @@ function abrirDoc(tabla, id) {
     if (tabla === 'facturas') nunRepsDeFactura(doc).forEach(r => { acciones += `<button class="btn btn-secondary" onclick="nunPdfREP('${r.uuid}')">📄 PDF ${r.folio}</button><button class="btn btn-secondary" onclick="nunDescargarREP('${r.uuid}')">📃 XML ${r.folio}</button>`; }); // v3.78
     acciones += `<button class="btn btn-secondary" onclick="${['pedidos','remisiones','facturas'].includes(tabla) ? `nunPdfDoc('${tabla}','${id}')` : `imprimirDocumento('${tabla}','${id}')`}">📄 PDF</button>`; // v3.78
     if (tabla === 'facturas') acciones += `<button class="btn btn-secondary" onclick="descargarXMLCFDI('${id}')">📃 XML CFDI</button>`;
+    if (tabla === 'pedidos' && nunEsAdmin() && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunLigarAPedido('${id}')" title="Remisiones o facturas que salieron de este pedido pero no quedaron ligadas (ej. las de Bind)">🔗 Ligar remisiones</button>`; // v3.97
     if (tabla === 'facturas' && nunEsAdmin() && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunCobrarEnOtraVenta('${id}')" title="La factura es de una venta que ya existía (ej. una remisión de Bind): su pago se cobra en esa venta">🔗 Cobrar en otra venta</button>`; // v3.94
     // v3.38 — Timbrar con Facturama (solo facturas sin timbrar)
     if (tabla === 'facturas' && !doc.uuid_sat) acciones += `<button class="btn btn-primary" onclick="facturaTimbrar('${id}')">⚡ Timbrar SAT</button>`;
@@ -7894,7 +7895,58 @@ async function nunCobrarEnOtraVentaGuardar(){
 }
 function nunCOVFiltrar(q){ q = String(q||'').toUpperCase().replace(/[$,\s]+/g, ' ').trim(); const S = window._nunCOV || { L:[] };
   document.querySelectorAll('#modalCOV .covFila').forEach((tr, i) => { const x = S.L[i]; tr.style.display = !q ? (x && (x.mismo || x.sug) ? '' : 'none') : (q.split(' ').every(w => tr.dataset.txt.replace(/,/g,'').includes(w)) ? '' : 'none'); }); }
-window.nunCOVFiltrar = nunCOVFiltrar; window.nunCobrarEnOtraVenta = nunCobrarEnOtraVenta; window.nunCobrarEnOtraVentaGuardar = nunCobrarEnOtraVentaGuardar;
+window.nunCOVFiltrar = nunCOVFiltrar;
+// ============================================================
+// v3.97 — LIGAR REMISIONES/FACTURAS A UN PEDIDO: en Bind un pedido grande se surtió en varias remisiones pero la liga no pasó.
+// Se eligen las del mismo cliente y quedan con pedido_origen = folio del pedido (antes se anota en sus notas). No se borra nada.
+// ============================================================
+function nunLigarCandidatos(ped){
+  const cli = String(ped.cliente||'').trim().toUpperCase(), pedFol = new Set((State.data.pedidos||[]).map(p => nunFolioStr(p)).filter(Boolean));
+  const mio = nunPedClaves(ped);
+  return ['remisiones','facturas'].flatMap(t => (State.data[t]||[]).filter(d => String(d.cliente||'').trim().toUpperCase() === cli && !/cancel/i.test(d.estatus||'')
+      && !(t === 'facturas' && nunEsDeRemision(d)))
+    .map(d => { const po = String(d.pedido_origen||'').trim(); return { t, d, po, ya: mio.includes(po), otro: po && !mio.includes(po) && pedFol.has(po) }; }))
+    .sort((a, b) => String(a.d.fecha||'').localeCompare(String(b.d.fecha||'')));
+}
+async function nunLigarAPedido(idPed){
+  if (!nunEsAdmin()) { toast('Solo un administrador puede hacer esto', { type:'error' }); return; }
+  await Promise.all(['pedidos','remisiones','facturas'].map(t => cargarTabla(t)));
+  const ped = (State.data.pedidos||[]).find(p => p.id === idPed); if (!ped) return;
+  const L = nunLigarCandidatos(ped); window._nunLAP = { ped, L };
+  let m = document.getElementById('modalLAP'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalLAP';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:900px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><div><h3 style="margin:0">Ligar remisiones al pedido ${escapeHTML(nunFolioStr(ped))}</h3>
+      <div style="font-size:12px;color:var(--ink-3)">${escapeHTML(ped.cliente||'')} · pedido ${fmtFull(ped.total)} · marcadas <b id="lapSuma"></b></div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalLAP').remove()">✕</button></div>
+    <div style="padding:10px 20px;font-size:12.5px;background:rgba(245,158,11,0.08)">Marca las remisiones y facturas que salieron de este pedido. Quedan ligadas: el pedido muestra en qué va (surtido/parcial) y todos sus pagos. Las que ya son de otro pedido salen sin marcar. No se borra nada.</div>
+    <div style="overflow:auto;padding:0 20px;flex:1">${L.length ? `<table class="dt" style="font-size:12px"><thead><tr><th></th><th>Tipo</th><th>Folio</th><th>Fecha</th><th class="right">Total</th><th>Hoy dice pedido</th></tr></thead><tbody>
+      ${L.map((x, i) => `<tr><td><input type="checkbox" class="lapChk" data-i="${i}" ${x.ya ? 'checked' : ''} onchange="nunLigarSuma()"></td><td>${x.t === 'remisiones' ? 'Remisión' : 'Factura'}</td><td class="mono">${escapeHTML(nunFolioStr(x.d))}</td><td>${fmtFecha(x.d.fecha)}</td>
+        <td class="right mono">${fmtFull(x.d.total)}</td><td>${x.ya ? '<span class="tag green">este</span>' : x.otro ? '<span class="tag amber">' + escapeHTML(x.po) + '</span>' : escapeHTML(x.po || '—')}</td></tr>`).join('')}</tbody></table>` : '<div style="padding:24px;text-align:center;color:var(--mute)">Este cliente no tiene remisiones ni facturas vigentes</div>'}</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)"><button class="btn" onclick="document.getElementById('modalLAP').remove()">Cerrar</button>
+      ${L.length ? '<button class="btn btn-primary" id="lapBoton" onclick="nunLigarAPedidoGuardar()">Ligar lo marcado</button>' : ''}</div></div>`;
+  document.body.appendChild(m); nunLigarSuma();
+}
+function nunLigarSuma(){ const S = window._nunLAP; if (!S) return; const sel = [...document.querySelectorAll('#modalLAP .lapChk:checked')].map(x => S.L[+x.dataset.i]);
+  const t = nunR2(sel.reduce((a, x) => a + (+x.d.total||0), 0)); const el = document.getElementById('lapSuma'); if (el) el.textContent = sel.length + ' por ' + fmtFull(t) + (Math.abs(t - (+S.ped.total||0)) < 1 ? ' ✓ igual al pedido' : ' (pedido ' + fmtFull(S.ped.total) + ')'); }
+async function nunLigarAPedidoGuardar(){
+  const S = window._nunLAP; if (!S) return; const ped = S.ped, fol = nunFolioStr(ped) || String(ped.id);
+  const sel = [...document.querySelectorAll('#modalLAP .lapChk:checked')].map(x => S.L[+x.dataset.i]).filter(x => !x.ya);
+  if (!sel.length) { toast('No marcaste nada nuevo', { type:'error' }); return; }
+  const ok = await confirmDialog({ title:'¿Ligar ' + sel.length + ' documento(s) al pedido ' + fol + '?', message: sel.map(x => nunFolioStr(x.d)).join(', ') + '. Si ya decían otro pedido, queda anotado en sus notas. No se borra nada.', ok:'Ligar' });
+  if (!ok) return;
+  const btn = document.getElementById('lapBoton'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  const hoy = nunHoy(), porT = {}; let mal = 0;
+  sel.forEach(x => { const it = { id: x.d.id, pedido_origen: fol }; if (x.po) it.notas = (x.d.notas ? String(x.d.notas) + ' · ' : '') + 'Ligada al pedido ' + fol + ' el ' + hoy + ' (antes decía ' + x.po + ')'; (porT[x.t] = porT[x.t] || []).push(it); });
+  for (const t of Object.keys(porT)) for (let i = 0; i < porT[t].length; i += 40) { try { const r = await api({ accion:'erp_upsert_batch', tabla:t, items: porT[t].slice(i, i+40) }); if (!(r && r.ok)) mal++; } catch(e){ mal++; } }
+  const mm = document.getElementById('modalLAP'); if (mm) mm.remove();
+  await Promise.all(['pedidos','remisiones','facturas'].map(t => cargarTabla(t)));
+  try { cerrarDrawer(); } catch(e){} renderCurrent();
+  toast(mal ? '⚠ Algunos no se guardaron; vuelve a intentar' : '✓ ' + sel.length + ' documento(s) ligados al pedido ' + fol, { type: mal ? 'error' : 'success', duration:7000 });
+}
+window.nunLigarAPedido = nunLigarAPedido; window.nunLigarAPedidoGuardar = nunLigarAPedidoGuardar; window.nunLigarSuma = nunLigarSuma;
+ window.nunCobrarEnOtraVenta = nunCobrarEnOtraVenta; window.nunCobrarEnOtraVentaGuardar = nunCobrarEnOtraVentaGuardar;
 
 // XML del complemento
 async function nunDescargarREP(uuid){ return cfdiDescargarXML(uuid); }

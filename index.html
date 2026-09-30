@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.89 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.90 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4501,23 +4501,31 @@ function abrirDrawerCobranza(idDoc) {
     <div class="field full"><label>Descripción</label><textarea id="edDescripcion">${escapeHTML(doc.descripcion||'')}</textarea></div>
   </div>
   <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn btn-primary" id="edGuardarBtn" onclick="guardarEdicionCobranza('${idDoc}')">Guardar cambios</button></div>`;
-  const tabHistorial = `<div id="histPagos">${
-    pagos.length === 0
-      ? '<div class="dt-empty"><div class="empty-title">Sin pagos manuales</div><div class="empty-sub">Los pagos capturados aquí o desde el botón de arriba aparecerán en esta lista.</div></div>'
-      : pagos.map(p => `
-        <div class="timeline-item">
-          <div class="timeline-date">${fmtFecha(p.fecha)}</div>
+  // v3.90 — Historial = TODOS los pagos del documento en Ingresos (también los de Bind), no solo los capturados aquí
+  const _k = _nunNumDoc(doc.numero), _cli = String(doc.cliente||'').trim().toUpperCase();
+  const _ingDoc = (State.data.ingresos||[]).concat(State.data.ingresosDuplicados||[]).filter(i => _k && String(i.cliente||'').trim().toUpperCase() === _cli && String(i.factura||'').split(/[,;/]/).some(f => _nunNumDoc(f) === _k))
+    .sort((x, y) => String(y.fecha||'').localeCompare(String(x.fecha||'')));
+  const _vivos = _ingDoc.filter(i => nunPagoCuenta(i) && !/^(CANCELADO|DUPLICADO)/i.test(String(i.tipo||'')));
+  const _sumaPagos = nunR2(_vivos.reduce((s2, i) => s2 + (+i.monto||0), 0));
+  const _admin = nunEsAdmin() || esSesionDueno();
+  const tabHistorial = `<div id="histPagos">
+    <div style="font-size:12.5px;margin-bottom:10px;padding:10px 12px;border-radius:8px;background:var(--bg-2)">Pagos en Ingresos: <b>${fmtFull(_sumaPagos)}</b> (${_vivos.length}) · cobrado según Cobranza <b>${fmtFull(doc.cobrado)}</b>
+      ${Math.abs(_sumaPagos - (+doc.cobrado||0)) > 1 ? ' · <b style="color:var(--red)">no cuadra</b> — revísalo en la pestaña 🧮 Cuadre del cliente' : ' · <span style="color:var(--green)">cuadra</span>'}</div>
+    ${_ingDoc.length === 0 ? '<div class="dt-empty"><div class="empty-title">Sin pagos</div><div class="empty-sub">No hay pagos en Ingresos con la referencia ' + escapeHTML(doc.numero||'') + '.</div></div>'
+    : _ingDoc.map(i => { const cancel = !nunPagoCuenta(i) || /^(CANCELADO|DUPLICADO)/i.test(String(i.tipo||''));
+        const pc = (State.data.pagosclientes||[]).find(p => String(p.ingreso_id||'') === String(i.id) && (+p.monto||0) > 0);
+        return `<div class="timeline-item" style="${cancel ? 'opacity:.55' : ''}">
+          <div class="timeline-date">${fmtFecha(i.fecha)}</div>
           <div class="timeline-body">
-            <div class="timeline-title">${fmtFull(p.monto||0)} <span class="tag">${escapeHTML(p.cuenta||'')}</span></div>
-            <div class="timeline-desc">${escapeHTML(p.notas||'')}</div>
-            <div class="timeline-meta">por ${escapeHTML(p.usuario||'')} · ${fmtFecha(p.timestamp)}</div>
+            <div class="timeline-title">${fmtFull(i.monto||0)} <span class="tag">${escapeHTML(i.cuenta||'')}</span>${cancel ? ' <span class="tag red">cancelado</span>' : ''}${/^bind_/.test(String(i.id)) ? ' <span class="tag">de Bind</span>' : ''}</div>
+            <div class="timeline-desc">${escapeHTML(i.comentarios||'')}</div>
+            <div class="timeline-meta">${i.registrado_por ? 'por ' + escapeHTML(i.registrado_por) : ''}</div>
           </div>
-          ${(nunEsAdmin() || esSesionDueno()) && (+p.monto||0) > 0 ? `<div style="display:flex;flex-direction:column;gap:4px">
-            <button class="btn btn-sm btn-secondary" onclick="nunCambiarMontoPago(${escapeHTML(JSON.stringify(String(p.timestamp)))},${escapeHTML(JSON.stringify(String(idDoc)))},${+p.monto||0})">Cambiar monto</button>
-            <button class="btn btn-sm btn-danger" onclick="eliminarPagoManual(${escapeHTML(JSON.stringify(String(p.timestamp)))},${escapeHTML(JSON.stringify(String(idDoc)))})">Anular</button></div>` : ((+p.monto||0) === 0 ? '<span class="tag">anulado</span>' : '')}
-        </div>
-      `).join('')
-  }</div>`;
+          ${_admin && !cancel ? `<div style="display:flex;flex-direction:column;gap:4px">
+            ${pc ? `<button class="btn btn-sm btn-secondary" onclick="nunCambiarMontoPago(${escapeHTML(JSON.stringify(String(pc.timestamp)))},${escapeHTML(JSON.stringify(String(idDoc)))},${+pc.monto||0})">Cambiar monto</button>` : ''}
+            <button class="btn btn-sm btn-danger" onclick="nunCancelarIngreso(${escapeHTML(JSON.stringify(String(i.id)))})">Cancelar pago</button></div>` : ''}
+        </div>`; }).join('')}
+  </div>`;
 
   abrirDrawer({
     title: doc.cliente || 'Documento',
@@ -4525,7 +4533,7 @@ function abrirDrawerCobranza(idDoc) {
     tabs: [
       { key:'pago', label:'Capturar pago', body: tabPago },
       { key:'editar', label:'Editar', body: tabEditar },
-      { key:'historial', label:`Historial (${pagos.length})`, body: tabHistorial }
+      { key:'historial', label:`Pagos (${_vivos.length})`, body: tabHistorial } // v3.90
     ],
     footer: `
       <button class="btn btn-secondary" onclick="elegirPlantillaWA('${idDoc}')">💬 WhatsApp</button>
@@ -6923,6 +6931,7 @@ function afterDocOperativo(tabla) {
         if (s <= 0) return `<span class="mono" style="color:var(--green)">$0</span>`;
         return `<span class="mono" style="color:var(--red);font-weight:500">${fmt(s)}</span>`;
       } },
+      ...((tabla === 'pedidos' || tabla === 'remisiones') ? [{ key:'_situacion', label:'Situación', render:r => nunSituacionHTML(tabla, r) }] : []), // v3.90
       { key:'estatus', label:'Estatus', render:r=>{
         // v3.55 — Cancelada se respeta; para las vigentes, ACTIVA vs PAGADA según el saldo real (de cobranza)
         if (r.estatus === 'cancelada') return `<span class="tag red">cancelada</span>`;
@@ -6939,6 +6948,51 @@ function afterDocOperativo(tabla) {
   });
   const m = document.getElementById('dtMountDoc_'+tabla);
   if (m) m.innerHTML = html;
+}
+// ============================================================
+// v3.90 — SITUACIÓN de cada pedido y remisión (en qué va): de qué salió, a dónde fue y por qué se canceló.
+// Solo se calcula para mostrar; no cambia nada.
+// ============================================================
+let _nunSitIdx = null, _nunSitFirma = '';
+function nunSituacionIdx(){
+  const D = State.data, firma = [(D.pedidos||[]).length, (D.remisiones||[]).length, (D.facturas||[]).length].join('/') + '|' + ((D.remisiones||[])[0]||{}).id + ((D.facturas||[])[0]||{}).id;
+  if (_nunSitIdx && firma === _nunSitFirma) return _nunSitIdx;
+  const porPedido = new Map(), facDeRem = new Map();
+  const add = (k, d, t) => { k = String(k||'').trim(); if (!k) return; if (!porPedido.has(k)) porPedido.set(k, []); const L = porPedido.get(k); if (!L.some(x => x.d === d)) L.push({ d, t }); };
+  (D.remisiones||[]).concat(D.facturas||[]).forEach(d => {
+    const t = (D.remisiones||[]).includes(d) ? 'R' : 'F';
+    if (/cancel/i.test(d.estatus||'')) return;
+    String(d.pedido_origen||'').split(/[,;]/).forEach(x => add(x, d, t));
+    try { JSON.parse(d.items_json||'[]').forEach(it => { if (it.pedido) add(it.pedido, d, t); }); } catch(e){}
+    if (t === 'F' && nunEsDeRemision(d)) { const k = nunRemFolioDeFactura(d); if (!facDeRem.has(k)) facDeRem.set(k, []); facDeRem.get(k).push(d); }
+  });
+  _nunSitFirma = firma; _nunSitIdx = { porPedido, facDeRem }; return _nunSitIdx;
+}
+function nunSituacionHTML(tabla, r){
+  const I = nunSituacionIdx(), gris = t => `<span style="color:var(--mute);font-size:11.5px">${t}</span>`, fol = d => escapeHTML(String(d.folio||''));
+  if (tabla === 'pedidos') {
+    if (/cancel/i.test(r.estatus||'')) return gris('cancelado');
+    const docs = nunPedClaves(r).flatMap(k => I.porPedido.get(k) || []).filter((x, i, a) => a.findIndex(y => y.d === x.d) === i);
+    let its = []; try { its = JSON.parse(r.items_json||'[]'); } catch(e){}
+    const pedidas = its.reduce((s2, it) => s2 + (+it.cantidad||0), 0);
+    if (!docs.length) return /^bind_/.test(String(r.id)) ? gris('de Bind (sin liga)') : `<span class="tag amber">sin surtir</span>`;
+    const sur = nunPedidoSurtido(r, docs.map(x => x.d)); const salio = Object.values(sur).reduce((s2, n) => s2 + n, 0);
+    const lista = docs.map(x => (x.t === 'R' ? 'R ' : 'F ') + fol(x.d)).join(', ');
+    if (pedidas && salio && salio < pedidas) return `<span class="tag amber">parcial ${salio}/${pedidas}</span> ${gris('→ ' + lista)}`;
+    return `<span class="tag green">surtido</span> ${gris('→ ' + lista)}`;
+  }
+  // remisiones
+  const facs = (I.facDeRem.get(nunFolioStr(r)) || []);
+  if (/cancel/i.test(r.estatus||'')) {
+    if (/refactur|sustitu/i.test(String(r.notas||''))) return `<span class="tag red">cancelada</span> ${gris(escapeHTML(String(r.notas).match(/[^·]*(refactur|sustitu)[^·]*/i)[0].trim().substring(0,60)))}`;
+    const t = +r.total||0, cli = String(r.cliente||'').trim().toUpperCase(), f0 = String(r.fecha||'').substring(0,10);
+    const cand = (State.data.facturas||[]).find(f => !/cancel/i.test(f.estatus||'') && String(f.cliente||'').trim().toUpperCase() === cli && Math.abs((+f.total||0) - t) < 1 && String(f.fecha||'').substring(0,10) >= f0);
+    return `<span class="tag red">cancelada</span> ${cand ? gris('¿se facturó en ' + fol(cand) + '? (mismo total)') : gris('sin factura igual')}`;
+  }
+  const ped = String(r.pedido_origen||'').trim();
+  const de = ped ? gris('de ' + escapeHTML(ped)) : '';
+  if (facs.length) return `<span class="tag blue">facturada</span> ${gris('en ' + facs.map(fol).join(', '))} ${de}`;
+  return `${gris('sin facturar')} ${de}`;
 }
 // v3.0 — estado de items del documento abierto
 let docItems = [];
@@ -10831,6 +10885,7 @@ async function cargarTabla(tabla, opts) {
     State._cargaOk[tabla] = true;
     if (data.ok) {
       State.data[tabla] = data.items || [];
+      if (/^(pedidos|remisiones|facturas)$/.test(tabla)) { try { _nunSitIdx = null; } catch(e){} } // v3.90 situación al día
       if (tabla === 'cobranza') State.data.cobranzaTodos = data.items.slice(); // v3.64 incluye canceladas
       // v3.59 — cobranza de documentos cancelados no cuenta
       if (tabla === 'cobranza') State.data[tabla] = nunRecalcAtraso(State.data[tabla].filter(c => !/^cancelad/i.test(c.estatus||''))); // v3.80 atraso de hoy

@@ -6,7 +6,7 @@ const DB={productos:[{id:'pr1',sku:'RL0083G',descripcion:'MALETA BASE',precio:10
  pedidos:[{id:'p2',folio:'P0002',cliente:'CLIENTE UNO',estatus:'confirmado',total:139.2,items_json:JSON.stringify([{sku:'RL0083P',descripcion:'MALETA P',cantidad:1,precio_unitario:120,iva_pct:16}])}],
  remisiones:[],facturas:[],clientes:[{id:'cl1',razon_social:'CLIENTE UNO'}],
  cobranza:[{id:'cob1',numero:'R0009',cliente:'CLIENTE UNO',total:1000,cobrado:500,pendiente:500}],
- pagosclientes:[{timestamp:'2026-09-30T10:00:00.000Z',id_doc:'cob1',cliente:'CLIENTE UNO',monto:500,fecha:'2026-09-30',cuenta:'BBVA',usuario:'Yazmin'}],ingresos:[],usuarios:[]};
+ pagosclientes:[{timestamp:'2026-09-30T10:00:00.000Z',id_doc:'cob1',cliente:'CLIENTE UNO',monto:500,fecha:'2026-09-30',cuenta:'BBVA',usuario:'Yazmin',ingreso_id:'i1'}],ingresos:[{id:'i1',cliente:'CLIENTE UNO',factura:'R0009',monto:500,fecha:'2026-09-30',cuenta:'BBVA',tipo:'cobro'}],usuarios:[]};
 const enviados=[];
 const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),{runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,url:'https://rlc-hash.github.io/nun-erp/',
  beforeParse(w){ w.localStorage.setItem('nun_sesion_v2',JSON.stringify({codigo:'YAZ-PRUEBA7',usuario:{codigo:'YAZ-PRUEBA7',nombre:'Yazmin',rol:'admin'},permisos:{},ts:1}));
@@ -37,7 +37,7 @@ setTimeout(async()=>{const r={};try{
  r.remision={estatus:DB.remisiones[0].estatus,folio:DB.remisiones[0].folio,pedido:DB.pedidos[0].estatus};
  // 4) administradora cambia un pago parcial de 500 a 450 y ve los botones
  w.eval("abrirDrawerCobranza('cob1')"); await sleep(300);
- r.botones=[...d.querySelectorAll('.drawer button')].map(b=>b.textContent.trim()).filter(t=>/Cambiar monto|Anular/.test(t));
+ r.botones=[...d.querySelectorAll('.drawer button')].map(b=>b.textContent.trim()).filter(t=>/Cambiar monto|Cancelar pago/.test(t));
  w.prompt=()=>'450'; await w.eval("nunCambiarMontoPago('2026-09-30T10:00:00.000Z','cob1',500)"); await sleep(200);
  r.pago={monto:DB.pagosclientes[0].monto,cobrado:DB.cobranza[0].cobrado,pendiente:DB.cobranza[0].pendiente};
  w.prompt=()=>'5000'; const antes=enviados.length; await w.eval("nunCambiarMontoPago('2026-09-30T10:00:00.000Z','cob1',450)"); r.pagoDeMas=enviados.slice(antes).some(b=>b.accion==='editar_pago_manual');

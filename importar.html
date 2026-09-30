@@ -187,10 +187,14 @@ async function subir(){
     const c=facturasI[i];
     const f=porUuid[c.uuid];
     if(f){
-      f.uuid_sat=c.uuid; f.xml_url='local:'+c.uuid; f.estatus='timbrada';
-      if(c.subtotal){ f.subtotal=+c.subtotal.toFixed(2); f.iva=+(c.total-c.subtotal).toFixed(2); f.total=c.total; }
-      if(c.items&&c.items.length) f.items_json=JSON.stringify(c.items);
-      aGuardar.push(f);
+      // v3.80 — solo se mandan los campos que cambian, y una factura CANCELADA no se revive ni se le cambian importes
+      const it={ id:f.id, uuid_sat:c.uuid, xml_url:'local:'+c.uuid };
+      if(!/cancel/i.test(f.estatus||'')){
+        it.estatus='timbrada';
+        if(c.subtotal){ it.subtotal=+c.subtotal.toFixed(2); it.iva=+(c.total-c.subtotal).toFixed(2); it.total=c.total; }
+        if(c.items&&c.items.length) it.items_json=JSON.stringify(c.items);
+      } else log('  · '+(f.folio||f.id)+' está cancelada en el ERP: solo se liga su XML');
+      aGuardar.push(it);
     } else { nocruce++; }
   }
   for(let i=0;i<aGuardar.length;i+=40){

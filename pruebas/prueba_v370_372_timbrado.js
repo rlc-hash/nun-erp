@@ -1,7 +1,7 @@
 const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
 const errs=[];const vc=new VirtualConsole();vc.on('jsdomError',e=>errs.push(String(e.message).slice(0,300)));
 const items=[{sku:'RL008N',descripcion:'SET DE MALETAS',cantidad:2,precio_unitario:3000,iva_pct:16},{sku:'ZRL006N24',descripcion:'MALETA INDIVIDUAL',cantidad:1,precio_unitario:900,iva_pct:16,clave_sat:''}];
-const DB={facturas:[{id:'f_old',folio:1178,cliente:'X',total:1},{id:'f_new',folio:'FT0001',cliente:'CLIENTE NUEVO',total:7888,subtotal:6800,iva:1088,items_json:JSON.stringify(items),estatus:'borrador'},{id:'f_pg',folio:'FT0002',cliente:'PUBLICO EN GENERAL',total:116,items_json:JSON.stringify([{sku:'YH008N',descripcion:'MOCHILA',cantidad:1,precio_unitario:100,iva_pct:16}])}],
+const DB={facturas:[{id:'f_old',folio:1178,cliente:'X',total:1},{id:'f_new',folio:'FT0001',cliente:'CLIENTE NUEVO',total:8004,subtotal:6900,iva:1104,items_json:JSON.stringify(items),estatus:'borrador'},{id:'f_pg',folio:'FT0002',cliente:'PUBLICO EN GENERAL',total:116,items_json:JSON.stringify([{sku:'YH008N',descripcion:'MOCHILA',cantidad:1,precio_unitario:100,iva_pct:16}])}],
  clientes:[{id:'c1',razon_social:'CLIENTE NUEVO',rfc:'AAA010101AAA',cp:'06600',regimen_fiscal:'601',uso_cfdi:'G01'},{id:'c2',razon_social:'SIN REGIMEN',rfc:'BBB010101BBB',cp:'01000'}],
  productos:[{id:'p1',sku:'RL008N',descripcion:'SET',clave_sat:''},{id:'p2',sku:'ZRL006N24',descripcion:'IND',clave_sat:''},{id:'p3',sku:'YH008N',clave_sat:'53121603'}],cobranza:[],pedidos:[],remisiones:[],usuarios:[]};
 const llamadas=[];

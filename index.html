@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.83 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.84 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3873,10 +3873,86 @@ function abrirDetalleCliente(id) {
       { key:'pagos', label:`Pagos (${nunPagosDeCliente(cli).length})`, body: `<div id="nunPagosCliMount" data-id="${escapeHTML(String(id))}">${nunPagosClienteHTML(cli)}</div>` }, // v3.79
       { key:'crm', label:`CRM (${contactos.length})`, body: tabCRM },
       { key:'acciones', label:'Acciones', body: tabAcciones }
-    ],
+    ].concat(nunEsAdmin() ? [{ key:'cuadre', label:'🧮 Cuadre', body: `<div id="nunCuadreCliMount">${nunCuadreClienteHTML(cli)}</div>` }] : []), // v3.84
     footer
   });
 }
+// ============================================================
+// v3.84 — CUADRE POR CLIENTE: lo cobrado en cada documento contra los pagos que de verdad hay en Ingresos,
+// y el vendedor de todos sus documentos. Todo se muestra primero; solo se cambia lo que Rafa confirme.
+// ============================================================
+const NUN_VENDEDORES_VALIDOS = ['EDGAR','LUIS','ESTEBAN','YADAH','RAFA','CASA'];
+function nunCuadreCliente(cli){
+  const nom = String(cli.razon_social||'').trim();
+  const docs = (State.data.cobranza||[]).filter(c => String(c.cliente||'').trim() === nom);
+  const ings = (State.data.ingresos||[]).filter(i => nunPagoCuenta(i) && String(i.cliente||'').trim() === nom);
+  const usados = new Set();
+  const filas = docs.map(c => {
+    const k = _nunNumDoc(c.numero);
+    const pagos = ings.filter(i => String(i.factura||'').split(/[,;/]/).some(f => k && _nunNumDoc(f) === k));
+    pagos.forEach(p => usados.add(p.id));
+    const sumaPagos = nunR2(pagos.reduce((s, p) => s + (+p.monto||0), 0));
+    return { c, pagos, sumaPagos, dif: nunR2((+c.cobrado||0) - sumaPagos) };
+  }).sort((a, b) => String(b.c.fecha_entrega||b.c.fecha_emision||'').localeCompare(String(a.c.fecha_entrega||a.c.fecha_emision||'')));
+  const sueltos = ings.filter(i => !usados.has(i.id));
+  return { filas, sueltos };
+}
+function nunCuadreClienteHTML(cli){
+  const R = nunCuadreCliente(cli);
+  const totCob = R.filas.reduce((s, f) => s + (+f.c.cobrado||0), 0), totPag = R.filas.reduce((s, f) => s + f.sumaPagos, 0) + R.sueltos.reduce((s, i) => s + (+i.monto||0), 0);
+  const raros = R.filas.filter(f => !NUN_VENDEDORES_VALIDOS.includes(String(f.c.vendedor||'').toUpperCase().trim()));
+  const idJ = escapeHTML(JSON.stringify(String(cli.id)));
+  const opts = NUN_VENDEDORES_VALIDOS.map(v => `<option value="${v}" ${String(cli.vendedor||'').toUpperCase() === v ? 'selected' : ''}>${v}</option>`).join('');
+  return `<div style="font-size:12.5px;margin-bottom:10px;padding:10px 12px;border-radius:8px;background:var(--bg-2)">
+      Cobrado según Cobranza <b>${fmtFull(totCob)}</b> · pagos registrados en Ingresos <b>${fmtFull(totPag)}</b>
+      ${Math.abs(totCob - totPag) > 1 ? ` · <b style="color:var(--red)">no cuadra por ${fmtFull(totCob - totPag)}</b>` : ' · <span style="color:var(--green)">cuadra</span>'}</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-size:12.5px">
+      <span>Vendedor de todos sus documentos:</span><select id="cuVend">${opts}</select>
+      <button class="btn btn-sm btn-secondary" onclick="nunCuadreVendedorTodos(${idJ})">Poner a todos</button>
+      ${raros.length ? `<span style="color:var(--amber,#b45309)">${raros.length} documento(s) con vendedor que no es vendedor (${[...new Set(raros.map(f => f.c.vendedor || 'vacío'))].map(escapeHTML).join(', ')})</span>` : ''}</div>
+    <div style="border:1px solid var(--line);border-radius:6px;overflow-x:auto"><table class="dt" style="font-size:11.5px"><thead><tr>
+      <th>Entrega</th><th>Núm.</th><th>Vendedor</th><th class="right">Total</th><th class="right">Cobrado</th><th class="right">Pagos en Ingresos</th><th>Qué pasa</th></tr></thead><tbody>
+      ${R.filas.map(f => { const mal = Math.abs(f.dif) > 1;
+        return `<tr style="${mal ? 'background:rgba(220,38,38,0.06)' : ''}"><td>${fmtFecha(f.c.fecha_entrega || f.c.fecha_emision)}</td><td class="mono">${escapeHTML(f.c.numero||'')}</td>
+        <td>${escapeHTML(f.c.vendedor||'—')}</td><td class="right mono">${fmtFull(f.c.total)}</td><td class="right mono">${fmtFull(f.c.cobrado)}</td>
+        <td class="right mono" title="${escapeHTML(f.pagos.map(p => fmtFecha(p.fecha) + ' ' + fmtFull(p.monto) + ' ' + (p.cuenta||'')).join(' · '))}">${fmtFull(f.sumaPagos)}${f.pagos.length ? ' <span style="color:var(--mute)">(' + f.pagos.length + ')</span>' : ''}</td>
+        <td>${mal ? (f.dif > 0 ? 'Dice cobrado ' + fmtFull(f.dif) + ' de más' : 'Hay ' + fmtFull(-f.dif) + ' de pagos que no suman al cobrado') + ` <button class="btn btn-sm btn-secondary" onclick="nunCuadreAjustar(${escapeHTML(JSON.stringify(String(f.c.id)))},${idJ})">Dejar cobrado = pagos</button>` : '✓'}</td></tr>`; }).join('')}
+    </tbody></table></div>
+    ${R.sueltos.length ? `<div style="margin-top:12px;font-size:12.5px"><b>Pagos del cliente que no están ligados a ningún documento (${R.sueltos.length}):</b> ${R.sueltos.map(i => fmtFecha(i.fecha) + ' ' + fmtFull(i.monto) + ' «' + escapeHTML(String(i.factura||'sin referencia')) + '»').join(' · ')}<br><span style="color:var(--mute)">Puede que se hayan capturado con otra referencia; revísalos antes de ajustar.</span></div>` : ''}`;
+}
+async function nunCuadreAjustar(idCob, idCli){
+  const cli = (State.data.clientes||[]).find(c => c.id === idCli); if (!cli) return;
+  const f = nunCuadreCliente(cli).filas.find(x => x.c.id === idCob); if (!f) return;
+  const nuevoPend = Math.max(0, nunR2((+f.c.total||0) - f.sumaPagos));
+  const ok = await confirmDialog({ title:'¿Ajustar ' + (f.c.numero||'') + '?', message:'Cobrado: ' + fmtFull(f.c.cobrado) + ' → ' + fmtFull(f.sumaPagos) + ' (lo que suman sus pagos en Ingresos). Saldo: ' + fmtFull(f.c.pendiente) + ' → ' + fmtFull(nuevoPend) + '. No se borra nada; queda nota en el documento.', ok:'Ajustar' });
+  if (!ok) return;
+  const nota = String(f.c.descripcion||'') + ' · Cuadre ' + nunHoy() + ': cobrado ' + (+f.c.cobrado||0).toFixed(2) + '→' + f.sumaPagos.toFixed(2);
+  const bien = await nunGuardarSeguro('cobranza', { id: f.c.id, cobrado: f.sumaPagos, pendiente: nuevoPend, descripcion: nota });
+  if (!bien) { toast('✗ No se guardó. Inténtalo de nuevo.', { type:'error' }); return; }
+  await cargarTabla('cobranza'); const m = document.getElementById('nunCuadreCliMount'); if (m) m.innerHTML = nunCuadreClienteHTML(cli);
+  toast('✓ ' + (f.c.numero||'') + ' ajustado: cobrado ' + fmtFull(f.sumaPagos) + ', saldo ' + fmtFull(nuevoPend), { duration:6000 });
+}
+async function nunCuadreVendedorTodos(idCli){
+  const cli = (State.data.clientes||[]).find(c => c.id === idCli); if (!cli) return;
+  const v = (document.getElementById('cuVend')||{}).value; if (!NUN_VENDEDORES_VALIDOS.includes(v)) return;
+  const nom = String(cli.razon_social||'').trim();
+  const cambios = {};
+  ['cobranza','pedidos','remisiones','facturas'].forEach(t => { cambios[t] = (State.data[t]||[]).filter(d => String(d.cliente||'').trim() === nom && !/cancel/i.test(d.estatus||'') && String(d.vendedor||'').toUpperCase().trim() !== v).map(d => ({ id: d.id, vendedor: v })); });
+  const n = Object.values(cambios).reduce((s, a) => s + a.length, 0);
+  if (!n && String(cli.vendedor||'').toUpperCase() === v) { toast('Todo ya está con ' + v); return; }
+  const ok = await confirmDialog({ title:'¿Poner a ' + v + ' en todo lo de ' + nom + '?', message: n + ' documento(s) (cobranza ' + cambios.cobranza.length + ', pedidos ' + cambios.pedidos.length + ', remisiones ' + cambios.remisiones.length + ', facturas ' + cambios.facturas.length + ') y el cliente. Ojo: cambia a quién se le cuenta la comisión.', ok:'Cambiar' });
+  if (!ok) return;
+  let mal = 0;
+  for (const t of Object.keys(cambios)) for (let i = 0; i < cambios[t].length; i += 40) { try { const r = await api({ accion:'erp_upsert_batch', tabla:t, items: cambios[t].slice(i, i+40) }); if (!(r && r.ok)) mal++; } catch(e){ mal++; } }
+  if (!(await nunGuardarSeguro('clientes', { id: cli.id, vendedor: v }))) mal++;
+  await Promise.all(['cobranza','pedidos','remisiones','facturas','clientes'].map(t => cargarTabla(t)));
+  const m = document.getElementById('nunCuadreCliMount'); if (m) m.innerHTML = nunCuadreClienteHTML((State.data.clientes||[]).find(c => c.id === idCli) || cli);
+  toast(mal ? '⚠ Algunos no se guardaron; vuelve a intentar' : '✓ ' + n + ' documento(s) ahora con ' + v, { type: mal ? 'error' : 'success', duration:7000 });
+}
+window.nunCuadreAjustar = nunCuadreAjustar; window.nunCuadreVendedorTodos = nunCuadreVendedorTodos;
+// v3.84 — muestra junto al letrero qué versión del servidor está corriendo (para confirmar que se pegó la nueva)
+setTimeout(async () => { try { const v = await nunVersionServidor(); const el = document.querySelector('.rwd-version');
+  if (el && !document.getElementById('nunVerSrv')) el.insertAdjacentHTML('afterend', `<span id="nunVerSrv" class="rwd-version" style="opacity:.75;margin-left:6px">servidor ${v[0]||v[1]||v[2] ? 'v' + v.join('.') : '?'}</span>`); } catch(e){} }, 4000);
 function abrirWhatsAppCliente(cliRS) {
   const cli = (State.data.clientes||[]).find(c => (c.razon_social||'').trim() === cliRS.trim());
   if (!cli || !cli.telefono) return;

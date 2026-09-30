@@ -10673,6 +10673,9 @@ window.erpLineaCambio = function(i, campo, valor){
   if (campo === 'precio' && erpLineas[i].precio > 0) { const t = document.getElementById('erpPrecioTodos'); if (t && !t.value) t.value = erpLineas[i].precio; } // v1.9.13 sugiere el último precio
   if (campo === 'cantidad' && !(erpLineas[i].cantidad > 0)) erpToast('La cantidad debe ser mayor a 0', 'error');
   if (campo === 'sku') {
+    // v1.9.14 — mismo código en otro renglón: se suman las piezas en vez de repetir el renglón
+    const k = String(valor||'').trim().toUpperCase(), j = erpLineas.findIndex((x, n) => n !== i && k && String(x.sku||'').trim().toUpperCase() === k);
+    if (j >= 0) { const a = Math.min(i, j), b = Math.max(i, j); erpLineas[a].cantidad = (+erpLineas[a].cantidad||0) + (+erpLineas[b].cantidad||0); erpLineas.splice(b, 1); erpRenderLineas(); erpToast(k + ' ya estaba: se sumaron las piezas (ahora ' + erpLineas[a].cantidad + ')'); return; }
     const p = erpData.productos.find(x => String(x.sku).toUpperCase() === String(valor).toUpperCase());
     if (p) { erpLineas[i].precio = +p.precio||0; erpLineas[i].descripcion = p.descripcion; erpRenderLineas(); return; }
   }
@@ -10827,6 +10830,7 @@ window.erpConvertirPedido = async function(id, folio, destino){
     if (!nuevo) throw new Error('el servidor dijo que sí, pero no encuentro la ' + nombre + ' nueva. Revisa la lista antes de reintentar');
     const folioNuevo = erpEsFolioNUN(destino, nuevo.folio) ? nuevo.folio : await erpFolioNUN(destino);
     const cambios = { id: nuevo.id, folio: folioNuevo, pedido_origen: ped.folio || ped.id };
+    if (destino === 'remisiones' && (!nuevo.estatus || /borrador/i.test(nuevo.estatus))) cambios.estatus = 'entregada'; // v1.9.14 ya no se queda en borrador
     const sinIva = nunEsSinIva(ped);
     const itsNuevo = erpItemsDe(nuevo), itsPed = erpItemsDe(ped);
     if (!itsNuevo.length && itsPed.length) {
@@ -10837,6 +10841,7 @@ window.erpConvertirPedido = async function(id, folio, destino){
     const vend = String(nuevo.vendedor || ped.vendedor || '').toUpperCase().trim();
     if (vend && vend !== String(nuevo.vendedor || '')) cambios.vendedor = vend;
     const w = await erpApi({ accion:'erp_upsert_batch', tabla: destino, items:[cambios] });
+    if (destino === 'remisiones' && w && w.ok) { try { await erpApi({ accion:'erp_upsert_batch', tabla:'pedidos', items:[{ id: ped.id, estatus:'entregado' }] }); } catch(e){} } // v1.9.14
     if (!(w && w.ok)) throw new Error('se creó la ' + nombre + ' ' + (nuevo.folio||'') + ' pero no pude copiarle productos y folio (' + ((w && w.error) || 'sin respuesta') + '). Avísale al admin, NO la vuelvas a generar');
     Object.assign(nuevo, cambios);
     // Cobro que creó el servidor (factura_origen = id del documento nuevo) → folio NUN, total y saldo correctos

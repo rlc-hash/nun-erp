@@ -4435,7 +4435,9 @@ function abrirDrawerCobranza(idDoc) {
             <div class="timeline-desc">${escapeHTML(p.notas||'')}</div>
             <div class="timeline-meta">por ${escapeHTML(p.usuario||'')} · ${fmtFecha(p.timestamp)}</div>
           </div>
-          ${esSesionDueno() ? `<button class="btn btn-sm btn-danger" onclick="eliminarPagoManual('${p.timestamp}','${idDoc}')">Eliminar</button>` : ''}
+          ${(nunEsAdmin() || esSesionDueno()) && (+p.monto||0) > 0 ? `<div style="display:flex;flex-direction:column;gap:4px">
+            <button class="btn btn-sm btn-secondary" onclick="nunCambiarMontoPago(${escapeHTML(JSON.stringify(String(p.timestamp)))},${escapeHTML(JSON.stringify(String(idDoc)))},${+p.monto||0})">Cambiar monto</button>
+            <button class="btn btn-sm btn-danger" onclick="eliminarPagoManual(${escapeHTML(JSON.stringify(String(p.timestamp)))},${escapeHTML(JSON.stringify(String(idDoc)))})">Anular</button></div>` : ((+p.monto||0) === 0 ? '<span class="tag">anulado</span>' : '')}
         </div>
       `).join('')
   }</div>`;
@@ -4534,11 +4536,12 @@ function esSesionDueno() {
   const u = s.usuario || {};
   return u.rol === 'admin' && /^RAFA-./i.test(String(s.codigo || '').trim()); // v3.80
 }
+// v3.82 — los administradores (no solo Rafa) pueden anular o corregir un pago; nada se borra
 async function eliminarPagoManual(timestamp, idDoc) {
-  if (!esSesionDueno()) { toast('Solo el dueño (Rafa) puede eliminar pagos', { type:'error' }); return; }
+  if (!(nunEsAdmin() || esSesionDueno())) { toast('Solo un administrador puede anular pagos', { type:'error' }); return; }
   const ok = await confirmDialog({
-    title:'¿Eliminar pago?', message:'Se restará el monto del cobrado, se sumará al pendiente, y se eliminará la fila de Ingresos. Esta acción queda registrada en bitácora.',
-    ok:'Eliminar', danger:true
+    title:'¿Anular pago?', message:'Se resta del cobrado y vuelve al saldo. El ingreso queda marcado como CANCELADO (no se borra) y queda en la bitácora.',
+    ok:'Anular pago', danger:true
   });
   if (!ok) return;
   try {
@@ -4547,9 +4550,31 @@ async function eliminarPagoManual(timestamp, idDoc) {
     await Promise.all([cargarTabla('cobranza'), cargarTabla('ingresos'), cargarTabla('pagosclientes')]);
     renderCurrent();
     cerrarDrawer();
-    toast('✓ Pago eliminado');
+    toast('✓ Pago anulado');
   } catch(e) { toast('Error: ' + e.message, { type:'error' }); }
 }
+// v3.82 — corregir el monto de un pago parcial (ej. se capturó 5,000 y eran 4,500)
+async function nunCambiarMontoPago(timestamp, idDoc, montoActual) {
+  if (!(nunEsAdmin() || esSesionDueno())) { toast('Solo un administrador puede cambiar pagos', { type:'error' }); return; }
+  const doc = (State.data.cobranza||[]).find(c => c.id === idDoc) || {};
+  const maximo = nunR2((+montoActual||0) + Math.max(0, +doc.pendiente||0));
+  const txt = prompt('Monto correcto del pago (antes ' + fmtFull(montoActual) + ', máximo ' + fmtFull(maximo) + '):', String(montoActual));
+  if (txt === null) return;
+  const nuevo = nunR2(parseFloat(String(txt).replace(/[$,\s]/g, '')));
+  if (!(nuevo > 0)) { toast('Monto inválido. Para quitar el pago usa "Anular".', { type:'error' }); return; }
+  if (nuevo > maximo + 0.005) { toast('El monto pasa del total del documento (máximo ' + fmtFull(maximo) + ')', { type:'error', duration:6000 }); return; }
+  if (Math.abs(nuevo - montoActual) < 0.005) return;
+  const ok = await confirmDialog({ title:'¿Cambiar el pago?', message:'De ' + fmtFull(montoActual) + ' a ' + fmtFull(nuevo) + '. Se ajustan Cobranza e Ingresos y queda en la bitácora.', ok:'Cambiar' });
+  if (!ok) return;
+  try {
+    const data = await api({ accion:'editar_pago_manual', timestamp, id_doc:idDoc, nuevo_monto:nuevo, codigo_usuario: State.sesion.codigo });
+    if (!data || !data.ok) { toast('Error: ' + ((data && data.error) || '?'), { type:'error' }); return; }
+    await Promise.all([cargarTabla('cobranza'), cargarTabla('ingresos'), cargarTabla('pagosclientes')]);
+    renderCurrent(); cerrarDrawer();
+    toast('✓ Pago cambiado a ' + fmtFull(nuevo));
+  } catch(e) { toast('Error: ' + e.message, { type:'error' }); }
+}
+window.nunCambiarMontoPago = nunCambiarMontoPago;
 function abrirWhatsApp(idDoc) {
   // v2.1 — plantilla inteligente según días vencidos
   const doc = (State.data.cobranza||[]).find(c => c.id === idDoc);
@@ -4971,11 +4996,14 @@ async function convertirDocConItems(origen, idOrigen, destino) {
         if (!_nuevo) _nuevo = _lista.filter(d => !_antes.has(String(d.id)) && _claves.includes(String(d.pedido_origen||''))).pop();
         if (_nuevo) {
           const _cam = { id:_nuevo.id, folio: nunEsFolioNUN(destino, _nuevo.folio) ? _nuevo.folio : nunFolioNUNde(destino, _lista), pedido_origen: _orig.folio || idOrigen };
+          // v3.82 — la remisión ya no se queda en "borrador" (el servidor la creaba así): queda entregada, y el pedido entregado
+          if (destino === 'remisiones' && (!_nuevo.estatus || /borrador/i.test(_nuevo.estatus))) _cam.estatus = 'entregada';
           { let _its = [], _oits = []; try { _its = JSON.parse(_nuevo.items_json||'[]'); } catch(e){} try { _oits = JSON.parse(_orig.items_json||'[]'); } catch(e){} // v3.78
             if (!_its.length && _oits.length) { const _si = nunEsVerdad(_orig.sin_iva); const _t = nunCalcDoc(_oits, _si); _cam.items_json = JSON.stringify(_oits); _cam.subtotal = _t.subtotal; _cam.iva = _t.iva; _cam.total = _t.total; if (_si) _cam.sin_iva = true; } } // v3.80 respeta "sin IVA" del pedido
           if (!_nuevo.vendedor && _orig.vendedor) _cam.vendedor = _orig.vendedor;
           await api({ accion:'erp_upsert_batch', tabla:destino, items:[_cam] });
           _cam.folio = await nunResolverFolioDuplicado(destino, _nuevo.id, _cam.folio); // v3.80
+          if (destino === 'remisiones' && origen === 'pedidos') await nunGuardarSeguro('pedidos', { id: idOrigen, estatus: 'entregado' }); // v3.82
           Object.assign(_nuevo, _cam); data.folio = _cam.folio;
           try { const _cobs = (await nunListarFresco('cobranza')).filter(c => String(c.factura_origen||'') === String(_nuevo.id) && String(c.numero||'') !== String(_cam.folio)); // v3.79
             if (_cobs.length) await api({ accion:'erp_upsert_batch', tabla:'cobranza', items:_cobs.map(c => { const x = { id:c.id, numero:_cam.folio, descripcion:(destino === 'facturas' ? 'Factura ' : 'Remisión ') + _cam.folio }; if (_cam.total != null && !(+c.cobrado)) { x.total = _cam.total; x.pendiente = _cam.total; } if (_cam.vendedor && !c.vendedor) x.vendedor = _cam.vendedor; return x; }) }); } catch(e){}
@@ -6871,7 +6899,7 @@ function acProducto(input, idx){
     docItems[idx].sku = p.sku||'';
     docItems[idx].descripcion = p.descripcion||'';
     docItems[idx].precio_unitario = +p.precio||0;
-    renderDocItems(); recalcularDocDesdeItems();
+    if (!docConsolidarSku(idx)) { renderDocItems(); recalcularDocDesdeItems(); } // v3.82 mismo código = se suman piezas
   });
 }
 window.acProducto = acProducto;
@@ -7130,7 +7158,7 @@ function renderDocItems() {
         ${docItems.map((it,i) => {
           const _c = nunCalcLinea(it, docSinIva); // v3.72 — mismo cálculo que el SAT
           return `<tr>
-            <td><input type="text" data-ac="1" value="${escapeHTML(it.sku||'')}" oninput="docCambiarItem(${i},'sku',this.value);acProducto(this,${i})" onfocus="acProducto(this,${i})" onkeydown="acKey(event)" placeholder="buscar SKU..." style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:10px"></td>
+            <td><input type="text" data-ac="1" value="${escapeHTML(it.sku||'')}" oninput="docCambiarItem(${i},'sku',this.value);acProducto(this,${i})" onchange="docConsolidarSku(${i})" onfocus="acProducto(this,${i})" onkeydown="acKey(event)" placeholder="buscar SKU..." style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:10px"></td>
             <td><input type="text" value="${escapeHTML(it.descripcion||'')}" oninput="docCambiarItem(${i},'descripcion',this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-size:11px"></td>
             <td class="right"><input type="number" step="1" min="0" inputmode="numeric" value="${Math.round(+it.cantidad||0)}" oninput="docCambiarItem(${i},'cantidad',this.value)" style="width:50px;padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right"></td>
             <td class="right"><input type="number" step="0.01" value="${it.precio_unitario||0}" oninput="docCambiarItem(${i},'precio_unitario',this.value)" style="width:70px;padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right"></td>
@@ -7145,6 +7173,28 @@ function renderDocItems() {
     </div>
   `;
 }
+// v3.82 — pone descripción y precio del producto en la fila sin redibujar (no se pierde lo que estás escribiendo)
+function docPintarProductoEnFila(i){
+  const mount = document.getElementById('docItemsMount'); if (!mount) return;
+  const tr = mount.querySelectorAll('tbody tr')[i]; if (!tr) return;
+  const inp = tr.querySelectorAll('input');
+  if (inp[1]) inp[1].value = docItems[i].descripcion || '';
+  if (inp[3]) inp[3].value = docItems[i].precio_unitario || 0;
+}
+// v3.82 — si el mismo código ya está en otro renglón, se suman las piezas en vez de repetir el renglón
+function docConsolidarSku(i){
+  const it = docItems[i]; if (!it) return false;
+  const k = String(it.sku||'').trim().toUpperCase(); if (!k) return false;
+  const j = docItems.findIndex((x, n) => n !== i && String(x.sku||'').trim().toUpperCase() === k);
+  if (j < 0) return false;
+  const a = Math.min(i, j), b = Math.max(i, j);
+  docItems[a].cantidad = Math.round((+docItems[a].cantidad||0) + (+docItems[b].cantidad||0));
+  docItems.splice(b, 1);
+  renderDocItems(); recalcularDocDesdeItems();
+  toast(k + ' ya estaba en el documento: se sumaron las piezas (ahora ' + docItems[a].cantidad + ')', { duration:4000 });
+  return true;
+}
+window.docConsolidarSku = docConsolidarSku;
 function docAgregarItem() {
   docItems.push({ sku:'', descripcion:'', cantidad:1, precio_unitario:0, descuento_pct:0, iva_pct: 16 }); // v3.72
   renderDocItems(); recalcularDocDesdeItems();
@@ -7162,7 +7212,8 @@ function docCambiarItem(i, campo, valor) {
     if (p) {
       docItems[i].descripcion = p.descripcion || '';
       docItems[i].precio_unitario = parseFloat(p.precio) || 0;
-      renderDocItems();
+      // v3.82 — sin redibujar la tabla: antes, al escribir RL0083G se redibujaba y ya no dejaba seguir con la A de RL0083GA
+      docPintarProductoEnFila(i);
     }
   } else if (campo === 'descripcion') {
     docItems[i].descripcion = valor;

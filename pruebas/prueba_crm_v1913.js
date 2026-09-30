@@ -21,7 +21,7 @@ setTimeout(async()=>{const r={};try{
  w.eval("erpAgregarLinea(); erpAgregarLinea()");
  const filas=()=>[...d.querySelectorAll('#erpPedLineas > div')];
  const pon=(i,c,v)=>{ w.eval("erpLineaCambio("+i+",'"+c+"',"+JSON.stringify(v)+")"); };
- pon(0,'sku','A1'); pon(0,'cantidad',2); pon(1,'sku','B2'); pon(1,'cantidad',3); pon(2,'sku','A1'); pon(2,'cantidad',1);
+ pon(0,'sku','A1'); pon(0,'cantidad',2); pon(1,'sku','B2'); pon(1,'cantidad',3); pon(2,'sku','C3'); pon(2,'cantidad',1);
  d.getElementById('erpPrecioTodos').value='1550'; w.eval("erpAplicarPrecioTodos()");
  const precios=()=>filas().map(f=>f.querySelectorAll('input[type=number]')[1].value);
  r.precios=precios(); r.totales=d.getElementById('erpPedTotales').textContent.replace(/\s+/g,' ').trim();

@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.12</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.13</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.12</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.13</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -2574,7 +2574,7 @@ function nunEsRafaMaster(cod){ return nunCodigoPrefijo(cod === undefined ? nunCo
 function esDuenoCodigo(cod){ return nunCodigoPrefijo(cod === undefined ? nunCodigoSesion() : cod, ['RAFA-','YADAH-','MASTER-NUN-']); }
 function nunSocioDeCodigo(cod){ const c = cod === undefined ? nunCodigoSesion() : cod; if (nunEsRafaMaster(c)) return 'RAFA'; if (nunCodigoPrefijo(c, ['YADAH-'])) return 'YADAH'; return null; }
 // Admin = puede eliminar documentos o gestionar usuarios (mismo criterio que Cuentas/Vendedores)
-function nunEsAdmin(){ try { const p = sesionActual && sesionActual.permisos; return !!(p && (p.eliminar_documentos === true || p.gestionar_usuarios === true)); } catch(e){ return false; } }
+function nunEsAdmin(){ try { if (nunEsRafaMaster()) return true; /* v1.9.13 el dueño siempre tiene todo */ const p = sesionActual && sesionActual.permisos; return !!(p && (p.eliminar_documentos === true || p.gestionar_usuarios === true)); } catch(e){ return false; } }
 // Cálculo igual al SAT (redondeo por renglón), mismo que el sistema NUN (nunCalcLinea / nunCalcDoc)
 function nunR2(x){ return Math.round((+x || 0) * 100 + (x >= 0 ? 1e-9 : -1e-9)) / 100; }
 function nunEsSinIva(d){ return !!d && (d.sin_iva === true || d.sin_iva === 'true' || d.sin_iva === 1 || d.sin_iva === '1'); }
@@ -3876,6 +3876,9 @@ function nunNormalizarSesion(){
   ['ver_gastos','editar_gastos','ver_ingresos','editar_ingresos','ver_cobranza','editar_cobranza','agregar_pedidos','ver_dashboard',
    'eliminar_documentos','gestionar_usuarios','cambiar_fecha_entrega','agregar_notas','ver_todos_clientes'].forEach(k => { if (p[k] !== undefined) p[k] = nunBool(p[k]); });
   if (p.ver_todos_clientes === undefined && String(u.rol || '').toLowerCase() === 'vendedor') p.ver_todos_clientes = false; // vendedor: solo lo suyo
+  // v1.9.13 — el dueño (RAFA-… / MASTER-NUN-…) siempre tiene TODOS los permisos
+  if (nunEsRafaMaster(sesionActual.codigo)) ['ver_gastos','editar_gastos','ver_ingresos','editar_ingresos','ver_cobranza','editar_cobranza','agregar_pedidos','ver_dashboard',
+   'eliminar_documentos','gestionar_usuarios','cambiar_fecha_entrega','agregar_notas','ver_todos_clientes'].forEach(k => { p[k] = true; });
   const si = k => p[k] === true || p[k] === 'true';
   const pest = [];
   if (si('ver_gastos')) pest.push('gastos');
@@ -10612,7 +10615,14 @@ window.erpAbrirNuevoPedido = async function(){
       <datalist id="erpSkusList">${erpData.productos.map(p=>`<option value="${erpEsc(p.sku)}">${erpEsc(String(p.descripcion||'').substring(0,60))}</option>`).join('')}</datalist>
       <div style="font-size:12px;color:var(--mute);margin-bottom:6px">Productos</div>
       <div id="erpPedLineas"></div>
-      <button class="btn" style="margin-top:8px" onclick="erpAgregarLinea()">+ Agregar producto</button>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px">
+        <button class="btn" onclick="erpAgregarLinea()">+ Agregar producto</button>
+        <!-- v1.9.13 — mismo precio para todos los renglones -->
+        <span style="flex:1"></span>
+        <label for="erpPrecioTodos" style="font-size:12px;color:var(--mute)">Mismo precio a todos:</label>
+        <input type="number" step="0.01" min="0" id="erpPrecioTodos" placeholder="$" style="width:100px;padding:8px;border-radius:8px;border:1px solid var(--line,#333);background:transparent;color:inherit;text-align:right">
+        <button class="btn" onclick="erpAplicarPrecioTodos()">Aplicar a todos</button>
+      </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:14px;padding:10px 12px;border:1px solid var(--line,#333);border-radius:10px">
         <input type="checkbox" id="erpPedConIVA" checked onchange="erpActualizarTotales()" style="width:16px;height:16px;cursor:pointer">
         <label for="erpPedConIVA" style="font-size:13px;cursor:pointer">La venta lleva <strong>IVA 16%</strong> — desmárcalo si va <strong>sin IVA</strong> (sin factura)</label>
@@ -10629,12 +10639,22 @@ window.erpAbrirNuevoPedido = async function(){
   erpRenderLineas();
 };
 
+// v1.9.13 — pone el mismo precio en todos los renglones (para no llenarlos uno por uno)
+window.erpAplicarPrecioTodos = function(){
+  const inp = document.getElementById('erpPrecioTodos');
+  const v = parseFloat(inp && inp.value);
+  if (!(v > 0)) { erpToast('Escribe un precio mayor a $0', 'error'); if (inp) inp.focus(); return; }
+  erpLineas.forEach(l => { l.precio = v; });
+  erpRenderLineas();
+  erpToast('Precio ' + erpFmt(v) + ' puesto en ' + erpLineas.length + ' renglón(es)');
+};
 window.erpAgregarLinea = function(){ erpLineas.push({ sku:'', cantidad:1, precio:0 }); erpRenderLineas(); };
 window.erpQuitarLinea = function(i){ erpLineas.splice(i,1); if(!erpLineas.length) erpLineas.push({sku:'',cantidad:1,precio:0}); erpRenderLineas(); };
 window.erpLineaCambio = function(i, campo, valor){
   erpLineas[i][campo] = campo==='sku' ? valor : (parseFloat(valor)||0);
   // v1.9.12 — precio y cantidad deben ser mayores a 0
   if (campo === 'precio' && !(erpLineas[i].precio > 0)) erpToast('El precio debe ser mayor a $0', 'error');
+  if (campo === 'precio' && erpLineas[i].precio > 0) { const t = document.getElementById('erpPrecioTodos'); if (t && !t.value) t.value = erpLineas[i].precio; } // v1.9.13 sugiere el último precio
   if (campo === 'cantidad' && !(erpLineas[i].cantidad > 0)) erpToast('La cantidad debe ser mayor a 0', 'error');
   if (campo === 'sku') {
     const p = erpData.productos.find(x => String(x.sku).toUpperCase() === String(valor).toUpperCase());

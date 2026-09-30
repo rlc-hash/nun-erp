@@ -143,7 +143,7 @@ const permVend={ver_gastos:false,editar_gastos:false,ver_ingresos:false,editar_i
 
   // ---------- Resumen ----------
   const fallas=[];
-  if(r.version!=='v1.9.12'||r.versionVieja) fallas.push('versión');
+  if(!/^v1\.9\.(1[2-9]|[2-9]\d)$/.test(r.version)||r.versionVieja) fallas.push('versión');
   if(!(r.dueno['RAFA-XYZ123']&&r.dueno['rafa-abc (minúsculas)']&&!r.dueno['EDGAR-1']&&!r.dueno['RAFA2026 (sin guion)']&&r.dueno['YADAH-Q1 socio']==='YADAH'&&r.dueno['MASTER-NUN-Z socio']==='RAFA')) fallas.push('dueño por prefijo');
   if(!r.ivaPorRenglon.ok) fallas.push('IVA por renglón');
   if(r.xss.imgs||r.xss.disparo||!r.xss.textoVisible) fallas.push('XSS');

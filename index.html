@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.80 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.81 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2670,7 +2670,7 @@ const origRenderCurrent = (typeof renderCurrent === 'function') ? renderCurrent 
 // v3.65 — SOLO CONSULTA: bloquea cualquier cambio antes de mandarlo al servidor
 function nunSoloConsulta(){
   try { const p = (State.sesion && State.sesion.permisos) || {}; const u = (State.sesion && State.sesion.usuario) || {};
-        return String(u.rol||'').toLowerCase() !== 'admin' && (p.solo_consulta === true || p.solo_consulta === 'true'); } catch(e){ return false; }
+        return String(u.rol||'').toLowerCase() !== 'admin' && !nunEsDueno() && (p.solo_consulta === true || p.solo_consulta === 'true'); } catch(e){ return false; }
 }
 const NUN_ACC_ESCRITURA = /crear|actualizar|eliminar|borrar|guardar|upsert|bulk|capturar|editar|timbrar|cancelar|importar|registrar|aplicar|enviar|pagar|bind_proxy|sync|facturama_(?!estado)/i;
 async function api(payload) {
@@ -2976,7 +2976,12 @@ const NUN_MODULOS_OCULTOS = new Set([
 ]);
 function nunEsAdmin(){
   const u = (State.sesion && State.sesion.usuario) || {};
-  return String(u.rol||'').toLowerCase() === 'admin';
+  return String(u.rol||'').toLowerCase() === 'admin' || nunEsDueno(); // v3.81 — el dueño (RAFA-…/MASTER-NUN-…) siempre tiene todo
+}
+// v3.81 — dueño del sistema: código que empieza con RAFA- o MASTER-NUN- (ve y hace todo, cambia códigos)
+function nunEsDueno(){
+  const c = String((State.sesion && (State.sesion.codigo || (State.sesion.usuario||{}).codigo)) || '').toUpperCase().trim();
+  return ['RAFA-','MASTER-NUN-'].some(p => c.startsWith(p) && c.length > p.length);
 }
 function nunPermisosDefinidos(){
   const p = (State.sesion && State.sesion.permisos) || {};
@@ -7037,6 +7042,9 @@ function abrirDoc(tabla, id) {
       <div class="field"><label>Vendedor</label><select id="dVendedor" onchange="docVendedorCambio(this.value)"><option value="">— Sin vendedor —</option>${vendedoresParaSelect().map(v=>`<option value="${escapeHTML(v.nombre)}" ${String(doc.vendedor||'').toUpperCase()===v.nombre?'selected':''}>${escapeHTML(v.nombre)}${v.pct?' · '+v.pct+'%':''}</option>`).join('')}</select></div>
       <div class="field"><label>Comisión % ${'<span style="color:var(--ink-4);font-weight:400">(auto según vendedor, editable)</span>'}</label><input type="number" step="0.1" id="dComisionPct" value="${doc.comision_pct!=null?doc.comision_pct:(doc.vendedor?comisionPctDe(doc.vendedor):'')}" placeholder="%" oninput="this.dataset.tocado=1"></div>
       <div class="field"><label>Estatus</label><select id="dEstatus">${(doc.estatus && !def.estatus.includes(doc.estatus) ? [doc.estatus].concat(def.estatus) : def.estatus).map(e=>`<option value="${e}" ${doc.estatus===e?'selected':''}>${e}</option>`).join('')}</select></div>
+      ${tabla === 'notascredito' ? `<div class="field full"><label>Factura que corrige (folio) <span style="color:var(--ink-4);font-weight:400">— ej. FT0003 o el folio de Bind</span></label>
+        <input id="dDocOrigen" list="dDocOrigenLista" value="${escapeHTML(doc.documento_origen||'')}" ${doc.uuid_sat ? 'disabled' : ''}>
+        <datalist id="dDocOrigenLista">${(State.data.facturas||[]).filter(f => f.uuid_sat && !/cancel/i.test(f.estatus||'')).slice(-300).map(f => `<option value="${escapeHTML(String(f.folio||''))}">${escapeHTML(String(f.cliente||''))} · ${fmtFull(f.total)}</option>`).join('')}</datalist></div>` : ''}
       <div class="field full"><label>Notas</label><textarea id="dNotas">${escapeHTML(doc.notas||'')}</textarea></div>
     </div>
 
@@ -7068,7 +7076,9 @@ function abrirDoc(tabla, id) {
     if (tabla === 'remisiones') acciones += `<button class="btn btn-secondary" onclick="nunFacturarRemisionDesdeDrawer('${id}')">→ Factura</button>`; // v3.72 guarda y luego factura
     if (tabla === 'ordenescompra') acciones += `<button class="btn btn-secondary" onclick="recibirOC('${id}')">Recibir mercancía</button>`;
     if (tabla === 'importaciones') acciones += `<button class="btn btn-secondary" onclick="cerrarImportacion('${id}')">Cerrar importación</button>`;
-    if (tabla === 'facturas' && doc.uuid_sat && String(doc.metodo_pago||'') === 'PPD' && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunAbrirComplementoPago('${id}')">💵 Pago + complemento</button>`; // v3.75
+    if (tabla === 'notascredito' && !doc.uuid_sat && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-primary" onclick="nunAbrirTimbrarNC('${id}')">⚡ Timbrar nota de crédito</button>`; // v3.81
+    if (tabla === 'notascredito' && doc.uuid_sat) acciones += `<button class="btn btn-secondary" onclick="cfdiDescargarXML('${doc.uuid_sat}')">📃 XML</button>`;
+    if (tabla === 'facturas' && doc.uuid_sat && (String(doc.metodo_pago||'') === 'PPD' || (!doc.metodo_pago && /^bind_/.test(String(id)))) && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunAbrirComplementoPago('${id}')">💵 Pago + complemento</button>`; // v3.75
     else if ((tabla === 'remisiones' || tabla === 'facturas') && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunPagoDesdeDoc('${tabla}','${id}')">💵 Registrar pago</button>`; // v3.74
     if (tabla === 'facturas') nunRepsDeFactura(doc).forEach(r => { acciones += `<button class="btn btn-secondary" onclick="nunPdfREP('${r.uuid}')">📄 PDF ${r.folio}</button><button class="btn btn-secondary" onclick="nunDescargarREP('${r.uuid}')">📃 XML ${r.folio}</button>`; }); // v3.78
     acciones += `<button class="btn btn-secondary" onclick="${['pedidos','remisiones','facturas'].includes(tabla) ? `nunPdfDoc('${tabla}','${id}')` : `imprimirDocumento('${tabla}','${id}')`}">📄 PDF</button>`; // v3.78
@@ -7291,8 +7301,14 @@ window.nunPagoDesdeDoc = nunPagoDesdeDoc;
 // ============================================================
 function nunRepsDeFactura(f){
   const out = [];
-  String(f.notas||'').replace(/REP (CP\d+) uuid=([\w-]+) monto=([\d.]+) fecha=([\d-]+) parc=(\d+)/g, (m, folio, uuid, monto, fecha, parc) => { out.push({ folio, uuid, monto:+monto, fecha, parc:+parc }); return m; });
+  String(f.notas||'').replace(/REP (CP\d+) uuid=([\w-]+) monto=([\d.]+) fecha=([\d-]+) parc=(\d+)(?: sant=([\d.]+))?/g, (m, folio, uuid, monto, fecha, parc, sant) => { out.push({ folio, uuid, monto:+monto, fecha, parc:+parc, sant: sant != null ? +sant : null }); return m; });
   return out;
+}
+// v3.81 — saldo después de los complementos: si el último trae su saldo anterior (sant=, facturas de Bind) se usa ese
+function nunSaldoTrasReps(f, reps){
+  const u = reps.slice().sort((a, b) => a.parc - b.parc).pop();
+  if (u && u.sant != null) return Math.max(0, nunR2(u.sant - u.monto));
+  return Math.max(0, nunR2((+f.total||0) - reps.reduce((s, x) => s + x.monto, 0)));
 }
 // v3.80 — complemento timbrado que no se alcanzó a guardar en la factura (se apunta en esta computadora)
 function nunRepPendiente(idFactura){
@@ -7319,12 +7335,26 @@ async function nunAbrirComplementoPago(idFactura){
   await Promise.all([cargarTabla('facturas'), cargarTabla('cobranza'), cargarTabla('remisiones')]);
   const f = (State.data.facturas||[]).find(x => x.id === idFactura); if (!f) return;
   if (!f.uuid_sat) { toast('La factura todavía no está timbrada', { type:'error' }); return; }
+  // v3.81 — facturas timbradas en Bind: el método de pago (PUE/PPD) se lee de su XML guardado
+  if (!f.metodo_pago) {
+    nunOcupado('Leyendo el XML de la factura…');
+    let xml = ''; try { xml = await nunXmlDe(f.uuid_sat); } catch(e){} finally { nunOcupado(''); }
+    const mp = (String(xml).match(/\sMetodoPago="(PUE|PPD)"/)||[])[1];
+    if (!mp) { toast('No encontré el XML de la factura ' + (f.folio||'') + ' para saber si es PPD. Súbelo con "Importar XML" (importar.html) y vuelve a intentar.', { type:'error', duration:10000 }); return; }
+    const fp = (String(xml).match(/\sFormaPago="(\d{2})"/)||[])[1];
+    const cam = { id:f.id, metodo_pago:mp }; if (fp) cam.forma_pago = fp;
+    if (await nunGuardarSeguro('facturas', cam)) Object.assign(f, cam); else f.metodo_pago = mp;
+  }
   if (String(f.metodo_pago||'') !== 'PPD') { toast('Esta factura es ' + (f.metodo_pago||'PUE') + ': el complemento solo aplica a facturas PPD. Registra el pago normal.', { type:'error', duration:7000 }); return; }
   const reps = nunRepsDeFactura(f);
   const pagado = nunR2(reps.reduce((s, r) => s + r.monto, 0));
   const _nc = nunMontoNCs(f, 'facturas'); // v3.80 — las notas de crédito bajan el saldo anterior del complemento
-  const saldo = Math.max(0, nunR2((+f.total||0) - pagado - _nc));
+  let saldo = reps.length ? Math.max(0, nunR2(nunSaldoTrasReps(f, reps) - _nc)) : Math.max(0, nunR2((+f.total||0) - pagado - _nc)); // v3.81
   const c = nunCobroDeDoc('facturas', f);
+  // v3.81 — factura de Bind: sus pagos y complementos anteriores se hicieron en Bind. El saldo sale de Cobranza y
+  // el número de parcialidad lo escribe Rafa (no se inventa): así el complemento cuadra con lo que ya tiene el SAT.
+  const esBind = /^bind_/.test(String(f.id||'')) && !reps.length;
+  if (esBind && c) saldo = Math.max(0, nunR2(+c.pendiente||0));
   const cuentas = State.data.cuentas || [];
   const opt = (arr, sel) => arr.map(([k,v]) => `<option value="${k}" ${String(sel)===k?'selected':''}>${k} · ${escapeHTML(v)}</option>`).join('');
   let m = document.getElementById('modalREP'); if (m) m.remove();
@@ -7333,10 +7363,15 @@ async function nunAbrirComplementoPago(idFactura){
   m.onclick = e => { if (e.target === m) m.remove(); };
   m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:620px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)">
-      <div><h3 style="margin:0">Pago y complemento · ${escapeHTML(f.folio||'')}</h3><div style="font-size:12px;color:var(--ink-3)">${escapeHTML(f.cliente||'')} · factura ${fmtFull(f.total)} · ya pagado ${fmtFull(pagado)} · <b>saldo ${fmtFull(saldo)}</b></div></div>
+      <div><h3 style="margin:0">Pago y complemento · ${escapeHTML(f.folio||'')}</h3><div style="font-size:12px;color:var(--ink-3)">${escapeHTML(f.cliente||'')} · factura ${fmtFull(f.total)} · ya pagado ${fmtFull(Math.max(0, nunR2((+f.total||0) - saldo)))} · <b>saldo ${fmtFull(saldo)}</b></div></div>
       <button class="icon-btn" onclick="document.getElementById('modalREP').remove()">✕</button></div>
     <div style="padding:16px 20px">
       ${reps.length ? `<div style="font-size:12px;margin-bottom:10px;color:var(--ink-3)">Complementos anteriores: ${reps.map(r => escapeHTML(r.folio) + ' ' + fmtFull(r.monto) + ' (' + r.fecha + ')').join(' · ')}</div>` : ''}
+      ${esBind ? `<div style="font-size:12px;margin-bottom:10px;padding:10px;border-radius:8px;background:rgba(245,158,11,0.10)">Factura timbrada en <b>Bind</b>. Revisa en Bind cuántos complementos de pago ya tiene y cuál era su saldo. El saldo que ves viene de Cobranza.</div>
+      <div class="form-grid" style="margin-bottom:8px">
+        <div class="field"><label>Saldo anterior (antes de este pago) *</label><input type="number" id="repSaldoAnt" step="0.01" min="0.01" value="${saldo > 0 ? saldo : ''}"></div>
+        <div class="field"><label>Número de parcialidad * <span style="color:var(--ink-4);font-weight:400">(1 si es el primer pago)</span></label><input type="number" id="repParc" step="1" min="1" value=""></div>
+      </div>` : ''}
       <div class="form-grid">
         <div class="field"><label>Monto pagado *</label><input type="number" id="repMonto" step="0.01" min="0.01" max="${saldo}" value="${saldo > 0 ? saldo : ''}"></div>
         <div class="field"><label>Fecha del pago *</label><input type="date" id="repFecha" value="${nunHoy()}"></div>
@@ -7351,7 +7386,7 @@ async function nunAbrirComplementoPago(idFactura){
     <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)">
       <button class="btn" onclick="document.getElementById('modalREP').remove()">Cancelar</button>
       <button class="btn btn-primary" id="repBoton" onclick="nunConfirmarComplementoPago('${escapeHTML(idFactura)}')">Registrar pago</button></div></div>`;
-  m._f = f; m._c = c; m._saldo = saldo; m._parc = reps.length + 1;
+  m._f = f; m._c = c; m._saldo = saldo; m._parc = reps.length ? Math.max(...reps.map(r => r.parc)) + 1 : 1; m._repsNun = reps.length; m._esBind = esBind; // v3.81
   document.body.appendChild(m);
 }
 window.nunAbrirComplementoPago = nunAbrirComplementoPago;
@@ -7393,6 +7428,12 @@ async function nunConfirmarComplementoPago(idFactura){
   const operacion = String(document.getElementById('repOperacion').value||'').trim(), cuenta = document.getElementById('repCuenta').value;
   const conCobro = document.getElementById('repCobranza').checked, conTimbre = document.getElementById('repTimbrar').checked;
   const e = [];
+  if (m._esBind) { // v3.81 — factura de Bind: saldo anterior y parcialidad los confirma Rafa
+    const sa = nunR2(parseFloat((document.getElementById('repSaldoAnt')||{}).value)), pa = parseInt((document.getElementById('repParc')||{}).value, 10);
+    if (!(sa > 0)) e.push('Falta el saldo anterior'); else m._saldo = sa;
+    if (!(pa >= 1)) e.push('Falta el número de parcialidad'); else m._parc = pa;
+    if (sa > (+f.total||0) + 0.005) e.push('El saldo anterior no puede ser mayor al total de la factura (' + fmtFull(f.total) + ')');
+  }
   if (!(monto > 0)) e.push('Monto inválido');
   if (monto > m._saldo + 0.005) e.push('El monto es mayor al saldo de la factura (' + fmtFull(m._saldo) + ')');
   if (!fecha) e.push('Falta la fecha del pago');
@@ -7413,13 +7454,13 @@ async function nunConfirmarComplementoPago(idFactura){
       if (_pend) throw new Error('Hay un complemento que SÍ se timbró pero no se guardó en el sistema (' + _pend + '). Avísame antes de timbrar otro.');
       await cargarTabla('facturas');
       const _ff = (State.data.facturas||[]).find(x => x.id === f.id) || f;
-      if (nunRepsDeFactura(_ff).length !== m._parc - 1) throw new Error('Mientras tenías esta ventana abierta se registró otro complemento para esta factura. Ciérrala y vuelve a abrirla.');
+      if (nunRepsDeFactura(_ff).length !== m._repsNun) throw new Error('Mientras tenías esta ventana abierta se registró otro complemento para esta factura. Ciérrala y vuelve a abrirla.');
       f.notas = _ff.notas;
       const folioRep = nunSiguienteFolioREP();
       const cfdi = nunCfdiComplementoPago(f, { monto, fecha, forma, operacion, parcialidad: m._parc, saldoAnterior: m._saldo, folioRep });
       const r = await api({ accion:'facturama_timbrar', cfdi });
       if (!(r && r.ok && r.uuid)) throw new Error('Facturama: ' + ((r && r.error) || 'no se pudo timbrar el complemento') + (hecho.length ? '' : ' · no se registró nada'));
-      const nota = 'REP ' + folioRep + ' uuid=' + r.uuid + ' monto=' + monto.toFixed(2) + ' fecha=' + fecha + ' parc=' + m._parc + (r.id ? ' fid=' + r.id : '');
+      const nota = 'REP ' + folioRep + ' uuid=' + r.uuid + ' monto=' + monto.toFixed(2) + ' fecha=' + fecha + ' parc=' + m._parc + ' sant=' + nunR2(m._saldo).toFixed(2) + (r.id ? ' fid=' + r.id : ''); // v3.81 guarda el saldo anterior
       f.notas = (f.notas ? f.notas + ' · ' : '') + nota;
       // v3.80 — primero se apunta en esta computadora; se borra solo cuando el servidor confirma que lo guardó
       try { localStorage.setItem('nun_rep_pend_' + f.id, nota); } catch(e){}
@@ -7771,14 +7812,14 @@ function nunNCsDelDoc(r, tabla){
   const x = String(r.folio||'').trim(); if (!x) return [];
   const esRem = tabla === 'remisiones' || (!tabla && /^R\d{4,}$/.test(x));
   const o = new Set(esRem ? ['V01' + x, 'REM ' + x].concat(x.startsWith('R') ? [x] : []) : [x, 'A' + x, 'F-' + x]);
-  return (State.data.notascredito||[]).filter(n => o.has(String(n.documento_origen||'').trim()) && !/cancel/i.test(n.estatus||'') && !/^bind_/.test(String(n.id||'')));
+  return (State.data.notascredito||[]).filter(n => o.has(String(n.documento_origen||'').trim()) && !/cancel/i.test(n.estatus||'') && !/^bind_/.test(String(n.id||'')) && (n.uuid_sat || /aplicad/i.test(n.estatus||''))); // v3.81 solo notas aplicadas o timbradas (no borradores)
 }
 function nunMontoNCs(r, tabla){ return nunR2(nunNCsDelDoc(r, tabla).reduce((s, n) => s + (+n.total||0), 0)); }
 function nunSaldoDoc(r, tabla){ const s0 = nunSaldoDocBase(r, tabla); const nc = nunMontoNCs(r, tabla); return nc ? Math.max(0, nunR2(s0 - nc)) : s0; } // v3.80
 function nunSaldoDocBase(r, tabla){
   if (tabla === 'facturas' || (!tabla && r.uuid_sat)) { // v3.77
     const reps = (typeof nunRepsDeFactura === 'function') ? nunRepsDeFactura(r) : [];
-    if (reps.length) return Math.max(0, nunR2((+r.total||0) - reps.reduce((s, x) => s + x.monto, 0)));
+    if (reps.length) return nunSaldoTrasReps(r, reps); // v3.81
     if (/^(R\d{4,}|REM )/.test(String(r.pedido_origen||'').trim()) && typeof nunCobroDeDoc === 'function') { const c = nunCobroDeDoc('facturas', r); if (c) return Math.min(+r.total||0, Math.max(0, +c.pendiente||0)); }
   }
   const idx = nunIdxCobranza(); const id = String(r.id||''), bindId = id.replace(/^bind_(rem_|fac_|ord_)?/, '');
@@ -7792,7 +7833,7 @@ function nunSaldoDocBase(r, tabla){
 // ============================================================
 // v3.69 — FOLIOS NUN (P0001 / R0001 / F0001), SIN DOBLES, COBRANZA AUTOMÁTICA
 // ============================================================
-const NUN_PREF_FOLIO = { pedidos:'P', remisiones:'R', facturas:'FT' }; // v3.70 facturas FT0001
+const NUN_PREF_FOLIO = { pedidos:'P', remisiones:'R', facturas:'FT', notascredito:'NC' }; // v3.70 facturas FT0001 · v3.81 notas de crédito NC0001 (serie NC en Facturama)
 function nunEsFolioNUN(tabla, folio){ const p = NUN_PREF_FOLIO[tabla]; return !!p && new RegExp('^' + p + '\\d{4,}$').test(String(folio||'').trim()); }
 function nunFolioNUNde(tabla, rows){
   const pref = NUN_PREF_FOLIO[tabla]; if (!pref) return '';
@@ -7856,6 +7897,7 @@ async function guardarDoc(tabla, id, opts) {
     comision_pct: parseFloat(document.getElementById('dComisionPct')?.value) || 0, // v3.44
     items_json: JSON.stringify(docItems || [])
   };
+  if (tabla === 'notascredito' && document.getElementById('dDocOrigen')) item.documento_origen = String(document.getElementById('dDocOrigen').value||'').trim(); // v3.81
   if (usaCli) item.cliente = (document.getElementById('dCliente').value||'').trim();
   else item.proveedor = (document.getElementById('dProveedor').value||'').trim();
   const _nunIdNuevo = id ? null : ((window._nunIdPendiente && window._nunIdPendiente.tabla === tabla && window._nunIdPendiente.folio === folio) ? window._nunIdPendiente.id : (tabla.substring(0,3) + '_' + Date.now() + '_' + Math.random().toString(36).substring(2,6))); // v3.69
@@ -7874,14 +7916,14 @@ async function guardarDoc(tabla, id, opts) {
   // v3.80 — factura ya timbrada: no se cambian productos, totales, cliente ni estatus (para cancelar: "Cancelar ante SAT").
   // Solo se guardan notas/vendedor, y nunca se pierden el "Facturama ID" ni los complementos (REP) de las notas.
   const _previo = id ? (State.data[tabla]||[]).find(d => String(d.id) === String(id)) : null;
-  if (_previo && tabla === 'facturas' && _previo.uuid_sat) {
-    let _fresco = _previo; try { _fresco = (await nunListarFresco('facturas')).find(d => String(d.id) === String(id)) || _previo; } catch(e){}
+  if (_previo && (tabla === 'facturas' || tabla === 'notascredito') && _previo.uuid_sat) { // v3.81 también notas de crédito timbradas
+    let _fresco = _previo; try { _fresco = (await nunListarFresco(tabla)).find(d => String(d.id) === String(id)) || _previo; } catch(e){}
     const _notas = nunNotasConservando(item.notas, _fresco.notas);
-    const _ok = await nunGuardarSeguro('facturas', { id, notas:_notas, vendedor:item.vendedor, comision_pct:item.comision_pct });
+    const _ok = await nunGuardarSeguro(tabla, { id, notas:_notas, vendedor:item.vendedor, comision_pct:item.comision_pct });
     nunOcupado('');
     if (!_ok) { toast('✗ No se pudo guardar. Inténtalo de nuevo.', { type:'error', duration:6000 }); return; }
-    await cargarTabla('facturas'); renderCurrent(); cerrarDrawer();
-    toast('✓ Guardado. Es una factura timbrada: solo se guardan notas y vendedor (productos y totales no cambian)', { duration:7000 });
+    await cargarTabla(tabla); renderCurrent(); cerrarDrawer();
+    toast('✓ Guardado. Es un documento timbrado: solo se guardan notas y vendedor (productos y totales no cambian)', { duration:7000 });
     return;
   }
   if (_previo && _previo.notas) item.notas = nunNotasConservando(item.notas, _previo.notas); // v3.80
@@ -8090,7 +8132,7 @@ function abrirUsuario(codigo) {
   const plantBtn = (r,l) => `<button type="button" class="btn btn-secondary" style="font-size:12px;padding:6px 12px" onclick="nunAplicarPlantillaUsuario('${r}')">${l}</button>`;
   const body = `
     <div class="form-grid">
-      <div class="field"><label>Código de acceso</label><input type="text" id="uCodigo" value="${escapeHTML(u.codigo||'')}" ${codigo?'disabled':''} style="text-transform:uppercase" placeholder="EJ. EDGAR-2026"></div>
+      <div class="field"><label>Código de acceso</label><input type="text" id="uCodigo" value="${escapeHTML(u.codigo||'')}" ${codigo && !nunEsDueno() ? 'disabled' : ''} style="text-transform:uppercase" placeholder="Algo difícil de adivinar, ej. EDGAR-K7P2QX"></div>
       <div class="field"><label>Nombre</label><input type="text" id="uNombre" value="${escapeHTML(u.nombre||'')}" placeholder="Nombre de la persona"></div>
       <div class="field"><label>Puesto (rol)</label><select id="uRol" onchange="document.getElementById('uAvisoAdmin').style.display=this.value==='admin'?'':'none'">
         ${['admin','vendedor','cobranza','contador'].map(r=>`<option value="${r}" ${rol===r?'selected':''}>${{admin:'Administrador',vendedor:'Vendedor',cobranza:'Cobranza',contador:'Contador'}[r]}</option>`).join('')}
@@ -8113,7 +8155,7 @@ function abrirUsuario(codigo) {
     title: codigo ? 'Editar usuario · ' + (u.nombre||codigo) : 'Nuevo usuario',
     sub: codigo ? codigo : 'Crea un acceso para tu equipo',
     body, wide: true,
-    footer:`${codigo?`<button class="btn btn-danger" onclick="eliminarUsuario('${codigo}')">Eliminar</button>`:''}<div style="flex:1"></div><button class="btn btn-secondary" onclick="cerrarDrawer()">Cancelar</button><button class="btn btn-primary" id="uGuardarBtn" onclick="guardarUsuario('${codigo||''}')">Guardar</button>`
+    footer:`${codigo?`<button class="btn btn-danger" onclick="eliminarUsuario('${codigo}')">Desactivar</button>`:''}<div style="flex:1"></div><button class="btn btn-secondary" onclick="cerrarDrawer()">Cancelar</button><button class="btn btn-primary" id="uGuardarBtn" onclick="guardarUsuario('${codigo||''}')">Guardar</button>`
   });
 }
 function nunAplicarPlantillaUsuario(rol){
@@ -8140,6 +8182,8 @@ async function guardarUsuario(codigo) {
   if (!codigo && datos.codigo.length < 4) { toast('El código debe tener al menos 4 caracteres', { type:'error' }); return; }
   if (!datos.nombre) { toast('Falta el nombre', { type:'error' }); return; }
   if (datos.rol === 'vendedor' && !datos.vendedor_asignado) { toast('Un vendedor necesita "Vendedor asignado" (su cartera)', { type:'error', duration:5000 }); return; }
+  // v3.81 — cambiar el código de un usuario (solo el dueño): se crea el acceso nuevo con lo mismo y el viejo se DESACTIVA (no se borra)
+  if (codigo && datos.codigo !== String(codigo).toUpperCase()) return nunCambiarCodigoUsuario(codigo, datos);
   const btn = document.getElementById('uGuardarBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
   try {
     const data = codigo
@@ -8155,11 +8199,36 @@ async function guardarUsuario(codigo) {
     if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; }
   }
 }
-async function eliminarUsuario(codigo) {
-  const ok = await confirmDialog({ title:'¿Eliminar usuario?', message:'Perderá acceso al ERP inmediatamente.', ok:'Eliminar', danger:true });
+async function nunCambiarCodigoUsuario(viejo, datos){
+  if (!nunEsDueno()) { toast('Solo el dueño puede cambiar códigos de acceso', { type:'error' }); return; }
+  const nuevo = datos.codigo;
+  if (nuevo.length < 8) { toast('El código nuevo debe tener al menos 8 caracteres (difícil de adivinar)', { type:'error', duration:6000 }); return; }
+  if (!/\d/.test(nuevo) || !/[A-Z]/.test(nuevo)) { toast('El código nuevo debe tener letras y números', { type:'error', duration:6000 }); return; }
+  if ((State.data.usuarios||[]).some(x => String(x.codigo||'').toUpperCase() === nuevo)) { toast('Ya existe un usuario con ese código', { type:'error' }); return; }
+  const dueñoAntes = ['RAFA-','YADAH-','MASTER-NUN-'].find(p => String(viejo).toUpperCase().startsWith(p));
+  if (dueñoAntes && !nuevo.startsWith(dueñoAntes)) { toast('Para no perder Gastos y permisos de dueño, el código nuevo debe empezar con ' + dueñoAntes, { type:'error', duration:8000 }); return; }
+  const propio = String(viejo).toUpperCase() === String(State.sesion.codigo||'').toUpperCase();
+  const ok = await confirmDialog({ title:'¿Cambiar código de ' + (datos.nombre||viejo) + '?', message:'Se crea el acceso ' + nuevo + ' con los mismos datos y permisos, y el código anterior queda DESACTIVADO (no se borra).' + (propio ? ' Es TU código: al terminar vas a entrar de nuevo con el código nuevo.' : ' Avísale su código nuevo.'), ok:'Cambiar código' });
   if (!ok) return;
-  const data = await api({ accion:'eliminar_usuario', codigo, codigo_admin:State.sesion.codigo });
-  if (data.ok) { await cargarUsuarios(); renderCurrent(); cerrarDrawer(); toast('✓ Eliminado'); }
+  const btn = document.getElementById('uGuardarBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  try {
+    const c = await api({ accion:'crear_usuario', datos, codigo_admin:State.sesion.codigo });
+    if (!c || !c.ok) { toast('No se creó el código nuevo: ' + ((c && c.error) || 'sin respuesta'), { type:'error', duration:8000 }); return; }
+    const d = await api({ accion:'actualizar_usuario', codigo: viejo, cambios:{ activo:false }, codigo_admin:State.sesion.codigo });
+    if (!d || !d.ok) toast('⚠ El código nuevo ya funciona, pero el viejo NO se pudo desactivar. Desactívalo a mano (Estado: Inactivo).', { type:'error', duration:12000 });
+    else toast('✓ Código cambiado: ' + (datos.nombre||'') + ' ahora entra con ' + nuevo, { type:'success', duration:8000 });
+    if (propio) { setTimeout(() => cerrarSesionNUN(), 3500); return; }
+    await cargarUsuarios(); renderCurrent(); cerrarDrawer();
+  } catch(e) { toast('No se guardó: ' + e.message, { type:'error', duration:7000 }); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; } }
+}
+async function eliminarUsuario(codigo) {
+  // v3.81 — no se borra: se DESACTIVA (pierde el acceso, su historial se conserva)
+  const ok = await confirmDialog({ title:'¿Desactivar usuario?', message:'Perderá acceso inmediatamente. No se borra: puedes reactivarlo cambiando su Estado a Activo.', ok:'Desactivar', danger:true });
+  if (!ok) return;
+  const data = await api({ accion:'actualizar_usuario', codigo, cambios:{ activo:false }, codigo_admin:State.sesion.codigo });
+  if (data && data.ok) { await cargarUsuarios(); renderCurrent(); cerrarDrawer(); toast('✓ Usuario desactivado'); }
+  else toast('No se pudo desactivar: ' + ((data && data.error) || 'sin respuesta'), { type:'error', duration:7000 });
 }
 
 function renderConfiguracion() {
@@ -9016,6 +9085,7 @@ function renderMigradorFooter() {
 }
 
 async function bindFetch(endpoint, query) {
+  if (NUN_BIND_APAGADO) throw new Error('Bind ya no se usa (desde el ' + NUN_BIND_CORTE + ')'); // v3.81
   // v3.10.1 — Proxy AppsScript prueba múltiples headers (apiKey, Bearer, X-API-Key) en cascada.
   // v3.58 — la llave de Bind vive en el SERVIDOR. Si el navegador no tiene una, el backend usa la suya.
   const keyNav = bindImportState.apiKey || document.getElementById('bindKey')?.value || '';
@@ -9509,9 +9579,15 @@ function setSyncConfig(intervalo, activo) {
 
 let _syncTimerId = null;
 let _syncEnCurso = false;
+// v3.81 — Bind ya NO se usa (corte: 29 sep 2026; desde entonces todo se captura en NUN).
+// Lo que vino de Bind se queda como historial; no se vuelve a sincronizar ni a pedir nada a Bind.
+var NUN_BIND_APAGADO = true;
+var NUN_BIND_CORTE = '2026-09-29';
+function nunAvisoBindApagado(){ toast('Bind ya no se usa (desde el ' + fmtFecha(NUN_BIND_CORTE) + '). Todo se captura en NUN; lo de Bind queda como historial.', { type:'info', duration:6000 }); }
 
 function reiniciarSyncTimer() {
   if (_syncTimerId) { clearInterval(_syncTimerId); _syncTimerId = null; }
+  if (NUN_BIND_APAGADO) return; // v3.81
   const cfg = getSyncConfig();
   if (!cfg.activo || cfg.intervalo === 'off') return;
   const min = SYNC_INTERVALOS[cfg.intervalo] || 30;
@@ -9803,6 +9879,7 @@ async function enriquecerNuevosBind(facturasNuevas, remisionesNuevas, cobranzaNu
 }
 
 async function sincronizarConBindAhora(esAutomatico) {
+  if (NUN_BIND_APAGADO) { if (!esAutomatico) nunAvisoBindApagado(); return; } // v3.81
   if (_syncEnCurso) { console.warn('[Sync] ya en curso, ignorando'); return; }
   // v3.58 — sin llave en el navegador se usa la del servidor (más seguro).
   const apiKey = localStorage.getItem('nun_bind_api_key') || bindImportState.apiKey || 'SERVIDOR';
@@ -12966,6 +13043,137 @@ async function facturaTimbrar(idFactura){
 }
 window.facturaTimbrar = facturaTimbrar;
 // ============================================================
+// v3.81 — NOTA DE CRÉDITO TIMBRADA (CFDI de Egreso, serie NC) — ya sin Bind
+// Se liga a la factura que corrige (Relación 01). Dos tipos:
+//  · Descuento / bonificación: un solo concepto (clave SAT 84111506, unidad ACT)
+//  · Devolución de mercancía: los productos de la nota (cada uno con su clave SAT)
+// Nada se pone por default: forma de pago y tipo se eligen aquí, y se pide confirmación antes de timbrar.
+// ============================================================
+function nunFacturaDeNC(nc){
+  const o = String(nc.documento_origen||'').trim(); if (!o) return null;
+  const fs = (State.data.facturas||[]).filter(f => !/cancel/i.test(f.estatus||''));
+  return fs.find(f => String(f.folio||'').trim() === o) || fs.find(f => ('A' + String(f.folio||'').trim()) === o || ('F-' + String(f.folio||'').trim()) === o) || null;
+}
+function nunNCCalculo(nc, fac, tipo){
+  let items = []; try { items = JSON.parse(nc.items_json||'[]'); } catch(e){}
+  let fitems = []; try { fitems = JSON.parse(fac.items_json||'[]'); } catch(e){}
+  const facConIva = (+fac.iva||0) > 0 || fitems.some(it => +it.iva_pct > 0);
+  const sinIva = nunEsVerdad(nc.sin_iva) || !facConIva;
+  if (tipo === 'devolucion') { const t = nunCalcDoc(items, sinIva); return { items, sinIva, subtotal:t.subtotal, iva:t.iva, total:t.total }; }
+  const total = nunR2(+nc.total||0);
+  const base = sinIva ? total : nunR2(total / 1.16);
+  return { items:[{ sku:'', descripcion:'Descuento / bonificación sobre la factura ' + (fac.folio||''), cantidad:1, precio_unitario:base, iva_pct: sinIva ? 0 : 16, clave_sat:'84111506', unidad:'Actividad', _unitCode:'ACT' }], sinIva, subtotal:base, iva:nunR2(total - base), total };
+}
+function nunNCCfdi(nc, fac, tipo, forma){
+  const emp = State.data.empresa || {};
+  const cli = facturaClienteFiscal(nc.cliente || fac.cliente);
+  const c = nunNCCalculo(nc, fac, tipo);
+  const Items = c.items.map(it => {
+    const l = nunCalcLinea(Object.assign({}, it, { iva_pct: c.sinIva ? 0 : (it.iva_pct!=null ? +it.iva_pct : 16) }), false);
+    return { Quantity: String(+it.cantidad||0), ProductCode: String(it.clave_sat||'').trim(), UnitCode: it._unitCode || 'H87', Unit: it.unidad || 'Pieza',
+      Description: it.descripcion || it.sku || 'Producto', IdentificationNumber: it.sku || '',
+      UnitPrice: String(+(+it.precio_unitario||0).toFixed(6)), Subtotal: l.bruto.toFixed(2), ...(l.desc > 0 ? { Discount: l.desc.toFixed(2) } : {}),
+      TaxObject: '02', Taxes: [{ Name:'IVA', Rate: (l.pct/100).toFixed(6), Total: l.iva.toFixed(2), Base: l.base.toFixed(2), IsRetention:'false', IsFederalTax:'true' }],
+      Total: l.total.toFixed(2) };
+  });
+  return { CfdiType:'E', NameId:'2', ExpeditionPlace: emp.cp || '', Serie:'NC', Folio: String(nc.folio||'').replace(/\D/g,''),
+    PaymentForm: String(forma||''), PaymentMethod:'PUE', Exportation:'01',
+    Relations: { Type:'01', Cfdis:[{ Uuid: String(fac.uuid_sat) }] },
+    Receiver: { Name: cli.nombre || String(nc.cliente||fac.cliente||'').toUpperCase(), Rfc: cli.rfc, CfdiUse:'G02', FiscalRegime: cli.regimen, TaxZipCode: cli.cp },
+    Items, _calc: c };
+}
+function nunNCValidar(nc, fac, tipo, forma){
+  const e = []; const emp = State.data.empresa || {};
+  if (!emp.rfc || !emp.cp) e.push('Faltan RFC o Código Postal de tu empresa (Configuración)');
+  if (!fac) { e.push('Escribe en "Factura que corrige" el folio de una factura timbrada y guarda la nota'); return e; }
+  if (!fac.uuid_sat) e.push('La factura ' + (fac.folio||'') + ' no está timbrada');
+  const cli = facturaClienteFiscal(nc.cliente || fac.cliente);
+  if (!cli.rfc || !cli.cp || !cli.regimen) e.push('Faltan datos fiscales del cliente (RFC, CP o régimen)');
+  if (!forma) e.push('Elige la forma de pago');
+  if (!/^NC\d{4,}$/.test(String(nc.folio||'').trim())) e.push('La nota necesita folio NC0001… (se asigna solo al timbrar)');
+  const c = nunNCCalculo(nc, fac, tipo);
+  if (!(c.total > 0)) e.push(tipo === 'devolucion' ? 'La nota no tiene productos' : 'El total de la nota debe ser mayor a $0');
+  if (tipo === 'devolucion') c.items.forEach((it, i) => { if (!/^\d{8}$/.test(String(it.clave_sat||'').trim())) e.push('Falta la Clave SAT de ' + (it.sku || it.descripcion || ('renglón ' + (i+1)))); });
+  if (tipo !== 'devolucion' && Math.abs(c.total - nunR2(+nc.total||0)) > 0.01) e.push('El total no cuadra');
+  const otras = nunR2((State.data.notascredito||[]).filter(n => n.id !== nc.id && !/cancel/i.test(n.estatus||'') && String(n.documento_origen||'').trim() === String(fac.folio||'').trim()).reduce((s, n) => s + (+n.total||0), 0));
+  if (c.total + otras > (+fac.total||0) + 0.01) e.push('La suma de notas de crédito (' + fmtFull(c.total + otras) + ') pasa el total de la factura (' + fmtFull(fac.total) + ')');
+  return e;
+}
+async function nunAbrirTimbrarNC(id){
+  await Promise.all([cargarTabla('notascredito'), cargarTabla('facturas')]);
+  const nc = (State.data.notascredito||[]).find(n => String(n.id) === String(id)); if (!nc) return;
+  if (nc.uuid_sat) { toast('Esta nota ya está timbrada', { type:'error' }); return; }
+  try { const _p = localStorage.getItem('nun_nc_timbrada_' + nc.id); if (_p) { toast('⚠ Esta nota ya se timbró (UUID ' + _p + ') aunque no se alcanzó a guardar. No se vuelve a timbrar; avísale a Claude.', { type:'error', duration:15000 }); return; } } catch(e){}
+  const fac = nunFacturaDeNC(nc);
+  if (!fac) { toast('Escribe en "Factura que corrige" el folio de la factura (ej. FT0003), guarda y vuelve a intentar', { type:'error', duration:8000 }); return; }
+  let its = []; try { its = JSON.parse(nc.items_json||'[]'); } catch(e){}
+  const fpFac = String(fac.forma_pago||''); const opt = SAT_FORMA_PAGO.filter(([k]) => k !== '99').map(([k,v]) => `<option value="${k}" ${fpFac === k ? 'selected' : ''}>${k} · ${escapeHTML(v)}</option>`).join('');
+  let m = document.getElementById('modalNC'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalNC';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = e => { if (e.target === m) m.remove(); };
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:600px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)">
+      <div><h3 style="margin:0">Timbrar nota de crédito</h3><div style="font-size:12px;color:var(--ink-3)">${escapeHTML(nc.cliente||fac.cliente||'')} · corrige la factura <b>${escapeHTML(fac.folio||'')}</b> (${fmtFull(fac.total)})</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalNC').remove()">✕</button></div>
+    <div style="padding:16px 20px">
+      <div class="form-grid">
+        <div class="field full"><label>Tipo de nota *</label><select id="ncTipo" onchange="nunNCResumen('${escapeHTML(String(id))}')"><option value="">— Elige —</option>
+          <option value="descuento">Descuento / bonificación (un solo concepto por ${fmtFull(nc.total)})</option>
+          <option value="devolucion" ${its.length ? '' : 'disabled'}>Devolución de mercancía (${its.length} producto(s) de la nota)</option></select></div>
+        <div class="field full"><label>Forma de pago *</label><select id="ncForma"><option value="">— Elige —</option>${opt}</select></div>
+      </div>
+      <div id="ncResumen" style="font-size:12.5px;margin-top:10px"></div>
+      <div id="ncError" style="color:var(--red);font-size:12.5px;margin-top:10px;white-space:pre-line"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)">
+      <button class="btn" onclick="document.getElementById('modalNC').remove()">Cancelar</button>
+      <button class="btn btn-primary" id="ncBoton" onclick="nunTimbrarNC('${escapeHTML(String(id))}')">⚡ Timbrar ante el SAT</button></div></div>`;
+  document.body.appendChild(m);
+}
+function nunNCResumen(id){
+  const nc = (State.data.notascredito||[]).find(n => String(n.id) === String(id)); const fac = nc && nunFacturaDeNC(nc); const el = document.getElementById('ncResumen');
+  const tipo = (document.getElementById('ncTipo')||{}).value; if (!el || !fac || !tipo) { if (el) el.innerHTML = ''; return; }
+  const c = nunNCCalculo(nc, fac, tipo);
+  el.innerHTML = `Subtotal <b>${fmtFull(c.subtotal)}</b> · IVA ${c.sinIva ? '0%' : '16%'} <b>${fmtFull(c.iva)}</b> · Total <b>${fmtFull(c.total)}</b>` + (tipo === 'devolucion' && Math.abs(c.total - (+nc.total||0)) > 0.01 ? `<div style="color:var(--amber,#b45309)">El total de los productos (${fmtFull(c.total)}) es distinto al de la nota (${fmtFull(nc.total)}): se timbra lo de los productos.</div>` : '');
+}
+async function nunTimbrarNC(id){
+  const btn = document.getElementById('ncBoton'), err = document.getElementById('ncError');
+  if (!btn || btn.disabled || window._nunTimbrandoNC) return;
+  const nc = (State.data.notascredito||[]).find(n => String(n.id) === String(id)); if (!nc) return;
+  const fac = nunFacturaDeNC(nc);
+  const tipo = document.getElementById('ncTipo').value, forma = document.getElementById('ncForma').value;
+  if (!tipo) { err.textContent = '⚠ Elige el tipo de nota'; return; }
+  // folio NC0001… (serie NC en Facturama)
+  if (!/^NC\d{4,}$/.test(String(nc.folio||'').trim())) { try { nc._folioNuevo = nunFolioNUNde('notascredito', await nunListarFresco('notascredito')); } catch(e){} }
+  const prueba = Object.assign({}, nc, nc._folioNuevo ? { folio: nc._folioNuevo } : {});
+  const errs = nunNCValidar(prueba, fac, tipo, forma);
+  if (errs.length) { err.textContent = '⚠ ' + errs.join('\n⚠ '); return; }
+  const cfdi = nunNCCfdi(prueba, fac, tipo, forma); const calc = cfdi._calc; delete cfdi._calc;
+  if (!confirm('¿Timbrar ante el SAT la nota de crédito ' + prueba.folio + ' por ' + fmtFull(calc.total) + ' a ' + (nc.cliente||fac.cliente||'') + ', ligada a la factura ' + fac.folio + '?\n\nEs un documento fiscal.')) return;
+  window._nunTimbrandoNC = true; btn.disabled = true; btn.textContent = 'Timbrando…'; nunOcupado('Timbrando nota de crédito…');
+  try {
+    if (nc._folioNuevo) { if (!(await nunGuardarSeguro('notascredito', { id: nc.id, folio: nc._folioNuevo }))) throw new Error('No se pudo apartar el folio ' + nc._folioNuevo); nc.folio = nc._folioNuevo; }
+    const r = await api({ accion:'facturama_timbrar', cfdi });
+    if (!(r && r.ok && r.uuid)) throw new Error('Facturama: ' + ((r && r.error) || 'no se pudo timbrar') + ' · no se timbró nada');
+    const notas = (nc.notas ? nc.notas + ' · ' : '') + (r.id ? 'Facturama ID: ' + r.id + ' · ' : '') + 'NC ' + (tipo === 'devolucion' ? 'devolución' : 'descuento') + ' de ' + fac.folio;
+    const cam = { id: nc.id, uuid_sat: r.uuid, estatus:'aplicada', notas, documento_origen: String(fac.folio), cliente: nc.cliente || fac.cliente, subtotal: calc.subtotal, iva: calc.iva, total: calc.total, forma_pago: forma, sin_iva: calc.sinIva };
+    try { localStorage.setItem('nun_nc_timbrada_' + nc.id, r.uuid); } catch(e){}
+    const [okGuardado] = await Promise.all([
+      nunGuardarSeguro('notascredito', cam),
+      r.xml ? api({ accion:'cfdi_xml_guardar', docs:[{ uuid:r.uuid, xml:r.xml, fecha: nunHoy(), total: calc.total, cliente: cam.cliente, tipo:'E' }] }).catch(()=>null) : null
+    ]);
+    if (okGuardado) { try { localStorage.removeItem('nun_nc_timbrada_' + nc.id); } catch(e){} }
+    else toast('⚠ La nota SÍ se timbró (UUID ' + r.uuid + ') pero no se guardó en el sistema. NO la vuelvas a timbrar; avísale a Claude.', { type:'error', duration:20000 });
+    if (r.xml) { const td = cfdiTimbreData(r.xml); if (td) { const tm = cfdiGetTimbres(); tm[r.uuid] = td; cfdiSetTimbres(tm); } }
+    nunOcupado(''); document.getElementById('modalNC').remove();
+    toast('✓ Nota de crédito ' + nc.folio + ' timbrada · UUID ' + String(r.uuid).substring(0,8) + '…', { type:'success', duration:8000 });
+    await Promise.all([cargarTabla('notascredito'), cargarTabla('facturas')]); try { cerrarDrawer(); } catch(e){} renderCurrent();
+  } catch(ex) { nunOcupado(''); err.textContent = '✗ ' + ex.message; btn.disabled = false; btn.textContent = '⚡ Timbrar ante el SAT'; }
+  finally { window._nunTimbrandoNC = false; }
+}
+window.nunAbrirTimbrarNC = nunAbrirTimbrarNC; window.nunTimbrarNC = nunTimbrarNC; window.nunNCResumen = nunNCResumen;
+// ============================================================
 // v3.70 — Datos fiscales al timbrar: forma y método de pago, uso CFDI y clave SAT por producto.
 // Nada se pone por default: lo que falte se elige aquí o no se timbra.
 // ============================================================
@@ -13759,7 +13967,7 @@ function renderOracleWorkspace(){
     <div class="page-title">
       <div>
         <h1>Workspace</h1>
-        <div class="sub">Dashboard ejecutivo · ${fmtFecha(nunHoy())} · sincronizado con Bind ERP</div>
+        <div class="sub">Dashboard ejecutivo · ${fmtFecha(nunHoy())} · Sistema NUN</div>
       </div>
       <div class="actions">
         <span class="refresh-stamp">${(State.data.facturas||[]).length + (State.data.remisiones||[]).length} docs · ${(State.data.clientes||[]).length} clientes</span>

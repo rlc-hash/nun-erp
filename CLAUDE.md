@@ -16,6 +16,14 @@ Este repo puede ser público: no escribas aquí datos de clientes, montos, RFC n
 - No decidas por él ni rellenes datos que no dio: si falta un dato, márcalo como faltante.
 - Todo lo que esté a nombre de RAFAEL LANIADO CATTAN es de prueba.
 
+## Estado de operación (actualizado 30 sep 2026)
+- **Bind ya NO se usa desde el 29 sep 2026** (`NUN_BIND_APAGADO` en index.html). Todo se captura en NUN; lo que vino de Bind
+  (ids `bind_…`) es historial y no se borra. Facturama se queda (es el PAC que timbra).
+- Cuentas donde entra dinero: **BBVA** y **Efectivo** (falta confirmar con Rafa una tercera que mencionó).
+- Inventario: solo se lleva para mercancía NUEVA (lo que había antes del corte no se cuenta).
+- Crédito: no se bloquea a clientes vencidos. Precios: los vendedores ponen el que quieran.
+- Rafa autorizó que Claude publique directo en main y opere GitHub.
+
 ## Archivos
 - `index.html` — ERP completo (~800 KB, un solo archivo, JS en línea). Publicado en GitHub Pages:
   https://rlc-hash.github.io/nun-erp/ (tarda ~1 min en actualizarse después del push).
@@ -53,12 +61,14 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - ERP y app comparten localStorage `nun_cache_*` con formas distintas: aceptar `{items:[...]}` y arreglo.
 
 ## Convenciones de datos
-- Folios NUN: Pedido P0001, Remisión R0001, Factura FT0001 (Serie FT), complemento de pago CP0001 (Serie CP).
+- Folios NUN: Pedido P0001, Remisión R0001, Factura FT0001 (Serie FT), complemento de pago CP0001 (Serie CP),
+  nota de crédito NC0001 (Serie NC, CFDI de Egreso ligado a la factura con relación 01 — la serie NC debe existir en Facturama).
   Los de Bind: numéricos, V01…, A… Las series FT y CP existen en Facturama (Lugar de Expedición → Principal → Series).
 - Ligas: `pedido_origen` de remisión/factura = folio del pedido; factura de remisión = "REM 322" o "R0001".
   Cobranza `numero` = folio (remisiones de Bind "V01"+folio); `factura_origen` = id del documento.
   Notas de crédito: `documento_origen` = folio de factura o "V01"+remisión.
-- Complementos de pago en `notas` de la factura: `REP CP0001 uuid=… monto=… fecha=AAAA-MM-DD parc=N`.
+- Complementos de pago en `notas` de la factura: `REP CP0001 uuid=… monto=… fecha=AAAA-MM-DD parc=N sant=SALDO_ANTERIOR`
+  (sant desde v3.81; para facturas timbradas en Bind el saldo anterior y la parcialidad los confirma Rafa).
 - Vendedor siempre en MAYÚSCULAS (EDGAR, LUIS, ESTEBAN, YADAH, RAFA, CASA). RAFA y CASA = 0% de comisión COMO VENDEDOR;
   aparte, RAFA y YADAH cobran 4% de socio sobre TODO lo cobrado (confirmado por Rafa, 30 sep 2026).
 - Documento a nombre de CASA cuyo cliente tiene vendedor en el catálogo: la comisión de lo cobrado es del vendedor del catálogo

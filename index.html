@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.95 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.96 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -6834,6 +6834,7 @@ function renderDocOperativo(tabla) {
       <div class="actions">
         ${(tabla === 'remisiones' || tabla === 'facturas') && nunEsAdmin() && nunFoliosServidor(tabla).length ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunRevisarFoliosServidor('${tabla}')">🧹 Folios REM/FAC (${nunFoliosServidor(tabla).length})</button>` : ''}
         ${tabla === 'remisiones' && nunEsAdmin() ? `<button class="btn btn-secondary" onclick="nunRemMarcarFacturadas()" title="Remisiones canceladas en Bind que sí se facturaron">🔎 Canceladas que se facturaron</button>` : ''}
+        ${nunEsAdmin() && (() => { try { return rows.some(r => !/cancel/i.test(r.estatus||'') && String(r.cliente||'').trim() && !NUN_VENDEDORES_VALIDOS.includes(String(r.vendedor||'').toUpperCase().trim())); } catch(e){ return false; } })() ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunVendedoresACorregir()" title="Documentos con YASMIN, sin vendedor u otro que no es vendedor">👤 Vendedores a corregir</button>` : ''}
         <button class="btn btn-secondary" onclick="exportarTabla('${tabla}')">Exportar</button>
         <button class="btn btn-primary" onclick="abrirDoc('${tabla}')">+ Nueva ${escapeHTML(def.singular)}</button>
       </div>
@@ -6967,7 +6968,7 @@ function nunSituacionIdx(){
     if (/cancel/i.test(d.estatus||'')) return;
     String(d.pedido_origen||'').split(/[,;]/).forEach(x => add(x, d, t));
     try { JSON.parse(d.items_json||'[]').forEach(it => { if (it.pedido) add(it.pedido, d, t); }); } catch(e){}
-    if (t === 'F' && nunEsDeRemision(d)) { const k = nunRemFolioDeFactura(d); if (!facDeRem.has(k)) facDeRem.set(k, []); facDeRem.get(k).push(d); }
+    if (t === 'F' && nunEsDeRemision(d)) { const rr = nunRemDeFactura(d); const k = rr ? String(rr.id) : '§' + nunRemFolioDeFactura(d); if (!facDeRem.has(k)) facDeRem.set(k, []); facDeRem.get(k).push(d); } // v3.96 por id (folios repetidos)
   });
   const usadas = new Set((D.remisiones||[]).map(x => (String(x.notas||'').match(/Facturada en [^·(]*\(id ([^)]+)\)/)||[])[1]).filter(Boolean)); // v3.91
   _nunSitFirma = firma; _nunSitIdx = { porPedido, facDeRem, usadas }; return _nunSitIdx;
@@ -6986,7 +6987,7 @@ function nunSituacionHTML(tabla, r){
     return `<span class="tag green">surtido</span> ${gris('→ ' + lista)}`;
   }
   // remisiones
-  const facs = (I.facDeRem.get(nunFolioStr(r)) || []);
+  const facs = (I.facDeRem.get(String(r.id)) || []); // v3.96
   if (/cancel/i.test(r.estatus||'')) {
     if (/refactur|sustitu/i.test(String(r.notas||''))) return `<span class="tag red">cancelada</span> ${gris(escapeHTML(String(r.notas).match(/[^·]*(refactur|sustitu)[^·]*/i)[0].trim().substring(0,60)))}`;
     const cand = nunRemFacturaCandidata(r, I.usadas);
@@ -7597,7 +7598,7 @@ async function nunPagoDesdeDoc(tabla, id){
   // factura que viene de una remisión: el cobro vive en la remisión
   if (!c && tabla === 'facturas') {
     const po = String(doc.pedido_origen||'').trim(); const fr = po.replace(/^REM\s+/, '');
-    if (/^(R\d{4,}|REM )/.test(po)) { const rem = (State.data.remisiones||[]).find(r => String(r.folio).trim() === fr); if (rem) c = nunCobranzaDeDoc(rem, cob); }
+    if (/^(R\d{4,}|REM )/.test(po)) { const rem = nunRemDeFactura(doc); if (rem) c = nunCobranzaDeDoc(rem, cob); } // v3.96
   }
   if (!c) { const f = String(doc.folio||'').trim(); c = cob.find(x => { const n = String(x.numero||'').trim(); return n === f || n === 'V01' + f; }); }
   if (!c) { toast('No encontré el renglón de Cobranza de ' + (doc.folio||'este documento'), { type:'error', duration:6000 }); return; }
@@ -7637,7 +7638,7 @@ function nunCobroDeDoc(tabla, doc){
   let c = nunCobranzaDeDoc(doc, cob);
   if (!c && tabla === 'facturas') {
     const po = String(doc.pedido_origen||'').trim(), fr = po.replace(/^REM\s+/, '');
-    if (/^(R\d{4,}|REM )/.test(po)) { const rem = (State.data.remisiones||[]).find(r => String(r.folio).trim() === fr); if (rem) c = nunCobranzaDeDoc(rem, cob); }
+    if (/^(R\d{4,}|REM )/.test(po)) { const rem = nunRemDeFactura(doc); if (rem) c = nunCobranzaDeDoc(rem, cob); } // v3.96
   }
   if (!c) { const f = String(doc.folio||'').trim(); c = cob.find(x => { const n = String(x.numero||'').trim(); return n === f || n === 'V01' + f; }); }
   return c || null;
@@ -7833,15 +7834,18 @@ async function nunCobrarEnOtraVenta(idFac){
   await Promise.all([cargarTabla('facturas'), cargarTabla('cobranza'), cargarTabla('ingresos'), cargarTabla('remisiones')]);
   const f = (State.data.facturas||[]).find(x => x.id === idFac); if (!f) return;
   // v3.95 — la remisión de la que salió la factura (ej. REM-2026-0001 hecha desde un pedido viejo de Bind): no es venta nueva
-  const rem = nunEsDeRemision(f) ? (State.data.remisiones||[]).find(r => nunFolioStr(r) === nunRemFolioDeFactura(f) && !/cancel/i.test(r.estatus||'')) : null;
+  const rem = (() => { const r0 = nunRemDeFactura(f); return r0 && !/cancel/i.test(r0.estatus||'') ? r0 : null; })(); // v3.96
   const propios = [nunCobranzaDeDoc(f, State.data.cobranza||[]), rem ? nunCobranzaDeDoc(rem, State.data.cobranza||[]) : null]
     .filter((c, i, a) => c && !/cancel/i.test(String(c.estatus||'')) && a.findIndex(y => y && y.id === c.id) === i);
   const propio = propios[0] || null;
   const cli = String(f.cliente||'').trim().toUpperCase();
   // v3.95 — también de otros clientes (la venta vieja pudo quedar a otro nombre); primero los del mismo cliente
   const L = (State.data.cobranza||[]).filter(c => !/cancel|duplic/i.test(String(c.estatus||'')) && !propios.some(p => p.id === c.id) && !c.sin_entregar)
-    .map(c => { const pagos = nunPagosDeCobro(c); return { c, suma: nunR2(pagos.reduce((a, i) => a + (+i.monto||0), 0)), n: pagos.length, mismo: String(c.cliente||'').trim().toUpperCase() === cli }; })
-    .sort((a, b) => (b.mismo - a.mismo) || String(b.c.fecha_entrega||b.c.fecha_emision||'').localeCompare(String(a.c.fecha_entrega||a.c.fecha_emision||'')));
+    .map(c => { const pagos = nunPagosDeCobro(c); const suma = nunR2(pagos.reduce((a, i) => a + (+i.monto||0), 0));
+      const peds = nunRelDoc('facturas', f).pedidos, pedCob = peds.map(p => nunCobranzaDeDoc(p, State.data.cobranza||[])).filter(Boolean);
+      const sug = pedCob.some(x => x.id === c.id) || peds.some(p => Math.abs((+p.total||0) - (+c.total||0)) < 1 && (+p.total||0) > (+f.total||0)); // v3.96 del pedido de la factura
+      return { c, suma, n: pagos.length, mismo: String(c.cliente||'').trim().toUpperCase() === cli, sug, raro: Math.abs((+c.cobrado||0) - suma) > 0.5 }; })
+    .sort((a, b) => (b.sug - a.sug) || (b.mismo - a.mismo) || (b.raro - a.raro) || String(b.c.fecha_entrega||b.c.fecha_emision||'').localeCompare(String(a.c.fecha_entrega||a.c.fecha_emision||'')));
   window._nunCOV = { f, propio, propios, rem, L };
   const movidos = propios.flatMap(c => nunPagosDeCobro(c));
   let m = document.getElementById('modalCOV'); if (m) m.remove();
@@ -7854,7 +7858,7 @@ async function nunCobrarEnOtraVenta(idFac){
     <div style="padding:10px 20px;font-size:12.5px;background:rgba(245,158,11,0.08)">Elige la venta de la que es esta factura. Desde ahora el pago de la factura se aplica a esa venta y la factura no cuenta como deuda aparte. No se borra nada.</div>
     <div style="padding:10px 20px 0"><input type="text" id="covBuscar" placeholder="Buscar por folio, cliente o monto (ej. 95000)…" style="width:100%" oninput="nunCOVFiltrar(this.value)"></div>
     <div style="overflow:auto;padding:0 20px;flex:1">${L.length ? `<table class="dt" style="font-size:12px"><thead><tr><th></th><th>Venta (Cobranza)</th><th>Cliente</th><th>Fecha</th><th class="right">Total</th><th class="right">Dice cobrado</th><th class="right">Suman sus pagos</th><th class="right">Saldo</th></tr></thead><tbody>
-      ${L.map((x, i) => `<tr class="covFila" data-txt="${escapeHTML((String(x.c.numero||'') + ' ' + String(x.c.cliente||'') + ' ' + (+x.c.total||0) + ' ' + String(x.c.descripcion||'')).toUpperCase())}" ${x.mismo ? '' : 'style="display:none"'}><td><input type="radio" name="covSel" value="${i}"></td><td class="mono">${escapeHTML(String(x.c.numero||''))}</td><td style="font-size:11px">${escapeHTML(String(x.c.cliente||''))}</td><td>${fmtFecha(x.c.fecha_entrega||x.c.fecha_emision)}</td><td class="right mono">${fmtFull(x.c.total)}</td>
+      ${L.map((x, i) => `<tr class="covFila" data-txt="${escapeHTML((String(x.c.numero||'') + ' ' + String(x.c.cliente||'') + ' ' + (+x.c.total||0) + ' ' + String(x.c.descripcion||'')).toUpperCase())}" ${x.mismo || x.sug ? '' : 'style="display:none"'}><td><input type="radio" name="covSel" value="${i}" ${x.sug && i === 0 ? 'checked' : ''}></td><td class="mono">${escapeHTML(String(x.c.numero||''))}${x.sug ? ' <span class="tag amber" style="font-size:10px">del pedido</span>' : ''}${x.raro ? ' <span class="tag red" style="font-size:10px">no cuadra</span>' : ''}</td><td style="font-size:11px">${escapeHTML(String(x.c.cliente||''))}</td><td>${fmtFecha(x.c.fecha_entrega||x.c.fecha_emision)}</td><td class="right mono">${fmtFull(x.c.total)}</td>
         <td class="right mono">${fmtFull(x.c.cobrado)}</td><td class="right mono" style="${Math.abs((+x.c.cobrado||0) - x.suma) > 0.5 ? 'color:var(--red);font-weight:600' : ''}">${fmtFull(x.suma)} <span style="color:var(--ink-4)">(${x.n})</span></td><td class="right mono">${fmtFull(x.c.pendiente)}</td></tr>`).join('')}</tbody></table>` : '<div style="padding:24px;text-align:center;color:var(--mute)">Este cliente no tiene otras ventas en Cobranza</div>'}
       <div style="font-size:11.5px;color:var(--ink-3);margin-top:6px">Se ven las ventas de ${escapeHTML(f.cliente||'')}. Si la venta quedó a otro nombre, búscala arriba (folio, nombre o monto).</div>
       <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin:12px 0 4px"><input type="checkbox" id="covAjustar" checked> Si "dice cobrado" no es igual a lo que suman sus pagos (en rojo), ajustarlo a lo que suman sus pagos</label>
@@ -7889,7 +7893,7 @@ async function nunCobrarEnOtraVentaGuardar(){
   toast(mal ? '⚠ No todo se guardó: revisa ' + (X.numero||'') + ' en Cobranza' : '✓ ' + (f.folio||'') + ' se cobra en ' + (X.numero||'') + ' · saldo ' + fmtFull(pendiente), { type: mal ? 'error' : 'success', duration:9000 });
 }
 function nunCOVFiltrar(q){ q = String(q||'').toUpperCase().replace(/[$,\s]+/g, ' ').trim(); const S = window._nunCOV || { L:[] };
-  document.querySelectorAll('#modalCOV .covFila').forEach((tr, i) => { const x = S.L[i]; tr.style.display = !q ? (x && x.mismo ? '' : 'none') : (q.split(' ').every(w => tr.dataset.txt.replace(/,/g,'').includes(w)) ? '' : 'none'); }); }
+  document.querySelectorAll('#modalCOV .covFila').forEach((tr, i) => { const x = S.L[i]; tr.style.display = !q ? (x && (x.mismo || x.sug) ? '' : 'none') : (q.split(' ').every(w => tr.dataset.txt.replace(/,/g,'').includes(w)) ? '' : 'none'); }); }
 window.nunCOVFiltrar = nunCOVFiltrar; window.nunCobrarEnOtraVenta = nunCobrarEnOtraVenta; window.nunCobrarEnOtraVentaGuardar = nunCobrarEnOtraVentaGuardar;
 
 // XML del complemento
@@ -8096,13 +8100,23 @@ function nunSaldoGrupo(rows, tabla){
 }
 function nunEsDeRemision(f){ return /^(R\d{4,}|REM )/.test(String(f.pedido_origen||'').trim()); }
 function nunRemFolioDeFactura(f){ return String(f.pedido_origen||'').trim().replace(/^REM\s+/, ''); }
+// v3.96 — la remisión de una factura. Si hay dos remisiones con el mismo folio (ej. dos REM-2026-0001), se escoge la del mismo
+// cliente, vigente y del mismo total (antes tomaba la primera: la factura de $46,000 aparecía ligada a una remisión de $5,730)
+function nunRemDeFactura(f){
+  if (!f || !nunEsDeRemision(f)) return null;
+  const k = nunRemFolioDeFactura(f), L = (State.data.remisiones||[]).filter(r => nunFolioStr(r) === k);
+  if (L.length <= 1) return L[0] || null;
+  const cli = String(f.cliente||'').trim().toUpperCase(), ff = String(f.fecha||'').substring(0,10);
+  const pts = r => (String(r.cliente||'').trim().toUpperCase() === cli ? 8 : 0) + (Math.abs((+r.total||0) - (+f.total||0)) < 1 ? 4 : 0) + (!/cancel/i.test(r.estatus||'') ? 2 : 0) + (String(r.fecha||'').substring(0,10) <= ff ? 1 : 0);
+  return L.slice().sort((a, b) => pts(b) - pts(a))[0];
+}
 function nunRelDoc(tabla, doc){
   const D = State.data, vivo = x => !/cancel/i.test(x.estatus||'');
   const peds = D.pedidos||[], rems = D.remisiones||[], facs = D.facturas||[];
   const out = { pedidos:[], remisiones:[], facturas:[], reps:[], ncs:[], pagos:[], cobro:null };
   const add = (arr, x) => { if (x && !arr.some(y => y.id === x.id)) arr.push(x); };
   const clavesPed = p => [nunFolioStr(p), String(p.id)].filter(Boolean);
-  const facturasDeRem = r => facs.filter(f => nunEsDeRemision(f) && nunRemFolioDeFactura(f) === nunFolioStr(r));
+  const facturasDeRem = r => facs.filter(f => nunEsDeRemision(f) && nunRemFolioDeFactura(f) === nunFolioStr(r) && nunRemDeFactura(f) === r); // v3.96 folios repetidos
   if (tabla === 'pedidos') {
     add(out.pedidos, doc);
     const k = clavesPed(doc);
@@ -8117,7 +8131,7 @@ function nunRelDoc(tabla, doc){
   } else if (tabla === 'facturas') {
     add(out.facturas, doc);
     if (nunEsDeRemision(doc)) {
-      const r = rems.find(x => nunFolioStr(x) === nunRemFolioDeFactura(doc));
+      const r = nunRemDeFactura(doc); // v3.96
       if (r) { add(out.remisiones, r); const po = String(r.pedido_origen||'').trim(); if (po) peds.filter(p => clavesPed(p).includes(po)).forEach(p => add(out.pedidos, p)); }
     } else {
       const po = String(doc.pedido_origen||'').trim();
@@ -8134,15 +8148,22 @@ function nunRelDoc(tabla, doc){
   // Cobro (Cobranza) y pagos recibidos (Ingresos)
   out.cobro = (tabla === 'pedidos') ? (out.remisiones[0] ? nunCobroDeDoc('remisiones', out.remisiones[0]) : (out.facturas[0] ? nunCobroDeDoc('facturas', out.facturas[0]) : null)) : nunCobroDeDoc(tabla, doc);
   if (out.cobro) { const n = String(out.cobro.numero||'').trim(); (D.ingresos||[]).filter(i => String(i.factura||'').trim() === n && n).forEach(i => add(out.pagos, i)); }
+  if (tabla === 'pedidos') { // v3.96 — el pedido es la matriz: pagos de TODAS sus remisiones y facturas
+    const cobs = out.remisiones.map(r => nunCobroDeDoc('remisiones', r)).concat(out.facturas.map(f => nunCobroDeDoc('facturas', f))).filter((c, i, a) => c && a.findIndex(y => y && y.id === c.id) === i);
+    out.cobros = cobs;
+    cobs.forEach(c => { const n = String(c.numero||'').trim(); if (n) (D.ingresos||[]).filter(i => String(i.factura||'').trim() === n).forEach(i => add(out.pagos, i)); });
+  }
   out.vivos = { remisiones: out.remisiones.filter(vivo).length, facturas: out.facturas.filter(vivo).length };
   return out;
 }
 function nunFechaCorta(f){ return fmtFecha(f); }
 // v3.92 — un pago dentro de la remisión/factura/pedido, con su botón para cancelarlo ahí mismo (pide motivo y confirmación)
 function nunPagoRenglonHTML(i, vivo){
-  const btn = vivo && (nunEsAdmin() || esSesionDueno()) ? `<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:11px" onclick="event.stopPropagation();nunCancelarIngreso('${escapeHTML(String(i.id)).replace(/'/g,'')}')">Cancelar pago</button>` : '';
+  const adm = vivo && (nunEsAdmin() || esSesionDueno());
+  const pc = adm ? (State.data.pagosclientes||[]).find(p => String(p.ingreso_id||'') === String(i.id) && (+p.monto||0) > 0) : null; // v3.96 cambiar monto (pagos capturados en el sistema)
+  const btn = adm ? `<span style="display:flex;gap:4px;flex-shrink:0">${pc ? `<button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:11px" onclick="event.stopPropagation();nunCambiarMontoPago(${escapeHTML(JSON.stringify(String(pc.timestamp)))},${escapeHTML(JSON.stringify(String(pc.id_doc)))},${+pc.monto||0})">Cambiar monto</button>` : ''}<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:11px" onclick="event.stopPropagation();nunCancelarIngreso('${escapeHTML(String(i.id)).replace(/'/g,'')}')">Cancelar pago</button></span>` : '';
   return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 9px;border:1px solid var(--line);border-radius:7px;margin-bottom:5px;${vivo ? '' : 'opacity:.55;'}">
-    <span>${nunFechaCorta(i.fecha)} · ${escapeHTML(i.cuenta||'')} <b class="mono">${fmtFull(i.monto)}</b>${vivo ? '' : ' <span class="tag red" style="font-size:10px">cancelado</span>'}<br><span style="color:var(--ink-3)">${escapeHTML(String(i.comentarios||'').slice(0,60))}</span></span>${btn}</div>`;
+    <span>${nunFechaCorta(i.fecha)} · ${escapeHTML(i.cuenta||'')} <b class="mono">${fmtFull(i.monto)}</b> <span style="color:var(--ink-3);font-size:11px">${escapeHTML(String(i.factura||''))}</span>${vivo ? '' : ' <span class="tag red" style="font-size:10px">cancelado</span>'}<br><span style="color:var(--ink-3)">${escapeHTML(String(i.comentarios||'').slice(0,60))}</span></span>${btn}</div>`;
 }
 function nunChipDoc(t, d, activo){
   const et = { pedidos:'Pedido', remisiones:'Remisión', facturas:'Factura' }[t];
@@ -8157,7 +8178,7 @@ function nunPanelDoc(tabla, doc, acciones){
   R.pedidos.forEach(p => cadena.push(nunChipDoc('pedidos', p, tabla === 'pedidos' && p.id === doc.id)));
   R.remisiones.forEach(r => cadena.push(nunChipDoc('remisiones', r, tabla === 'remisiones' && r.id === doc.id)));
   R.facturas.forEach(f => cadena.push(nunChipDoc('facturas', f, tabla === 'facturas' && f.id === doc.id)));
-  const saldo = (tabla === 'pedidos') ? (R.cobro ? Math.max(0, +R.cobro.pendiente||0) : null) : nunSaldoDoc(doc, tabla);
+  const saldo = (tabla === 'pedidos') ? ((R.cobros && R.cobros.length) ? nunR2(R.cobros.filter(c => !/cancel/i.test(String(c.estatus||''))).reduce((a, c) => a + Math.max(0, +c.pendiente||0), 0)) : null) : nunSaldoDoc(doc, tabla); // v3.96 suma de sus remisiones/facturas
   // v3.93 — factura ligada a una remisión de otro monto: casi seguro no es la misma venta (ej. REM-2026-… de una conversión que no terminó)
   const _remDif = tabla === 'facturas' && R.remisiones.find(r => Math.abs((+r.total||0) - (+doc.total||0)) > 1);
   const avisoLiga = _remDif ? `<div style="font-size:12px;margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(245,158,11,0.10)">⚠ Esta factura (${fmtFull(doc.total)}) está ligada a la remisión ${escapeHTML(nunFolioStr(_remDif))} de ${fmtFull(_remDif.total)}: no parecen la misma venta. Su cobro va en la factura.</div>` : '';
@@ -8197,7 +8218,7 @@ function nunRelacionadosHTML(tabla, doc){
 }
 // Carga lo que falte (notas de crédito, ingresos) y refresca el panel si el documento sigue abierto
 async function nunAsegurarRelacionados(tabla, id){
-  const falta = ['notascredito','ingresos','pedidos','remisiones','facturas','cobranza'].filter(t => !Array.isArray(State.data[t]) || (t === 'notascredito' && !State.data._ncCargadas));
+  const falta = ['notascredito','ingresos','pedidos','remisiones','facturas','cobranza','pagosclientes'].filter(t => !Array.isArray(State.data[t]) || (t === 'notascredito' && !State.data._ncCargadas));
   if (!falta.length) return;
   try { await Promise.all(falta.map(t => cargarTabla(t))); State.data._ncCargadas = true; } catch(e){}
   const m = document.getElementById('nunRelMount'); const doc = (State.data[tabla]||[]).find(d => d.id === id);
@@ -10031,13 +10052,22 @@ function nunVendedoresACorregirCalcular(){
   const valido = v => NUN_VENDEDORES_VALIDOS.includes(String(v||'').toUpperCase().trim());
   const cliIdx = new Map((State.data.clientes||[]).map(c => [String(c.razon_social||'').trim().toUpperCase(), c]));
   const out = [];
-  ['cobranza','pedidos','remisiones','facturas'].forEach(t => (t === 'cobranza' ? (State.data.cobranzaTodos || State.data.cobranza || []) : (State.data[t]||[])).forEach(d => {
-    if (/cancel/i.test(d.estatus||'')) return;
-    const v = String(d.vendedor||'').toUpperCase().trim(); if (valido(v) || !v) return;
-    const c = cliIdx.get(String(d.cliente||'').trim().toUpperCase());
-    let prop = c && valido(c.vendedor) ? String(c.vendedor).toUpperCase().trim() : '';
-    if (!prop && typeof vendedorDeClienteCat === 'function' && _catClientes.length) { const x = String(vendedorDeClienteCat(d.cliente, d.fecha_emision || d.fecha)||'').toUpperCase().trim(); if (valido(x)) prop = x; }
-    out.push({ t, d, v, prop });
+  // v3.96 — también documentos SIN vendedor; y si el cliente no tiene vendedor en el catálogo, se propone el de tu Excel
+  // (Cuadre, en la fecha del documento) o el que más se repite en los otros documentos del cliente
+  let xl = null; try { const ex = cuadreGetExcelRows(); if (ex.length) { xl = new Map(); ex.forEach(r => { if (!NUN_VENDEDORES_VALIDOS.includes(r.vendedor)) return; const k = cuadreNormTexto(r.cliente); if (!xl.has(k)) xl.set(k, []); xl.get(k).push({ f: r.fecha, v: r.vendedor }); }); xl.forEach(h => h.sort((a, b) => String(a.f).localeCompare(String(b.f)))); } } catch(e){}
+  const tablas = ['cobranza','pedidos','remisiones','facturas'], docsDe = t => (t === 'cobranza' ? (State.data.cobranzaTodos || State.data.cobranza || []) : (State.data[t]||[]));
+  const frec = new Map(); tablas.forEach(t => docsDe(t).forEach(d => { const v = String(d.vendedor||'').toUpperCase().trim(); if (!valido(v) || /cancel/i.test(d.estatus||'')) return; const k = String(d.cliente||'').trim().toUpperCase(); if (!frec.has(k)) frec.set(k, {}); frec.get(k)[v] = (frec.get(k)[v]||0) + 1; }));
+  const masUsado = k => { const o = frec.get(k); if (!o) return ''; const e = Object.entries(o).sort((a, b) => b[1] - a[1]); return e.length && (e.length === 1 || e[0][1] > e[1][1]) ? e[0][0] : ''; };
+  tablas.forEach(t => docsDe(t).forEach(d => {
+    if (/cancel|duplic/i.test(String(d.estatus||''))) return;
+    const v = String(d.vendedor||'').toUpperCase().trim(); if (valido(v)) return;
+    if (!String(d.cliente||'').trim()) return;
+    const kc = String(d.cliente||'').trim().toUpperCase(), c = cliIdx.get(kc);
+    let prop = c && valido(c.vendedor) ? String(c.vendedor).toUpperCase().trim() : '', de = prop ? 'catálogo' : '';
+    if (!prop && xl) { let h = xl.get(cuadreNormTexto(d.cliente)); if (!h) { const ks = [...xl.keys()], nm = cuadreClienteSistema(d.cliente, ks, null); if (nm) h = xl.get(nm); } if (h) { prop = cuadreVendEnFecha(h, d.fecha || d.fecha_entrega || d.fecha_emision); if (prop) de = 'tu Excel'; } }
+    if (!prop && typeof vendedorDeClienteCat === 'function' && _catClientes.length) { const x = String(vendedorDeClienteCat(d.cliente, d.fecha_emision || d.fecha)||'').toUpperCase().trim(); if (valido(x)) { prop = x; de = 'lista de la app'; } }
+    if (!prop) { prop = masUsado(kc); if (prop) de = 'otros documentos del cliente'; }
+    out.push({ t, d, v, prop, de });
   }));
   return out;
 }
@@ -10053,9 +10083,9 @@ async function nunVendedoresACorregir(){
     <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><div><h3 style="margin:0">Vendedores a corregir</h3>
       <div style="font-size:12px;color:var(--ink-3)">${L.length} documento(s) con vendedor que no es vendedor · con propuesta: ${L.filter(x => x.prop).length}. El vendedor propuesto es el del cliente. Cambia a quién se le cuenta la comisión.</div></div>
       <button class="icon-btn" onclick="document.getElementById('modalVAC').remove()">✕</button></div>
-    <div style="overflow:auto;padding:0 20px;flex:1">${L.length ? `<table class="dt" style="font-size:12px"><thead><tr><th><input type="checkbox" checked onchange="document.querySelectorAll('#modalVAC .vacChk:not([disabled])').forEach(x=>x.checked=this.checked)"></th><th>Tipo</th><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Dice</th><th>Poner</th><th class="right">Total</th></tr></thead><tbody>
+    <div style="overflow:auto;padding:0 20px;flex:1">${L.length ? `<table class="dt" style="font-size:12px"><thead><tr><th><input type="checkbox" checked onchange="document.querySelectorAll('#modalVAC .vacChk:not([disabled])').forEach(x=>x.checked=this.checked)"></th><th>Tipo</th><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Dice</th><th>Poner</th><th>De dónde</th><th class="right">Total</th></tr></thead><tbody>
       ${L.map((x, i) => `<tr><td><input type="checkbox" class="vacChk" data-i="${i}" ${x.prop ? 'checked' : 'disabled'}></td><td>${et[x.t]}</td><td class="mono">${escapeHTML(String(x.d.folio || x.d.numero || ''))}</td><td>${fmtFecha(x.d.fecha || x.d.fecha_entrega || x.d.fecha_emision)}</td>
-        <td>${escapeHTML(x.d.cliente||'')}</td><td>${escapeHTML(x.v)}</td><td><b>${escapeHTML(x.prop || '— el cliente no tiene vendedor —')}</b></td><td class="right mono">${fmtFull(x.d.total)}</td></tr>`).join('')}</tbody></table>` : '<div style="padding:24px;text-align:center;color:var(--mute)">Todo tiene un vendedor válido 👍</div>'}</div>
+        <td>${escapeHTML(x.d.cliente||'')}</td><td>${escapeHTML(x.v || '— vacío —')}</td><td><b>${escapeHTML(x.prop || '— no sé: ponle vendedor al cliente —')}</b></td><td style="font-size:11px;color:var(--ink-3)">${escapeHTML(x.de||'')}</td><td class="right mono">${fmtFull(x.d.total)}</td></tr>`).join('')}</tbody></table>` : '<div style="padding:24px;text-align:center;color:var(--mute)">Todo tiene un vendedor válido 👍</div>'}</div>
     <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)"><button class="btn" onclick="document.getElementById('modalVAC').remove()">Cerrar</button>
       ${L.length ? '<button class="btn btn-primary" id="vacBoton" onclick="nunVendedoresACorregirGuardar()">Cambiar lo marcado</button>' : ''}</div></div>`;
   document.body.appendChild(m);

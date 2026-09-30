@@ -24,7 +24,7 @@ const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),
   w.HTMLCanvasElement.prototype.getContext=()=>new Proxy({}, {get:()=>()=>({})});
  }});
 const w=dom.window,d=w.document;const sleep=t=>new Promise(z=>setTimeout(z,t));
-const vis=()=>[...d.querySelectorAll('#modalCOV .covFila')].filter(tr=>tr.style.display!=='none').map(tr=>tr.querySelectorAll('td')[1].textContent);
+const vis=()=>[...d.querySelectorAll('#modalCOV .covFila')].filter(tr=>tr.style.display!=='none').map(tr=>tr.querySelectorAll('td')[1].textContent.trim().split(' ')[0]);
 setTimeout(async()=>{const r={};try{
  for (const t of ['pedidos','remisiones','facturas','cobranza','ingresos','clientes']) await w.eval(`cargarTabla('${t}')`);
  w.eval("State.data.cuentas=[{nombre:'BBVA'}]; window.confirmDialog=async()=>true");
@@ -32,7 +32,7 @@ setTimeout(async()=>{const r={};try{
  await w.eval("nunCobrarEnOtraVenta('f3')"); await sleep(200);
  r.alAbrir=vis(); w.eval("nunCOVFiltrar('95,000')"); r.buscando=vis();
  r.cancRem=!!d.getElementById('covCancRem')&&d.getElementById('covCancRem').checked;
- const i=[...d.querySelectorAll('#modalCOV .covFila')].findIndex(tr=>tr.querySelectorAll('td')[1].textContent==='V01465');
+ const i=[...d.querySelectorAll('#modalCOV .covFila')].findIndex(tr=>tr.querySelectorAll('td')[1].textContent.trim().split(' ')[0]==='V01465');
  d.querySelector('#modalCOV input[name=covSel][value="'+i+'"]').checked=true;
  await w.eval("nunCobrarEnOtraVentaGuardar()"); await sleep(400);
  const C=DB.cobranza.find(c=>c.id==='bind_cob_465');
@@ -42,7 +42,7 @@ setTimeout(async()=>{const r={};try{
  d.getElementById('repCuenta').value='BBVA'; await w.eval("nunConfirmarComplementoPago('f3')"); await sleep(400);
  r.final=C.cobrado+'/'+C.pendiente;
  r.fallas=[];
- if(r.alAbrir.join()!=='V01009'||r.buscando.join()!=='V01465'||!r.cancRem) r.fallas.push('lista');
+ if(r.alAbrir.join()!=='V01465,V01009'||r.buscando.join()!=='V01465'||!r.cancRem) r.fallas.push('lista');
  if(r.guardado.venta!=='25000/70000'||r.guardado.rem!=='cancelada'||!r.guardado.nota) r.fallas.push('guardado');
  if(r.rep.monto!=='46000'||r.rep.timbrar||!r.rep.cobro||r.final!=='71000/24000') r.fallas.push('pago');
 }catch(e){r.error=String(e.stack).slice(0,600)} r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();},3500);

@@ -1,4 +1,4 @@
-// v3.86 — Pedidos → remisión/factura en partes y juntando pedidos del mismo cliente. Datos inventados.
+// v3.86/v3.88 — Pedidos → remisión/factura (una sola ventana con los dos botones) en partes y juntando pedidos del mismo cliente. Datos inventados.
 const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
 const errs=[];const vc=new VirtualConsole();vc.on('jsdomError',e=>errs.push(String(e.message).slice(0,300)));
 const N='CLIENTE PRUEBA GAMA', it=(sku,c,pu)=>({sku,descripcion:'PIEZA '+sku,cantidad:c,precio_unitario:pu,iva_pct:16});
@@ -25,22 +25,23 @@ const pon=(p,l,v)=>{ const el=d.querySelector(`#modalDP .dpCant[data-p="${p}"][d
 setTimeout(async()=>{const r={};try{
  for (const t of ['clientes','pedidos','remisiones','facturas','cobranza']) await w.eval(`cargarTabla('${t}')`);
  // 1) remisión: 3 de A (lo que falta) del P0001 + 1 de C del P0002 (juntar pedidos)
- await w.eval("nunDesdePedidos('p1','remisiones')"); await sleep(200);
+ w.eval("abrirDoc('pedidos','p1')"); await sleep(300); r.botonPedido=[...d.querySelectorAll('button')].some(b=>/Hacer remisión o factura/.test(b.textContent)); w.eval("cerrarDrawer()");
+ await w.eval("nunDesdePedidos('p1')"); await sleep(200); r.dosBotones=!!d.getElementById('dpBotonR')&&!!d.getElementById('dpBoton');
  const md=d.getElementById('modalDP'); r.ventana={pedidos:[...md.querySelectorAll('b')].map(b=>b.textContent).filter(t=>/^Pedido/.test(t)),maxA:md.querySelector('.dpCant[data-p="0"][data-l="0"]').max,defB:md.querySelector('.dpCant[data-p="0"][data-l="1"]').value,defC:md.querySelector('.dpCant[data-p="1"][data-l="0"]').value};
  pon(0,1,0); pon(1,0,1);
- pon(0,0,9); await w.eval("nunDesdePedidosCrear()"); r.demasiado=(d.getElementById('dpError')||{}).textContent; pon(0,0,3);
- await w.eval("nunDesdePedidosCrear()"); await sleep(400);
+ pon(0,0,9); await w.eval("nunDesdePedidosCrear('remisiones')"); r.demasiado=(d.getElementById('dpError')||{}).textContent; pon(0,0,3);
+ await w.eval("nunDesdePedidosCrear('remisiones')"); await sleep(400);
  const r2=DB.remisiones.find(x=>x.id!=='r1'); r.remision={folio:r2.folio,origen:r2.pedido_origen,estatus:r2.estatus,total:r2.total,lineas:JSON.parse(r2.items_json).map(l=>l.sku+'x'+l.cantidad+'@'+l.pedido).join()};
  r.pedidosTrasRem=DB.pedidos.map(p=>p.estatus).join();
  // 2) factura del resto de P0001 (B x2) → P0001 completo = facturado
- await w.eval("nunDesdePedidos('p1','facturas')"); await sleep(200);
+ await w.eval("nunDesdePedidos('p1')"); await sleep(200);
  r.facturaVentana={maxA:d.querySelector('#modalDP .dpCant[data-p="0"][data-l="0"]').max,defB:d.querySelector('#modalDP .dpCant[data-p="0"][data-l="1"]').value,iva:d.getElementById('dpIva').value};
- pon(1,0,0); await w.eval("nunDesdePedidosCrear()"); await sleep(400);
+ pon(1,0,0); await w.eval("nunDesdePedidosCrear('facturas')"); await sleep(400);
  const f=DB.facturas[0]; r.factura={folio:f.folio,total:f.total,estatus:f.estatus,lineas:JSON.parse(f.items_json).map(l=>l.sku+'x'+l.cantidad).join()};
  r.pedidos=DB.pedidos.map(p=>p.folio+':'+p.estatus).join();
  r.cobranza=DB.cobranza.map(c=>c.numero+':'+c.total).join();
  r.usoConvertir=enviados.some(b=>b.accion==='convertir_documento');
- r.fallas=[]; if(r.ventana.pedidos.length!==2||r.ventana.maxA!=='3'||r.ventana.defB!=='2'||r.ventana.defC!=='0') r.fallas.push('ventana');
+ r.fallas=[]; if(!r.botonPedido||!r.dosBotones) r.fallas.push('botones'); if(r.ventana.pedidos.length!==2||r.ventana.maxA!=='3'||r.ventana.defB!=='2'||r.ventana.defC!=='0') r.fallas.push('ventana');
  if(!/máximo 3/.test(r.demasiado||'')) r.fallas.push('limite');
  if(r.remision.folio!=='R0002'||r.remision.origen!=='P0001, P0002'||r.remision.estatus!=='entregada'||r.remision.total!==580||r.remision.lineas!=='Ax3@P0001,Cx1@P0002') r.fallas.push('remision');
  if(r.pedidosTrasRem!=='confirmado,confirmado,confirmado') r.fallas.push('pedidosParcial');

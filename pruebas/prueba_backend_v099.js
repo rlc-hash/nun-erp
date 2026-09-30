@@ -1,4 +1,4 @@
-// Prueba del servidor (backend/Codigo.gs v0.9.9+; v0.9.10: el usuario de Rafa protegido) con una hoja de Google SIMULADA en memoria (sin red, datos inventados).
+// Prueba del servidor (backend/Codigo.gs v0.9.9+; v0.9.10: el usuario de Rafa protegido; v0.9.11: folios NUN siempre) con una hoja de Google SIMULADA en memoria (sin red, datos inventados).
 const fs=require('fs'),path=require('path'),vm=require('vm');
 const code=fs.readFileSync(path.join(__dirname,'..','backend','Codigo.gs'),'utf8');
 function hojaMock(nombre){ const h={_n:nombre,rows:[],
@@ -59,7 +59,7 @@ P.appendRow(fila);
 const ped=post({accion:'erp_crear',tabla:'pedidos',item:{id:'ped1',folio:'P0001',cliente:'X',estatus:'confirmado',items_json:JSON.stringify([{sku:'A1',cantidad:3}])},codigo:C});
 const prod=()=>{ const it=post({accion:'erp_listar',tabla:'productos',codigo:C}).items[0]; return it.stock_actual+'/'+it.stock_comprometido; };
 r.inventario={trasPedido:prod()};
-post({accion:'convertir_documento',tabla_origen:'pedidos',id_origen:'ped1',tabla_destino:'remisiones',usuario:'x',codigo:C});
+const conv=post({accion:'convertir_documento',tabla_origen:'pedidos',id_origen:'ped1',tabla_destino:'remisiones',usuario:'x',codigo:C});
 r.inventario.trasRemision=prod();
 post({accion:'erp_crear',tabla:'pedidos',item:{id:'ped2',folio:'P0002',cliente:'X',items_json:JSON.stringify([{sku:'A1',cantidad:2}])},codigo:C});
 r.inventario.trasPedido2=prod(); post({accion:'pedido_liberar',id:'ped2',codigo:C}); r.inventario.trasCancelar=prod();
@@ -76,6 +76,11 @@ r.rafa={otroAdminLoVe:lu('DUENO-PRUEBA1').includes('RAFA-PRUEBA4'),rafaLoVe:lu('
   otroAdminCreaYadah:post({accion:'crear_usuario',datos:{codigo:'YADAH-FALSO9',nombre:'x',rol:'admin'},codigo_admin:'DUENO-PRUEBA1'}).ok,
   rafaCreaNuevo:post({accion:'crear_usuario',datos:{codigo:'RAFA-NUEVO77',nombre:'Rafa',rol:'admin'},codigo_admin:'RAFA-PRUEBA4'}).ok,
   rafaDesactivaViejo:post({accion:'actualizar_usuario',codigo:'RAFA-PRUEBA4',cambios:{activo:false},codigo_admin:'RAFA-NUEVO77'}).ok};
+// v0.9.11 — folios NUN siempre (ya no REM-2026-0001)
+r.folioNUN={convertida:conv.folio,guardada:(post({accion:'erp_listar',tabla:'remisiones',codigo:C}).items.find(x=>x.id===conv.nuevoId)||{}).folio,
+  pedidoViejo:post({accion:'erp_crear',tabla:'pedidos',item:{id:'ped3',folio:'PED-2026-0005',cliente:'X'},codigo:C}).item.folio,
+  pedidoSinFolio:post({accion:'erp_crear',tabla:'pedidos',item:{id:'ped4',cliente:'X'},codigo:C}).item.folio,
+  facturaBind:post({accion:'erp_crear',tabla:'facturas',item:{id:'bind_fac_9',folio:'1106',cliente:'X'},codigo:C}).item.folio};
 r.borradosHoja=Object.values(hojas).reduce((s,h)=>s+(h.borrados||0),0);
 const f=[]; if(r.login.ok!==true||r.login.inactivo!==false||r.login.maestroSinPropiedad!==false||r.login.maestroConPropiedad!==true) f.push('login');
 if(r.get.sinCodigo!==false||r.get.usuarios!==false||r.get.cobranza!==true) f.push('get');
@@ -87,4 +92,5 @@ if(r.inventario.trasPedido!=='10/3'||r.inventario.trasRemision!=='7/0'||r.invent
 if(!r.usuarios.desactivarVend||!r.usuarios.vendSigue||!r.usuarios.reactivar||!/único administrador/.test(r.usuarios.ultimoAdmin)) f.push('usuarios');
 if(r.borradosHoja!==0) f.push('seBorraronRenglones');
 if(r.rafa.otroAdminLoVe||!r.rafa.rafaLoVe||r.rafa.otroAdminLoDesactiva||r.rafa.otroAdminCreaRafa||r.rafa.otroAdminCreaYadah||!r.rafa.rafaCreaNuevo||!r.rafa.rafaDesactivaViejo) f.push('rafaProtegido');
+if(r.folioNUN.convertida!=='R0001'||r.folioNUN.guardada!=='R0001'||r.folioNUN.pedidoViejo!=='P0003'||r.folioNUN.pedidoSinFolio!=='P0004'||r.folioNUN.facturaBind!=='1106') f.push('folioNUN');
 r.fallas=f; console.log(JSON.stringify(r,null,1));

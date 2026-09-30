@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.93 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.94 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7368,6 +7368,7 @@ function abrirDoc(tabla, id) {
     if (tabla === 'facturas') nunRepsDeFactura(doc).forEach(r => { acciones += `<button class="btn btn-secondary" onclick="nunPdfREP('${r.uuid}')">📄 PDF ${r.folio}</button><button class="btn btn-secondary" onclick="nunDescargarREP('${r.uuid}')">📃 XML ${r.folio}</button>`; }); // v3.78
     acciones += `<button class="btn btn-secondary" onclick="${['pedidos','remisiones','facturas'].includes(tabla) ? `nunPdfDoc('${tabla}','${id}')` : `imprimirDocumento('${tabla}','${id}')`}">📄 PDF</button>`; // v3.78
     if (tabla === 'facturas') acciones += `<button class="btn btn-secondary" onclick="descargarXMLCFDI('${id}')">📃 XML CFDI</button>`;
+    if (tabla === 'facturas' && nunEsAdmin() && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunCobrarEnOtraVenta('${id}')" title="La factura es de una venta que ya existía (ej. una remisión de Bind): su pago se cobra en esa venta">🔗 Cobrar en otra venta</button>`; // v3.94
     // v3.38 — Timbrar con Facturama (solo facturas sin timbrar)
     if (tabla === 'facturas' && !doc.uuid_sat) acciones += `<button class="btn btn-primary" onclick="facturaTimbrar('${id}')">⚡ Timbrar SAT</button>`;
     // v3.56 — Cancelar ante el SAT (solo facturas timbradas que no estén ya canceladas)
@@ -7632,6 +7633,7 @@ function nunSiguienteFolioREP(){
 }
 function nunCobroDeDoc(tabla, doc){
   const cob = State.data.cobranza || [];
+  if (tabla === 'facturas') { const _m = String(doc.notas||'').match(/Cobro en [^·(]*\(id ([^)]+)\)/); if (_m) { const _c = cob.find(x => String(x.id) === _m[1]); if (_c) return _c; } } // v3.94 — se cobra en otra venta
   let c = nunCobranzaDeDoc(doc, cob);
   if (!c && tabla === 'facturas') {
     const po = String(doc.pedido_origen||'').trim(), fr = po.replace(/^REM\s+/, '');
@@ -7641,7 +7643,7 @@ function nunCobroDeDoc(tabla, doc){
   return c || null;
 }
 async function nunAbrirComplementoPago(idFactura){
-  await Promise.all([cargarTabla('facturas'), cargarTabla('cobranza'), cargarTabla('remisiones')]);
+  await Promise.all([cargarTabla('facturas'), cargarTabla('cobranza'), cargarTabla('remisiones'), cargarTabla('ingresos')]);
   const f = (State.data.facturas||[]).find(x => x.id === idFactura); if (!f) return;
   if (!f.uuid_sat) { toast('La factura todavía no está timbrada', { type:'error' }); return; }
   // v3.81 — facturas timbradas en Bind: el método de pago (PUE/PPD) se lee de su XML guardado
@@ -7668,7 +7670,10 @@ async function nunAbrirComplementoPago(idFactura){
   // v3.93 — lo que se debe en Cobranza (o el total si la factura no tiene renglón) vs lo que dicen los complementos:
   // si un complemento ya se timbró pero su pago no quedó en Ingresos, se registra solo el pago (sin timbrar otro)
   const debeCobro = c ? Math.max(0, nunR2(+c.pendiente||0)) : Math.max(0, nunR2((+f.total||0) - _nc));
-  const sinIngreso = reps.length && !esBind ? Math.max(0, nunR2(debeCobro - saldo)) : 0;
+  const _repsTot = nunR2(reps.reduce((a, r) => a + r.monto, 0)); // v3.94 — lo ya registrado como pago de ESTA factura
+  const _reFol = new RegExp('Pago factura ' + String(f.folio||'').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\b|$)');
+  const _regist = nunR2((State.data.ingresos||[]).filter(i => nunPagoCuenta(i) && _reFol.test(String(i.comentarios||''))).reduce((a, i) => a + (+i.monto||0), 0));
+  const sinIngreso = reps.length && !esBind ? Math.max(0, Math.min(debeCobro, nunR2(_repsTot - _regist))) : 0;
   const opt = (arr, sel) => arr.map(([k,v]) => `<option value="${k}" ${String(sel)===k?'selected':''}>${k} · ${escapeHTML(v)}</option>`).join('');
   let m = document.getElementById('modalREP'); if (m) m.remove();
   m = document.createElement('div'); m.id = 'modalREP';
@@ -7816,6 +7821,65 @@ async function nunConfirmarComplementoPago(idFactura){
   }
 }
 window.nunConfirmarComplementoPago = nunConfirmarComplementoPago;
+// ============================================================
+// v3.94 — COBRAR EN OTRA VENTA: la factura es de una venta que ya existía (ej. remisión de Bind de $95,000 a la que se le
+// facturó una parte). La factura no se cobra aparte: su pago se aplica a esa venta. Si la factura ya tenía su propio cobro,
+// sus pagos se pasan a esa venta y su cobro se cancela (no se borra). Opcional: ajustar lo cobrado de esa venta a lo que
+// suman sus pagos en Ingresos (ej. decía pagado 95,000 y solo había 25,000).
+// ============================================================
+function nunPagosDeCobro(c){ const n = String(c.numero||'').trim(); return n ? (State.data.ingresos||[]).filter(i => nunPagoCuenta(i) && String(i.factura||'').trim() === n) : []; }
+async function nunCobrarEnOtraVenta(idFac){
+  if (!nunEsAdmin()) { toast('Solo un administrador puede hacer esto', { type:'error' }); return; }
+  await Promise.all([cargarTabla('facturas'), cargarTabla('cobranza'), cargarTabla('ingresos')]);
+  const f = (State.data.facturas||[]).find(x => x.id === idFac); if (!f) return;
+  const propio = nunCobranzaDeDoc(f, State.data.cobranza||[]);
+  const cli = String(f.cliente||'').trim().toUpperCase();
+  const L = (State.data.cobranza||[]).filter(c => String(c.cliente||'').trim().toUpperCase() === cli && !/cancel|duplic/i.test(String(c.estatus||'')) && (!propio || c.id !== propio.id))
+    .map(c => { const pagos = nunPagosDeCobro(c); return { c, suma: nunR2(pagos.reduce((a, i) => a + (+i.monto||0), 0)), n: pagos.length }; })
+    .sort((a, b) => String(b.c.fecha_entrega||b.c.fecha_emision||'').localeCompare(String(a.c.fecha_entrega||a.c.fecha_emision||'')));
+  window._nunCOV = { f, propio, L };
+  const movidos = propio ? nunPagosDeCobro(propio) : [];
+  let m = document.getElementById('modalCOV'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalCOV';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:900px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><div><h3 style="margin:0">Cobrar ${escapeHTML(f.folio||'')} en otra venta</h3>
+      <div style="font-size:12px;color:var(--ink-3)">${escapeHTML(f.cliente||'')} · factura ${fmtFull(f.total)}${propio ? ' · su cobro ' + escapeHTML(String(propio.numero||'')) + ' tiene ' + movidos.length + ' pago(s) por ' + fmtFull(movidos.reduce((a, i) => a + (+i.monto||0), 0)) + ' que se pasan a la venta que elijas' : ' · no tiene cobro propio'}</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalCOV').remove()">✕</button></div>
+    <div style="padding:10px 20px;font-size:12.5px;background:rgba(245,158,11,0.08)">Elige la venta de la que es esta factura. Desde ahora el pago de la factura se aplica a esa venta y la factura no cuenta como deuda aparte. No se borra nada.</div>
+    <div style="overflow:auto;padding:0 20px;flex:1">${L.length ? `<table class="dt" style="font-size:12px"><thead><tr><th></th><th>Venta (Cobranza)</th><th>Fecha</th><th class="right">Total</th><th class="right">Dice cobrado</th><th class="right">Suman sus pagos</th><th class="right">Saldo</th></tr></thead><tbody>
+      ${L.map((x, i) => `<tr><td><input type="radio" name="covSel" value="${i}"></td><td class="mono">${escapeHTML(String(x.c.numero||''))}</td><td>${fmtFecha(x.c.fecha_entrega||x.c.fecha_emision)}</td><td class="right mono">${fmtFull(x.c.total)}</td>
+        <td class="right mono">${fmtFull(x.c.cobrado)}</td><td class="right mono" style="${Math.abs((+x.c.cobrado||0) - x.suma) > 0.5 ? 'color:var(--red);font-weight:600' : ''}">${fmtFull(x.suma)} <span style="color:var(--ink-4)">(${x.n})</span></td><td class="right mono">${fmtFull(x.c.pendiente)}</td></tr>`).join('')}</tbody></table>` : '<div style="padding:24px;text-align:center;color:var(--mute)">Este cliente no tiene otras ventas en Cobranza</div>'}
+      <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin:12px 0"><input type="checkbox" id="covAjustar" checked> Si "dice cobrado" no es igual a lo que suman sus pagos (en rojo), ajustarlo a lo que suman sus pagos</label></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)"><button class="btn" onclick="document.getElementById('modalCOV').remove()">Cerrar</button>
+      ${L.length ? '<button class="btn btn-primary" id="covBoton" onclick="nunCobrarEnOtraVentaGuardar()">Ligar y cuadrar</button>' : ''}</div></div>`;
+  document.body.appendChild(m);
+}
+async function nunCobrarEnOtraVentaGuardar(){
+  const S = window._nunCOV; if (!S) return;
+  const sel = document.querySelector('#modalCOV input[name=covSel]:checked'); if (!sel) { toast('Elige la venta', { type:'error' }); return; }
+  const x = S.L[+sel.value], f = S.f, propio = S.propio, X = x.c;
+  const ajustar = document.getElementById('covAjustar').checked && Math.abs((+X.cobrado||0) - x.suma) > 0.5;
+  const movidos = propio ? nunPagosDeCobro(propio) : [], sumMov = nunR2(movidos.reduce((a, i) => a + (+i.monto||0), 0));
+  const cobrado = nunR2((ajustar ? x.suma : (+X.cobrado||0)) + sumMov), pendiente = Math.max(0, nunR2((+X.total||0) - cobrado));
+  const ok = await confirmDialog({ title:'¿Cobrar ' + (f.folio||'') + ' en ' + (X.numero||'') + '?',
+    message: (X.numero||'') + ': cobrado ' + fmtFull(X.cobrado) + ' → ' + fmtFull(cobrado) + ', saldo ' + fmtFull(X.pendiente) + ' → ' + fmtFull(pendiente) + '.' + (sumMov ? ' Se pasan ' + movidos.length + ' pago(s) por ' + fmtFull(sumMov) + ' de ' + (propio.numero||'') + ' y ese cobro se cancela.' : '') + ' No se borra nada.', ok:'Ligar y cuadrar' });
+  if (!ok) return;
+  const btn = document.getElementById('covBoton'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  const hoy = nunHoy(); let mal = 0;
+  try {
+    if (movidos.length) { const r = await api({ accion:'erp_upsert_batch', tabla:'ingresos', items: movidos.map(i => ({ id: i.id, factura: String(X.numero||''), comentarios: '(pasado de ' + (propio.numero||'') + ' el ' + hoy + ') ' + String(i.comentarios||'') })) }); if (!(r && r.ok)) throw new Error('no se pasaron los pagos'); }
+    if (!(await nunGuardarSeguro('cobranza', { id: X.id, cobrado, pendiente, descripcion: String(X.descripcion||'') + ' · ' + hoy + ': se le liga la factura ' + (f.folio||'') + (ajustar ? ' · cobrado ajustado ' + (+X.cobrado||0).toFixed(2) + '→' + x.suma.toFixed(2) + ' (lo que suman sus pagos)' : '') + (sumMov ? ' · +' + sumMov.toFixed(2) + ' pagos de ' + (propio.numero||'') : '') }))) mal++;
+    if (propio && !(await nunGuardarSeguro('cobranza', { id: propio.id, estatus:'cancelado', cobrado:0, pendiente:0, descripcion: String(propio.descripcion||'') + ' · ' + hoy + ': se cobra en ' + (X.numero||'') }))) mal++;
+    if (!(await nunGuardarSeguro('facturas', { id: f.id, notas: (f.notas ? String(f.notas) + ' · ' : '') + 'Cobro en ' + (X.numero||'') + ' (id ' + X.id + ')' }))) mal++;
+  } catch(e){ mal++; toast('✗ ' + e.message, { type:'error', duration:8000 }); }
+  const mm = document.getElementById('modalCOV'); if (mm) mm.remove();
+  await Promise.all([cargarTabla('facturas'), cargarTabla('cobranza'), cargarTabla('ingresos')]);
+  try { cerrarDrawer(); } catch(e){} renderCurrent();
+  toast(mal ? '⚠ No todo se guardó: revisa ' + (X.numero||'') + ' en Cobranza' : '✓ ' + (f.folio||'') + ' se cobra en ' + (X.numero||'') + ' · saldo ' + fmtFull(pendiente), { type: mal ? 'error' : 'success', duration:9000 });
+}
+window.nunCobrarEnOtraVenta = nunCobrarEnOtraVenta; window.nunCobrarEnOtraVentaGuardar = nunCobrarEnOtraVentaGuardar;
+
 // XML del complemento
 async function nunDescargarREP(uuid){ return cfdiDescargarXML(uuid); }
 window.nunDescargarREP = nunDescargarREP;
@@ -8161,7 +8225,7 @@ function nunSaldoDocBase(r, tabla){
   if (tabla === 'facturas' || (!tabla && r.uuid_sat)) { // v3.77
     const reps = (typeof nunRepsDeFactura === 'function') ? nunRepsDeFactura(r) : [];
     if (reps.length) return nunSaldoTrasReps(r, reps); // v3.81
-    if (/^(R\d{4,}|REM )/.test(String(r.pedido_origen||'').trim()) && typeof nunCobroDeDoc === 'function') { const c = nunCobroDeDoc('facturas', r); if (c) return Math.min(+r.total||0, Math.max(0, +c.pendiente||0)); }
+    if ((/^(R\d{4,}|REM )/.test(String(r.pedido_origen||'').trim()) || /Cobro en [^·(]*\(id /.test(String(r.notas||''))) && typeof nunCobroDeDoc === 'function') { const c = nunCobroDeDoc('facturas', r); if (c) return Math.min(+r.total||0, Math.max(0, +c.pendiente||0)); }
   }
   const idx = nunIdxCobranza(); const id = String(r.id||''), bindId = id.replace(/^bind_(rem_|fac_|ord_)?/, '');
   let c = idx.fo.get(id) || idx.id.get('cob_' + id) || (id.startsWith('bind_') ? idx.id.get('bind_cob_' + bindId) : null);

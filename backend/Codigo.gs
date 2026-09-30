@@ -17,11 +17,12 @@
 //  · Bind apagado (ya no se usa desde el 29-sep-2026): sincronización y proxy desactivados; el
 //    activador automático se borra solo si llega a correr.
 //
+// v0.9.11 (30-sep-2026) — documentos nuevos y convertidos llevan folio NUN (P0001/R0001/FT0001/NC0001), ya no REM-2026-0001.
 // v0.9.10 (30-sep-2026) — el usuario de Rafa (código RAFA-…) solo lo ve y lo cambia Rafa (o el código maestro).
 //  Nadie más puede crear códigos de dueño (RAFA-, YADAH-, MASTER-NUN-), porque esos dan permisos de dueño.
 // ============================================================
 
-const VERSION_ERP = 'v0.9.10';
+const VERSION_ERP = 'v0.9.11';
 
 // v0.9.2 — Mapeo de tablas que el CRM pide por nombre "corto" a la hoja real del ERP.
 // El CRM usa 'clientes' para su catálogo de vendedores (NO el catálogo fiscal 'clientes' del ERP).
@@ -477,7 +478,9 @@ const PREF_FOLIO_NUN = { pedidos:'P', remisiones:'R', facturas:'FT', notascredit
 function _folioNUNLibre(hoja, tabla, item) {
   const pref = PREF_FOLIO_NUN[tabla];
   const folio = String(item.folio || '').trim();
-  if (!pref || !new RegExp('^' + pref + '\\d{4,}$').test(folio)) return folio;
+  // v0.9.11 — sin folio o con folio del servidor viejo (REM-2026-0001, PED-…, FAC-…, NC-…): se le da el siguiente folio NUN (R0001…)
+  const viejo = !folio || /^(COT|PED|REM|FAC|NC|DOC)-\d{4}-\d+$/i.test(folio);
+  if (!pref || (!viejo && !new RegExp('^' + pref + '\\d{4,}$').test(folio))) return folio;
   const datos = hoja.getDataRange().getValues();
   const headers = datos[0];
   const iF = headers.indexOf('folio'), iId = headers.indexOf('id');
@@ -489,7 +492,7 @@ function _folioNUNLibre(hoja, tabla, item) {
     const m = f.match(re); if (m) max = Math.max(max, parseInt(m[1], 10));
     if (f === folio && String(datos[i][iId]) !== String(item.id || '')) repetido = true;
   }
-  return repetido ? pref + String(max + 1).padStart(4, '0') : folio;
+  return (repetido || viejo) ? pref + String(max + 1).padStart(4, '0') : folio;
 }
 
 function erpCrear(tabla, item) {
@@ -1215,8 +1218,8 @@ function convertirDocumento(tablaOrigen, idOrigen, tablaDestino, usuario) {
   if (!docOrigen) return { ok:false, error:'Documento origen no encontrado' };
   if (/^cancelad/i.test(String(docOrigen.estatus || ''))) return { ok:false, error:'El documento de origen está cancelado' }; // v0.9.9
 
-  // Generar folio nuevo
-  const folioRes = siguienteFolio(regla.tipoFolio, new Date().getFullYear());
+  // Generar folio nuevo — v0.9.11: pedidos/remisiones/facturas/notas llevan folio NUN (lo pone erpCrear); ya no REM-2026-0001
+  const folioRes = PREF_FOLIO_NUN[tablaDestino] ? { folio:'' } : siguienteFolio(regla.tipoFolio, new Date().getFullYear());
 
   // Construir el nuevo documento copiando campos relevantes
   const nuevo = {
@@ -1267,7 +1270,7 @@ function convertirDocumento(tablaOrigen, idOrigen, tablaDestino, usuario) {
 
   registrarBitacora(usuario, 'convertir', tablaOrigen + '->' + tablaDestino, idOrigen, r.item.id);
   SpreadsheetApp.flush();
-  return { ok:true, nuevoId: r.item.id, folio: folioRes.folio, cobranzaCreada, inventarioAfectado };
+  return { ok:true, nuevoId: r.item.id, folio: r.item.folio, cobranzaCreada, inventarioAfectado }; // v0.9.11 el folio NUN que quedó
 }
 
 // ============================================================

@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.78 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.79 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3671,6 +3671,7 @@ function afterRenderGenerico(modKey) {
   const schema = SCHEMAS[modKey];
   const html = renderDataTable({
     id:'dt_' + modKey,
+    defaultSort: (schema.listColumns||[]).some(c => c.key === 'fecha') ? 'fecha' : null, // v3.79 — lo más reciente arriba
     columns: schema.listColumns,
     rows: State.data[schema.tabla] || [],
     emptyTitle: 'Aún no hay ' + schema.label.toLowerCase(),
@@ -3861,6 +3862,7 @@ function abrirDetalleCliente(id) {
       { key:'resumen', label:'Resumen', body: tabResumen },
       { key:'documentos', label:`Documentos (${todoTimeline.length})`, body: tabDocumentos },
       { key:'cobranza', label:`Cobranza (${docs.length})`, body: tabCobranza },
+      { key:'pagos', label:`Pagos (${nunPagosDeCliente(cli).length})`, body: `<div id="nunPagosCliMount" data-id="${escapeHTML(String(id))}">${nunPagosClienteHTML(cli)}</div>` }, // v3.79
       { key:'crm', label:`CRM (${contactos.length})`, body: tabCRM },
       { key:'acciones', label:'Acciones', body: tabAcciones }
     ],
@@ -4300,6 +4302,7 @@ function renderCobranza(params) {
       </select>
       <select onchange="cbFiltro('orden',this.value)" id="cbOrden">
         <option value="fecha-desc">Más reciente</option>
+        <option value="pago-desc">Pago más reciente</option>
         <option value="saldo-desc">Mayor saldo</option>
         <option value="atraso-desc">Más atraso</option>
         <option value="cliente">Cliente A→Z</option>
@@ -4325,10 +4328,12 @@ function afterRenderCobranza(params) {
   else if (est === 'por-entregar') rows = rows.filter(c => c.sin_entregar);
   else if (est === 'pagada') rows = rows.filter(c => !c.sin_entregar && (+c.pendiente||0) <= 0);
   if (cbFiltros.vendedor) rows = rows.filter(c => (c.vendedor||'') === cbFiltros.vendedor);
+  const _ultPago = nunUltimoPagoIdx(); rows = rows.map(c => Object.assign({}, c, { _ult_pago: _ultPago.get(String(c.numero||'').trim()) || '' })); // v3.79
   // Orden
   if (cbFiltros.orden === 'saldo-desc') rows.sort((a,b)=>(+b.pendiente||0)-(+a.pendiente||0));
   else if (cbFiltros.orden === 'atraso-desc') rows.sort((a,b)=>(b.dias_vencido||0)-(a.dias_vencido||0));
   else if (cbFiltros.orden === 'cliente') rows.sort((a,b)=>String(a.cliente||'').localeCompare(String(b.cliente||'')));
+  else if (cbFiltros.orden === 'pago-desc') rows.sort((a,b)=>String(b._ult_pago||'').localeCompare(String(a._ult_pago||''))); // v3.79
   else rows.sort((a,b)=>String(b.fecha_entrega||'').localeCompare(String(a.fecha_entrega||'')));
 
   const html = renderDataTable({
@@ -4348,6 +4353,7 @@ function afterRenderCobranza(params) {
       { key:'total', label:'Total', right:true, render:r=>`<span class="mono">${fmt(r.total||0)}</span>` },
       { key:'cobrado', label:'Cobrado', right:true, render:r=>`<span class="col-amount paid">${fmt(r.cobrado||0)}</span>` },
       { key:'pendiente', label:'Saldo', right:true, render:r=>`<span class="col-amount pending">${fmt(r.pendiente||0)}</span>` },
+      { key:'_ult_pago', label:'Últ. pago', render:r=>r._ult_pago ? fmtFecha(r._ult_pago) : '<span style="color:var(--ink-4)">—</span>' }, // v3.79
       { key:'dias_vencido', label:'Aging', render:r=>{
         if (r.sin_entregar) return '—';
         const d = r.dias_vencido || 0;
@@ -4948,6 +4954,8 @@ async function convertirDocConItems(origen, idOrigen, destino) {
           if (!_nuevo.vendedor && _orig.vendedor) _cam.vendedor = _orig.vendedor;
           await api({ accion:'erp_upsert_batch', tabla:destino, items:[_cam] });
           Object.assign(_nuevo, _cam); data.folio = _cam.folio;
+          try { const _cobs = (await nunListarFresco('cobranza')).filter(c => String(c.factura_origen||'') === String(_nuevo.id) && String(c.numero||'') !== String(_cam.folio)); // v3.79
+            if (_cobs.length) await api({ accion:'erp_upsert_batch', tabla:'cobranza', items:_cobs.map(c => { const x = { id:c.id, numero:_cam.folio, descripcion:(destino === 'facturas' ? 'Factura ' : 'Remisión ') + _cam.folio }; if (_cam.total != null && !(+c.cobrado)) { x.total = _cam.total; x.pendiente = _cam.total; } if (_cam.vendedor && !c.vendedor) x.vendedor = _cam.vendedor; return x; }) }); } catch(e){}
           try { await nunAltaCobranza(destino, _nuevo); } catch(e){}
         }
       }
@@ -7362,6 +7370,31 @@ window.nunConfirmarComplementoPago = nunConfirmarComplementoPago;
 // XML del complemento
 async function nunDescargarREP(uuid){ return cfdiDescargarXML(uuid); }
 window.nunDescargarREP = nunDescargarREP;
+// ============================================================
+// v3.79 — Pagos: último pago por documento (Cobranza) y pagos por cliente
+// ============================================================
+function nunPagoCuenta(i){ return !/CANCELADO|DUPLICADO/i.test(String(i.tipo||'')); }
+function nunUltimoPagoIdx(){
+  const m = new Map();
+  (State.data.ingresos||[]).forEach(i => { if (!nunPagoCuenta(i)) return; const k = String(i.factura||'').trim(); if (!k) return; const f = String(i.fecha||''); if (!m.has(k) || f > m.get(k)) m.set(k, f); });
+  return m;
+}
+function nunPagosDeCliente(cli){
+  const nombres = [cli.razon_social, cli.nombre_comercial].filter(Boolean).map(x => String(x).trim().toLowerCase());
+  return (State.data.ingresos||[]).filter(i => nunPagoCuenta(i) && nombres.includes(String(i.cliente||'').trim().toLowerCase()))
+    .sort((a, b) => String(b.fecha||'').localeCompare(String(a.fecha||'')));
+}
+function nunPagosClienteHTML(cli){
+  if (!Array.isArray(State.data.ingresos)) { setTimeout(async () => { try { await cargarTabla('ingresos'); const m = document.getElementById('nunPagosCliMount'); if (m && m.dataset.id === String(cli.id)) m.innerHTML = nunPagosClienteHTML(cli); } catch(e){} }, 0); return '<div style="padding:18px;color:var(--mute);font-size:13px">Cargando pagos…</div>'; }
+  const pagos = nunPagosDeCliente(cli);
+  if (!pagos.length) return '<div style="padding:28px;text-align:center;color:var(--mute);font-size:13px">Sin pagos registrados para este cliente</div>';
+  const total = pagos.reduce((s, i) => s + (+i.monto||0), 0);
+  return `<div style="font-size:12.5px;margin-bottom:8px;color:var(--ink-2)">${pagos.length} pago(s) · total <b>${fmtFull(total)}</b> · el más reciente arriba</div>
+    <div style="border:1px solid var(--line);border-radius:6px;overflow:hidden"><table class="dt" style="font-size:12px">
+    <thead><tr><th>Fecha</th><th>Referencia</th><th>Cuenta</th><th class="right">Monto</th></tr></thead><tbody>
+    ${pagos.map(i => `<tr title="${escapeHTML(String(i.comentarios||''))}"><td>${fmtFecha(i.fecha)}</td><td class="mono">${escapeHTML(String(i.factura||'—'))}</td><td>${escapeHTML(i.cuenta||'')}</td><td class="right mono">${fmtFull(i.monto)}</td></tr>`).join('')}
+    </tbody></table></div>`;
+}
 // ============================================================
 // v3.78 — PDF de complementos de pago y pestaña "Archivos" (PDF y XML de todo lo ligado al documento)
 // ============================================================

@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.79 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.80 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2506,7 +2506,7 @@ async function slaPostEvent(eventType, payload, opts){
     return null;
   }
   // Generar número de asiento
-  const fecha = opts.fecha || new Date().toISOString().substring(0,10);
+  const fecha = opts.fecha || nunHoy();
   const numero = 'JE-' + new Date().getFullYear() + '-' + String(Date.now()).slice(-7);
   const asiento = {
     numero, fecha,
@@ -2545,7 +2545,7 @@ async function slaPostEvent(eventType, payload, opts){
 function slaCheckPeriodoAbierto(fecha){
   const periodos = JSON.parse(localStorage.getItem('nun_periodos') || '[]');
   if (!periodos.length) return true; // sin periodos definidos → todo abierto (modo permisivo inicial)
-  const f = typeof fecha === 'string' ? fecha : fecha.toISOString().substring(0,10);
+  const f = typeof fecha === 'string' ? fecha : nunHoy(fecha); // v3.80
   const p = periodos.find(p => p.start_date <= f && f <= p.end_date);
   return !p || p.status === 'OPEN' || p.status === 'FUTURE_ENTRY';
 }
@@ -2852,7 +2852,7 @@ function renderDataTable(opts) {
   } else {
     body = pageRows.map((r,i) => {
       const cells = cols.map(c => {
-        const v = c.render ? c.render(r) : (r[c.key] == null ? '' : r[c.key]);
+        const v = c.render ? c.render(r) : escapeHTML(r[c.key]); // v3.80 texto siempre escapado
         const cls = (c.right ? 'right ' : '') + (c.cellClass ? c.cellClass(r) : '');
         return `<td class="${cls}">${v}</td>`;
       }).join('');
@@ -2983,10 +2983,11 @@ function nunPermisosDefinidos(){
   return Object.keys(p).length > 0;
 }
 // v3.61 — GASTOS: solo el dueño (Rafa) y el código maestro. Ni otros admins.
-const NUN_DUENOS_GASTOS = ['RAFA-2026','YADAH-2026','MASTER-NUN-ERP-2026']; // v3.65 Yadah también
+// v3.80 — sin códigos en el archivo: se reconoce por cómo EMPIEZA el código (RAFA-…, YADAH-…, MASTER-NUN-…)
+const NUN_DUENOS_GASTOS_PREFIJOS = ['RAFA-','YADAH-','MASTER-NUN-']; // v3.65 Yadah también
 function nunEsDuenoGastos(){
   const c = String((State.sesion && (State.sesion.codigo || (State.sesion.usuario||{}).codigo)) || '').toUpperCase().trim();
-  return NUN_DUENOS_GASTOS.includes(c);
+  return NUN_DUENOS_GASTOS_PREFIJOS.some(p => c.startsWith(p) && c.length > p.length);
 }
 function moduloPermitido(mod){
   if (mod === 'gastos' && !nunEsDuenoGastos()) return false; // v3.61 — solo Rafa
@@ -3912,22 +3913,27 @@ async function guardarGenerico(modKey, id) {
     toast(id ? '✓ ' + schema.singular + ' actualizado' : '✓ ' + schema.singular + ' creado');
   } catch(e) { toast('Error: ' + e.message, { type:'error' }); }
 }
+// v3.80 — regla: nunca se borran datos. Catálogos se DESACTIVAN; gastos y pagos a proveedores se marcan CANCELADO
+// (monto 0 y el monto original queda escrito). Ingresos: se quitan desde Cobranza para que el saldo cuadre.
 async function eliminarGenerico(modKey, id) {
   const schema = SCHEMAS[modKey];
-  const ok = await confirmDialog({
-    title: '¿Eliminar ' + schema.singular.toLowerCase() + '?',
-    message: 'Esta acción no se puede deshacer.',
-    ok: 'Eliminar', danger: true
-  });
+  const tabla = schema.tabla;
+  const row = (State.data[tabla]||[]).find(r => String(r.id) === String(id)) || {};
+  let cambio = null, texto = '';
+  if (['clientes','productos','proveedores','coa'].includes(tabla)) { cambio = { id, activo:false }; texto = 'Se DESACTIVA (no se borra): deja de aparecer para nuevos documentos y su historial se conserva.'; }
+  else if (tabla === 'gastos' || tabla === 'pagosproveedores') {
+    const campo = tabla === 'gastos' ? 'concepto' : 'notas';
+    cambio = { id, monto:0 }; cambio[campo] = 'CANCELADO ' + nunHoy() + ' (era ' + fmtFull(row.monto) + ') · ' + String(row[campo]||'');
+    texto = 'Se marca CANCELADO con monto $0 (no se borra; el monto original queda escrito en ' + campo + ').';
+  }
+  else if (tabla === 'ingresos') { toast('Un pago se quita desde Cobranza (abre el documento → Eliminar pago) para que el saldo cuadre', { type:'error', duration:7000 }); return; }
+  else { toast('Por regla del sistema no se borran datos', { type:'error', duration:5000 }); return; }
+  const ok = await confirmDialog({ title: '¿Cancelar ' + schema.singular.toLowerCase() + '?', message: texto, ok: 'Sí, cancelar', danger: true });
   if (!ok) return;
-  try {
-    const data = await api({ accion:'erp_eliminar', tabla: schema.tabla, id });
-    if (!data.ok) { toast('Error: ' + (data.error||'?'), { type:'error' }); return; }
-    await cargarTabla(schema.tabla);
-    renderCurrent();
-    cerrarDrawer();
-    toast('✓ Eliminado');
-  } catch(e) { toast('Error: ' + e.message, { type:'error' }); }
+  const bien = await nunGuardarSeguro(tabla, cambio);
+  if (!bien) { toast('✗ No se pudo guardar. Inténtalo de nuevo.', { type:'error', duration:6000 }); return; }
+  await cargarTabla(tabla); renderCurrent(); cerrarDrawer();
+  toast('✓ Listo: ' + (cambio.activo === false ? 'desactivado' : 'marcado como cancelado'));
 }
 async function exportarTabla(tabla) {
   const arr = State.data[tabla] || [];
@@ -3937,7 +3943,7 @@ async function exportarTabla(tabla) {
   const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `${tabla}_${new Date().toISOString().substring(0,10)}.csv`;
+  a.href = url; a.download = `${tabla}_${nunHoy()}.csv`;
   a.click(); URL.revokeObjectURL(url);
   toast('✓ Exportado');
 }
@@ -4387,7 +4393,7 @@ function abrirDrawerCobranza(idDoc) {
     </div>
     <div class="form-grid">
       <div class="field"><label>Monto a cobrar</label><input type="number" id="pcMonto" step="0.01" value="${saldo}"></div>
-      <div class="field"><label>Fecha</label><input type="date" id="pcFecha" value="${new Date().toISOString().substring(0,10)}"></div>
+      <div class="field"><label>Fecha</label><input type="date" id="pcFecha" value="${nunHoy()}"></div>
       <div class="field full"><label>Cuenta destino</label>
         <select id="pcCuenta"><option value="">— Selecciona —</option>${cuentas.map(c=>`<option value="${escapeHTML(c.nombre)}">${escapeHTML(c.nombre)}</option>`).join('')}</select>
       </div>
@@ -4468,7 +4474,11 @@ async function guardarEdicionCobranza(idDoc) {
   };
   const btn = document.getElementById('edGuardarBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
   try {
-    const r = await api({ accion:'erp_actualizar', tabla:'cobranza', item });
+    // v3.80 — lo cobrado se relee del servidor (un pago capturado mientras editabas ya no se "deshace")
+    // y solo se mandan los campos editados (antes se mandaba la fila completa)
+    const _fr = (await nunListarFresco('cobranza')).find(c => c.id === idDoc);
+    if (_fr) { const _cob = +_fr.cobrado || 0; if (total + 0.01 < _cob) { toast('El total no puede ser menor a lo ya cobrado (' + fmtFull(_cob) + ')', { type:'error', duration:6000 }); if (btn) { btn.disabled = false; btn.textContent = 'Guardar'; } return; } item.pendiente = +Math.max(0, total - _cob).toFixed(2); }
+    const r = await api({ accion:'erp_upsert_batch', tabla:'cobranza', items:[item] });
     if (!r || !r.ok) { toast('No se guardó: ' + ((r && r.error) || 'sin respuesta'), { type:'error', duration:6000 }); return; }
     Object.assign(doc, item);
     await cargarTabla('cobranza');
@@ -4494,6 +4504,8 @@ async function ejecutarPagoCliente(idDoc) {
   const fecha = document.getElementById('pcFecha').value;
   const cuenta = document.getElementById('pcCuenta').value;
   const notas = document.getElementById('pcNotas').value;
+  if (window._nunPagando) return; // v3.80 — doble clic ya no registra el pago dos veces
+  window._nunPagando = true;
   try {
     const data = await api({
       accion:'capturar_pago_cliente',
@@ -4507,13 +4519,14 @@ async function ejecutarPagoCliente(idDoc) {
     cerrarDrawer();
     toast('✓ Pago registrado · ' + fmtFull(monto));
   } catch(e) { toast('Error: ' + e.message, { type:'error' }); }
+  finally { setTimeout(() => { window._nunPagando = false; }, 1500); } // v3.80
 }
 // v3.57 — sin códigos en texto plano: el dueño es el admin cuyo código empieza con RAFA.
 // (El candado real vive en el backend; esto solo controla la UI.)
 function esSesionDueno() {
   const s = State.sesion || {};
   const u = s.usuario || {};
-  return u.rol === 'admin' && /^RAFA/i.test(String(s.codigo || ''));
+  return u.rol === 'admin' && /^RAFA-./i.test(String(s.codigo || '').trim()); // v3.80
 }
 async function eliminarPagoManual(timestamp, idDoc) {
   if (!esSesionDueno()) { toast('Solo el dueño (Rafa) puede eliminar pagos', { type:'error' }); return; }
@@ -4669,9 +4682,14 @@ function imprimirDocumento(tipo, idDoc) {
   let items = [];
   try { items = doc.items_json ? JSON.parse(doc.items_json) : []; } catch(e) {}
   const tipoLabel = { cotizaciones:'COTIZACIÓN', pedidos:'PEDIDO', remisiones:'REMISIÓN', facturas:'FACTURA', ordenescompra:'ORDEN DE COMPRA', recepciones:'RECEPCIÓN', notascredito:'NOTA DE CRÉDITO', cobranza:'DOCUMENTO' }[tipo] || tipo.toUpperCase();
-  const subtotal = +doc.subtotal || items.reduce((s,it)=>s+((+it.cantidad||0)*(+it.precio_unitario||0)*(1-(+it.descuento_pct||0)/100)), 0);
-  const iva = doc.sin_iva ? 0 : (+doc.iva || items.reduce((s,it)=>{const sub=(+it.cantidad||0)*(+it.precio_unitario||0)*(1-(+it.descuento_pct||0)/100);return s+sub*(+it.iva_pct||0)/100}, 0)); // v3.40 sin IVA
-  const total = doc.sin_iva ? subtotal : (+doc.total || (subtotal + iva));
+  const _calc = nunCalcDoc(items, nunEsVerdad(doc.sin_iva)); // v3.80 — mismo redondeo SAT que el documento
+  const subtotal = +doc.subtotal || _calc.subtotal;
+  const iva = nunEsVerdad(doc.sin_iva) ? 0 : (+doc.iva || _calc.iva); // v3.40 sin IVA
+  const total = nunEsVerdad(doc.sin_iva) ? subtotal : (+doc.total || nunR2(subtotal + iva));
+  // v3.80 — pagado y saldo reales (antes campos viejos del documento que casi nunca estaban al día)
+  const _saldoPdf = (tipo === 'remisiones' || tipo === 'facturas') ? nunSaldoDoc(doc, tipo) : (+doc.saldo || 0);
+  const _pagadoPdf = (tipo === 'remisiones' || tipo === 'facturas') ? Math.max(0, nunR2(total - _saldoPdf)) : (+doc.pagado || 0);
+  const _pctTxt = p => (Math.round(p * 100) / 100) + '%';
   const totalLetras = numeroALetras(total) + ' M.N.';
 
   // v3.10.1 — Look profesional con logo SVG NUN, header degradado, tabla zebra
@@ -4741,15 +4759,14 @@ function imprimirDocumento(tipo, idDoc) {
         const cant = +it.cantidad || 0;
         const pu = +it.precio_unitario || 0;
         const desc = +it.descuento_pct || 0;
-        const sub = cant * pu * (1 - desc/100);
-        const ivaIt = sub * (+it.iva_pct||0)/100;
+        const sub = nunCalcLinea(it, true).base; // v3.80 — importe sin IVA (cuadra con el Subtotal)
         return `<tr>
           <td class="sku">${escapeHTML(it.sku||'—')}</td>
           <td>${escapeHTML(it.descripcion||'')}</td>
           <td class="right">${cant}</td>
           <td class="right">${fmtFull(pu)}</td>
-          <td class="right">${desc>0?desc.toFixed(0)+'%':'—'}</td>
-          <td class="right">${fmtFull(sub+ivaIt)}</td>
+          <td class="right">${desc>0?_pctTxt(desc):'—'}</td>
+          <td class="right">${fmtFull(sub)}</td>
         </tr>`;
       }).join('');
 
@@ -4823,16 +4840,15 @@ function imprimirDocumento(tipo, idDoc) {
             const cant = +it.cantidad || 0;
             const pu = +it.precio_unitario || 0;
             const desc = +it.descuento_pct || 0;
-            const sub = cant * pu * (1 - desc/100);
-            const ivaIt = sub * (+it.iva_pct||0)/100;
+            const sub = nunCalcLinea(it, true).base; // v3.80 — importe sin IVA (cuadra con el Subtotal)
             return `<tr>
               <td class="sku">${escapeHTML(it.sku||'—')}</td>
               <td class="desc">${escapeHTML(it.descripcion||'')}</td>
               <td class="right">${cant}</td>
               <td class="right" style="font-size:9.5px;color:#666">${escapeHTML(it.unidad||'pieza')}</td>
               <td class="right">${fmtFull(pu)}</td>
-              <td class="right" style="color:${desc>0?'#e31937':'#aaa'}">${desc>0?desc.toFixed(0)+'%':'—'}</td>
-              <td class="right" style="font-weight:600">${fmtFull(sub+ivaIt)}</td>
+              <td class="right" style="color:${desc>0?'#e31937':'#aaa'}">${desc>0?_pctTxt(desc):'—'}</td>
+              <td class="right" style="font-weight:600">${fmtFull(sub)}</td>
             </tr>`;
           }).join('')}
       </tbody>
@@ -4849,8 +4865,8 @@ function imprimirDocumento(tipo, idDoc) {
         <div class="row"><span>IVA</span><span class="mono">${fmtFull(iva)}</span></div>
         ${(doc.ieps>0)?'<div class="row"><span>IEPS</span><span class="mono">'+fmtFull(doc.ieps)+'</span></div>':''}
         <div class="row gran"><span class="lbl">TOTAL</span><span class="mono">${fmtFull(total)}</span></div>
-        ${(doc.pagado>0)?'<div class="row" style="background:rgba(0,163,80,0.06)"><span>Pagado</span><span class="mono" style="color:#00a350">'+fmtFull(doc.pagado)+'</span></div>':''}
-        ${(doc.saldo>0)?'<div class="row" style="background:rgba(227,25,55,0.06)"><span>Saldo</span><span class="mono" style="color:#e31937;font-weight:700">'+fmtFull(doc.saldo)+'</span></div>':''}
+        ${(_pagadoPdf>0)?'<div class="row" style="background:rgba(0,163,80,0.06)"><span>Pagado</span><span class="mono" style="color:#00a350">'+fmtFull(_pagadoPdf)+'</span></div>':''}
+        ${(_saldoPdf>0)?'<div class="row" style="background:rgba(227,25,55,0.06)"><span>Saldo</span><span class="mono" style="color:#e31937;font-weight:700">'+fmtFull(_saldoPdf)+'</span></div>':''}
       </div>
     </div>
 
@@ -4950,13 +4966,14 @@ async function convertirDocConItems(origen, idOrigen, destino) {
         if (_nuevo) {
           const _cam = { id:_nuevo.id, folio: nunEsFolioNUN(destino, _nuevo.folio) ? _nuevo.folio : nunFolioNUNde(destino, _lista), pedido_origen: _orig.folio || idOrigen };
           { let _its = [], _oits = []; try { _its = JSON.parse(_nuevo.items_json||'[]'); } catch(e){} try { _oits = JSON.parse(_orig.items_json||'[]'); } catch(e){} // v3.78
-            if (!_its.length && _oits.length) { const _t = nunCalcDoc(_oits); _cam.items_json = JSON.stringify(_oits); _cam.subtotal = _t.subtotal; _cam.iva = _t.iva; _cam.total = _t.total; } }
+            if (!_its.length && _oits.length) { const _si = nunEsVerdad(_orig.sin_iva); const _t = nunCalcDoc(_oits, _si); _cam.items_json = JSON.stringify(_oits); _cam.subtotal = _t.subtotal; _cam.iva = _t.iva; _cam.total = _t.total; if (_si) _cam.sin_iva = true; } } // v3.80 respeta "sin IVA" del pedido
           if (!_nuevo.vendedor && _orig.vendedor) _cam.vendedor = _orig.vendedor;
           await api({ accion:'erp_upsert_batch', tabla:destino, items:[_cam] });
+          _cam.folio = await nunResolverFolioDuplicado(destino, _nuevo.id, _cam.folio); // v3.80
           Object.assign(_nuevo, _cam); data.folio = _cam.folio;
           try { const _cobs = (await nunListarFresco('cobranza')).filter(c => String(c.factura_origen||'') === String(_nuevo.id) && String(c.numero||'') !== String(_cam.folio)); // v3.79
             if (_cobs.length) await api({ accion:'erp_upsert_batch', tabla:'cobranza', items:_cobs.map(c => { const x = { id:c.id, numero:_cam.folio, descripcion:(destino === 'facturas' ? 'Factura ' : 'Remisión ') + _cam.folio }; if (_cam.total != null && !(+c.cobrado)) { x.total = _cam.total; x.pendiente = _cam.total; } if (_cam.vendedor && !c.vendedor) x.vendedor = _cam.vendedor; return x; }) }); } catch(e){}
-          try { await nunAltaCobranza(destino, _nuevo); } catch(e){}
+          try { if (await nunAltaCobranza(destino, _nuevo) === false) throw new Error('el servidor no confirmó'); } catch(e){ toast('⚠ Se convirtió pero NO se creó su renglón de Cobranza (' + e.message + '). Revisa Cobranza.', { type:'error', duration:12000 }); } // v3.80
         }
       }
       await Promise.all([cargarTabla(origen), cargarTabla(destino), cargarTabla('cobranza')]);
@@ -4979,7 +4996,7 @@ async function convertirDocConItems(origen, idOrigen, destino) {
   const nuevo = {
     id: destino.substring(0,3) + '_' + Date.now(),
     folio,
-    fecha: new Date().toISOString().substring(0,10),
+    fecha: nunHoy(),
     cliente: docOrig.cliente,
     proveedor: docOrig.proveedor,
     vendedor: docOrig.vendedor,
@@ -4990,7 +5007,7 @@ async function convertirDocConItems(origen, idOrigen, destino) {
     items_json: docOrig.items_json || '[]',
     notas: 'Generado desde ' + origen + ' folio ' + (docOrig.folio || idOrigen)
   };
-  if (destino === 'remisiones' || destino === 'pedidos') nuevo.fecha_entrega = new Date().toISOString().substring(0,10);
+  if (destino === 'remisiones' || destino === 'pedidos') nuevo.fecha_entrega = nunHoy();
   State.data[destino] = State.data[destino] || [];
   State.data[destino].push(nuevo);
   // Marcar origen como convertido
@@ -4999,12 +5016,12 @@ async function convertirDocConItems(origen, idOrigen, destino) {
   if (destino === 'facturas') {
     const cli = (State.data.clientes||[]).find(c => (c.razon_social||'') === docOrig.cliente);
     const credito = cli?.credito_dias || 30;
-    const fechaVenc = (() => { const d = new Date(); d.setDate(d.getDate()+credito); return d.toISOString().substring(0,10); })();
+    const fechaVenc = (() => { const d = new Date(); d.setDate(d.getDate()+credito); return nunHoy(d); })(); // v3.80
     State.data.cobranza = State.data.cobranza || [];
     State.data.cobranza.push({
       id:'cob_'+Date.now(),
-      fecha_entrega: new Date().toISOString().substring(0,10),
-      fecha_emision: new Date().toISOString().substring(0,10),
+      fecha_entrega: nunHoy(),
+      fecha_emision: nunHoy(),
       fecha_vencimiento: fechaVenc,
       cliente: docOrig.cliente,
       tipo:'Factura', numero: folio,
@@ -5147,7 +5164,7 @@ async function guardarNuevoPedido() {
     pendiente: parseFloat(document.getElementById('npTotal').value) || 0,
     fecha_entrega: document.getElementById('npFechaEntrega').value,
     sin_entregar: !document.getElementById('npFechaEntrega').value,
-    fecha_emision: new Date().toISOString().substring(0,10),
+    fecha_emision: nunHoy(),
     vendedor: document.getElementById('npVendedor').value,
     credito: parseInt(document.getElementById('npCredito').value) || 30,
     descripcion: document.getElementById('npDesc').value,
@@ -5170,7 +5187,7 @@ async function guardarNuevoPedido() {
    ============================================================ */
 function renderDashboard() {
   const hoy = new Date();
-  const mes = hoy.toISOString().substring(0,7);
+  const mes = nunHoy(hoy).substring(0,7); // v3.80 — mes de México
   const cob = State.data.cobranza || [];
   const entregados = cob.filter(c => !c.sin_entregar);
   const fact = entregados.reduce((s,c)=>s+(+c.total||0),0);
@@ -5234,7 +5251,7 @@ function dibujarFlujoMensual() {
   const meses = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date(hoy.getFullYear(), hoy.getMonth()-i, 1);
-    const key = d.toISOString().substring(0,7);
+    const key = nunHoy(d).substring(0,7); // v3.80
     const label = d.toLocaleDateString('es-MX',{month:'short'});
     const ing = (State.data.ingresos||[]).filter(x=>String(x.fecha||'').substring(0,7)===key).reduce((s,x)=>s+(+x.monto||0),0);
     const gas = (State.data.gastos||[]).filter(x=>String(x.fecha||'').substring(0,7)===key).reduce((s,x)=>s+(+x.monto||0),0);
@@ -5309,7 +5326,7 @@ function dibujarGastosPorCategoria() {
   const cv = document.getElementById('chartGastos'); if (!cv || typeof cv.getContext !== 'function') return;
   const ctx = cv.getContext('2d');
   const w = cv.width = cv.offsetWidth * 2; const h = cv.height = 440;
-  const hoy = new Date(); const mes = hoy.toISOString().substring(0,7);
+  const hoy = new Date(); const mes = nunHoy(hoy).substring(0,7); // v3.80
   const gastos = (State.data.gastos||[]).filter(g => String(g.fecha||'').substring(0,7) === mes);
   const map = {};
   gastos.forEach(g => { const c = g.categoria || 'Sin categoría'; map[c] = (map[c]||0) + (+g.monto||0); });
@@ -5386,7 +5403,7 @@ function renderTopClientesSaldo() {
 function renderProxRecordatorios() {
   const rs = (State.data.recordatorios||[]).filter(r => r.completado !== true && r.completado !== 'true').sort((a,b)=>String(a.fecha_objetivo||'').localeCompare(String(b.fecha_objetivo||''))).slice(0,8);
   if (rs.length === 0) return '<div class="dt-empty"><div class="empty-sub">Sin pendientes</div></div>';
-  const hoy = new Date().toISOString().substring(0,10);
+  const hoy = nunHoy();
   return rs.map(r => {
     const venc = String(r.fecha_objetivo||'').substring(0,10) < hoy;
     return `
@@ -5469,7 +5486,7 @@ function abrirMovInventario() {
     tabs:[{ key:'mov', label:'Movimiento', body:`
       <div class="form-grid">
         <div class="field"><label>Tipo</label><select id="miTipo"><option value="entrada">Entrada (+)</option><option value="salida">Salida (−)</option><option value="ajuste">Ajuste (=)</option></select></div>
-        <div class="field"><label>Fecha</label><input type="date" id="miFecha" value="${new Date().toISOString().substring(0,10)}"></div>
+        <div class="field"><label>Fecha</label><input type="date" id="miFecha" value="${nunHoy()}"></div>
         <div class="field full"><label>Producto</label><select id="miSku"><option value="">— Selecciona —</option>${(State.data.productos||[]).map(p=>`<option value="${escapeHTML(p.sku)}">${escapeHTML(p.sku)} · ${escapeHTML(p.descripcion||'')}</option>`).join('')}</select></div>
         <div class="field"><label>Cantidad</label><input type="number" id="miCantidad" step="0.01"></div>
         <div class="field"><label>Costo unitario</label><input type="number" id="miCosto" step="0.01"></div>
@@ -5592,7 +5609,7 @@ async function guardarOportunidad(id) {
     notas:document.getElementById('opNotas').value,
     actualizado:new Date().toISOString()
   };
-  if (!id) item.fecha_creacion = new Date().toISOString().substring(0,10);
+  if (!id) item.fecha_creacion = nunHoy();
   if (id) item.id = id;
   const data = await api({ accion: id?'erp_actualizar':'erp_crear', tabla:'oportunidades', item });
   if (!data.ok) { toast('Error: '+(data.error||'?'), { type:'error' }); return; }
@@ -5742,7 +5759,7 @@ async function nunImportarNCBind(P){
 // v3.61 — Cuadrar Ingresos con el respaldo de pagos de Bind (lo ejecuta Rafa con un clic; pide confirmación)
 // v3.63 — Altas de saldos (pedidos sin documentar) y cancelaciones acordadas, desde archivo
 async function nunImportarAltasCobranza(P){
-  const hoy = new Date().toISOString().slice(0,10);
+  const hoy = nunHoy();
   const cob = State.data.cobranza || [];
   const existe = new Set(cob.map(c => c.id));
   const altas = (P.altas||[]).filter(a => a && a.id && +a.total > 0).map(a => ({
@@ -6023,6 +6040,7 @@ function renderComisiones() {
     <div class="page-title">
       <div><h1>Comisiones</h1><div class="sub">Sobre lo cobrado · Rafa 4% global · Yadah 4% global · Edgar 6% + 3% Yadah + 1% Luis + 1% Esteban · Luis 5% · Esteban 5% · Yazmin $15K/mes</div></div>
       <div class="actions">
+        <button class="btn btn-sm" onclick="nunReporteCasaOtroVendedor()" title="Documentos a nombre de CASA o RAFA cuyo cliente tiene otro vendedor en el catálogo">🔎 CASA con vendedor</button>
         <select onchange="comCambiarAnio(this.value)" style="padding:7px 28px 7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
           <option value="todos" ${_comFiltroAnio==='todos'?'selected':''}>Todos los años</option>
           <optgroup label="Año">${anios.map(a => `<option value="${a}" ${_comFiltroAnio===a?'selected':''}>${a}</option>`).join('')}</optgroup>
@@ -6223,7 +6241,7 @@ function nunDescomponerProducto(desc, sku){
 let _repV = null;
 function _repVDefaults(){
   const h = new Date(); const y = h.getFullYear(), m = String(h.getMonth()+1).padStart(2,'0');
-  return { desde: y+'-'+m+'-01', hasta: h.toISOString().slice(0,10), tipo:'ambos', cliente:'', vendedor:'', agrupar:'sku', buscar:'' };
+  return { desde: y+'-'+m+'-01', hasta: nunHoy(h), tipo:'ambos', cliente:'', vendedor:'', agrupar:'sku', buscar:'' };
 }
 // Todas las partidas vendidas (sin cancelados), con su documento
 function nunPartidasVendidas(){
@@ -6241,13 +6259,13 @@ function nunPartidasVendidas(){
     const folio = (d.serie||'') + (d.folio||'');
     for (const it of items) {
       const cant = +it.cantidad || 0, pu = +it.precio_unitario || 0, desc = +it.descuento_pct || 0;
-      const importe = cant * pu * (1 - desc/100);
+      const importe = nunCalcLinea(it, true).base; // v3.80 — mismo redondeo que el documento
       const p = prodPorSku[String(it.sku||'').toUpperCase()] || prodPorDesc[String(it.descripcion||'').toUpperCase().trim()] || {};
       const costoU = +p.costo || 0;
       const x = nunDescomponerProducto(it.descripcion || p.descripcion, it.sku || p.sku);
       out.push({ fecha: String(d.fecha||'').slice(0,10), tipoDoc, folio, docId: d.id, cliente: d.cliente || '', vendedor: vend || '(sin vendedor)',
         sku: it.sku || p.sku || '(sin SKU)', descripcion: it.descripcion || p.descripcion || '', modelo: x.modelo, color: x.color, medida: x.medida, tipoProd: x.tipo,
-        cantidad: cant, importe, costo: costoU * cant, tieneCosto: costoU > 0 });
+        cantidad: cant, importe, costo: costoU * cant, tieneCosto: costoU > 0, deRemision: tipoDoc === 'Factura' && nunEsDeRemision(d) });
     }
   }
   return { partidas: out, sinPartidas };
@@ -6287,7 +6305,7 @@ function nunRepVentasFiltradas(){
   const normC = s => String(s||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
   const q = normC(f.buscar);
   const rows = partidas.filter(r => (!f.desde || r.fecha >= f.desde) && (!f.hasta || r.fecha <= f.hasta)
-    && (f.tipo === 'ambos' || r.tipoDoc === f.tipo)
+    && (f.tipo === 'ambos' ? !r.deRemision : r.tipoDoc === f.tipo) // v3.80 — "ambos": la factura de una remisión no se cuenta otra vez
     && (!f.cliente || normC(r.cliente).includes(normC(f.cliente)))
     && (!f.vendedor || r.vendedor === f.vendedor)
     && (!q || normC(r.sku + ' ' + r.descripcion + ' ' + r.modelo + ' ' + r.color).includes(q)));
@@ -6418,7 +6436,7 @@ async function abrirReporte(rep) {
   }
   if (rep === 'top_productos') {
     const map = {};
-    const docs = [...(State.data.facturas||[]), ...(State.data.remisiones||[])].filter(d => !/cancel/i.test(d.estatus||'')); // v3.62 sin cancelados
+    const docs = [...(State.data.facturas||[]).filter(f => !nunEsDeRemision(f)), ...(State.data.remisiones||[])].filter(d => !/cancel/i.test(d.estatus||'')); // v3.62 sin cancelados · v3.80 la factura de una remisión no cuenta doble
     for (const d of docs) {
       try {
         const items = JSON.parse(d.items_json||'[]');
@@ -6426,7 +6444,7 @@ async function abrirReporte(rep) {
           const k = (it.sku||'') + '|' + (it.descripcion||'');
           if (!map[k]) map[k] = { sku:it.sku||'', descripcion:it.descripcion||'', cant:0, importe:0, veces:0 };
           map[k].cant += (+it.cantidad||0);
-          map[k].importe += (+it.cantidad||0) * (+it.precio_unitario||0);
+          map[k].importe += nunCalcLinea(it, true).base; // v3.80 con descuento
           map[k].veces++;
         }
       } catch(e){}
@@ -6617,7 +6635,7 @@ function renderDocOperativo(tabla) {
   // KPIs rápidos — v3.72: sin canceladas ni remisiones ya facturadas (la venta no se cuenta dos veces)
   const _vig = rows.filter(r => !/cancel/i.test(r.estatus||'') && !(tabla === 'remisiones' && r.estatus === 'facturada'));
   const total = _vig.reduce((s,r)=>s+(+r.total||0), 0);
-  const saldo = _vig.reduce((s,r)=>s+nunSaldoDoc(r, tabla), 0); // v3.77
+  const saldo = nunSaldoGrupo(_vig, tabla); // v3.80 — varias facturas de una misma remisión: el saldo se cuenta una vez
   const timbradas = rows.filter(r => r.estatus === 'timbrada').length;
   const canceladas = rows.filter(r => r.estatus === 'cancelada').length;
   const pendientes = rows.filter(r => r.estatus === 'pendiente').length;
@@ -6982,7 +7000,7 @@ async function guardarClienteFiscal() {
     razon_social: razon, rfc, cp, regimen_fiscal: regimen, uso_cfdi: uso,
     direccion: g('cfDir'), ciudad: g('cfCiudad'), estado: g('cfEstado'),
     email: g('cfEmail'), telefono: g('cfTel'), vendedor: g('cfVendedor'),
-    activo: true, fecha_alta: new Date().toISOString().substring(0,10)
+    activo: true, fecha_alta: nunHoy()
   };
   const btn = document.getElementById('cfGuardarBtn'); btn.disabled = true; btn.textContent = 'Guardando…';
   try {
@@ -7166,6 +7184,23 @@ function recalDocTotal() {
 // ============================================================
 function nunR2(x){ return Math.round((+x || 0) * 100 + (x >= 0 ? 1e-9 : -1e-9)) / 100; }
 // Un renglón: importe bruto, descuento, base, IVA y total, redondeados a centavos como los calcula el CFDI
+// v3.80 — lee "sí/no" guardado como true, 'TRUE', 'si', 1… (Sheets guarda texto)
+// v3.80 — fecha de HOY en México (toISOString da la de Londres: después de las 6 pm ya era "mañana")
+function nunHoy(d){ d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+// v3.80 — "2026-09-07" se lee a mediodía local (new Date('2026-09-07') es medianoche de Londres = día anterior en México)
+function nunFechaLocal(f){ return (f instanceof Date) ? f : new Date(/^\d{4}-\d{2}-\d{2}$/.test(String(f)) ? f + 'T12:00:00' : f); }
+// v3.80 — días de atraso calculados HOY (antes se usaba el número guardado al dar de alta, que nunca cambiaba)
+function nunRecalcAtraso(rows){
+  (rows||[]).forEach(c => {
+    if (c.sin_entregar != null && typeof c.sin_entregar !== 'boolean') c.sin_entregar = nunEsVerdad(c.sin_entregar); // "FALSE"/"no" de Sheets ya no cuenta como por entregar
+    if (!((+c.pendiente||0) > 0)) { c.dias_vencido = 0; return; }
+    let v = c.fecha_vencimiento;
+    if (!v && c.fecha_entrega) { const d = nunFechaLocal(String(c.fecha_entrega).substring(0,10)); if (!isNaN(d)) { d.setDate(d.getDate() + (parseInt(c.credito,10)||0)); v = d; } }
+    if (v) c.dias_vencido = calcularDiasVencido(v);
+  });
+  return rows;
+}
+function nunEsVerdad(v){ return v === true || v === 1 || /^(true|1|s[ií]|yes|x)$/i.test(String(v == null ? '' : v).trim()); }
 function nunCalcLinea(it, sinIva){
   const bruto = nunR2((+it.cantidad||0) * (+it.precio_unitario||0));
   const desc = nunR2(bruto * (+it.descuento_pct||0) / 100);
@@ -7194,6 +7229,26 @@ function nunCobranzaDeDoc(doc, cob){
   return (cob||[]).find(c => c.factura_origen === id || c.id === 'cob_' + id || (id.startsWith('bind_') && c.id === 'bind_cob_' + bindId));
 }
 // Al editar una remisión o factura ya guardada, su renglón en Cobranza toma el total nuevo
+// v3.80 — guarda SOLO los campos enviados y revisa que el servidor diga ok (3 intentos). Devuelve true/false.
+async function nunGuardarSeguro(tabla, item, intentos){
+  intentos = intentos || 3;
+  for (let i = 0; i < intentos; i++) {
+    try { const r = await api({ accion:'erp_upsert_batch', tabla, items:[item] }); if (r && r.ok) return true; } catch(e){}
+    await new Promise(z => setTimeout(z, 800 * (i + 1)));
+  }
+  return false;
+}
+// v3.80 — al cancelar una remisión/factura su cobro también se cancela (antes el saldo seguía abierto)
+async function nunCancelarCobranzaDoc(tabla, doc){
+  if (tabla !== 'remisiones' && tabla !== 'facturas') return;
+  if (tabla === 'facturas' && /^(R\d{4,}|REM )/.test(String(doc.pedido_origen||''))) return; // el cobro es de la remisión: la venta sigue viva
+  let cob = []; try { cob = await nunListarFresco('cobranza'); } catch(e){ toast('No pude revisar Cobranza: cancela el cobro de ' + (doc.folio||'') + ' a mano', { type:'error', duration:8000 }); return; }
+  const c = nunCobranzaDeDoc(doc, cob); if (!c || /^cancelad/i.test(c.estatus||'')) return;
+  if ((+c.cobrado||0) > 0.005) { toast('⚠ El cobro ' + (c.numero||'') + ' ya tiene ' + fmtFull(c.cobrado) + ' cobrado: no lo cancelé. Revisa ese pago (devolución o aplicarlo a otro documento).', { type:'error', duration:10000 }); return; }
+  const ok = await nunGuardarSeguro('cobranza', { id:c.id, estatus:'cancelado', pendiente:0 });
+  if (!ok) toast('⚠ No se pudo cancelar el cobro ' + (c.numero||'') + ' en Cobranza. Cancélalo a mano.', { type:'error', duration:10000 });
+  try { await cargarTabla('cobranza'); } catch(e){}
+}
 async function nunSyncCobranzaDoc(tabla, doc){
   if (tabla !== 'remisiones' && tabla !== 'facturas') return;
   if (tabla === 'facturas' && /^(R\d{4,}|REM )/.test(String(doc.pedido_origen||''))) return; // la venta está en la remisión
@@ -7239,9 +7294,15 @@ function nunRepsDeFactura(f){
   String(f.notas||'').replace(/REP (CP\d+) uuid=([\w-]+) monto=([\d.]+) fecha=([\d-]+) parc=(\d+)/g, (m, folio, uuid, monto, fecha, parc) => { out.push({ folio, uuid, monto:+monto, fecha, parc:+parc }); return m; });
   return out;
 }
+// v3.80 — complemento timbrado que no se alcanzó a guardar en la factura (se apunta en esta computadora)
+function nunRepPendiente(idFactura){
+  try { const v = localStorage.getItem('nun_rep_pend_' + idFactura); if (!v) return ''; const f = (State.data.facturas||[]).find(x => x.id === idFactura);
+    const folio = (v.match(/REP (CP\d+)/)||[])[1]; if (f && folio && String(f.notas||'').indexOf('REP ' + folio + ' ') >= 0) { localStorage.removeItem('nun_rep_pend_' + idFactura); return ''; } return v; } catch(e){ return ''; }
+}
 function nunSiguienteFolioREP(){
   let max = 0;
   (State.data.facturas||[]).forEach(f => nunRepsDeFactura(f).forEach(r => { const n = parseInt(String(r.folio).replace(/\D/g,''), 10); if (n > max) max = n; }));
+  try { Object.keys(localStorage).filter(k => k.indexOf('nun_rep_pend_') === 0).forEach(k => { const n = parseInt(((localStorage.getItem(k)||'').match(/REP CP(\d+)/)||[])[1], 10); if (n > max) max = n; }); } catch(e){} // v3.80
   return 'CP' + String(max + 1).padStart(4, '0');
 }
 function nunCobroDeDoc(tabla, doc){
@@ -7261,7 +7322,8 @@ async function nunAbrirComplementoPago(idFactura){
   if (String(f.metodo_pago||'') !== 'PPD') { toast('Esta factura es ' + (f.metodo_pago||'PUE') + ': el complemento solo aplica a facturas PPD. Registra el pago normal.', { type:'error', duration:7000 }); return; }
   const reps = nunRepsDeFactura(f);
   const pagado = nunR2(reps.reduce((s, r) => s + r.monto, 0));
-  const saldo = nunR2((+f.total||0) - pagado);
+  const _nc = nunMontoNCs(f, 'facturas'); // v3.80 — las notas de crédito bajan el saldo anterior del complemento
+  const saldo = Math.max(0, nunR2((+f.total||0) - pagado - _nc));
   const c = nunCobroDeDoc('facturas', f);
   const cuentas = State.data.cuentas || [];
   const opt = (arr, sel) => arr.map(([k,v]) => `<option value="${k}" ${String(sel)===k?'selected':''}>${k} · ${escapeHTML(v)}</option>`).join('');
@@ -7277,7 +7339,7 @@ async function nunAbrirComplementoPago(idFactura){
       ${reps.length ? `<div style="font-size:12px;margin-bottom:10px;color:var(--ink-3)">Complementos anteriores: ${reps.map(r => escapeHTML(r.folio) + ' ' + fmtFull(r.monto) + ' (' + r.fecha + ')').join(' · ')}</div>` : ''}
       <div class="form-grid">
         <div class="field"><label>Monto pagado *</label><input type="number" id="repMonto" step="0.01" min="0.01" max="${saldo}" value="${saldo > 0 ? saldo : ''}"></div>
-        <div class="field"><label>Fecha del pago *</label><input type="date" id="repFecha" value="${new Date().toISOString().substring(0,10)}"></div>
+        <div class="field"><label>Fecha del pago *</label><input type="date" id="repFecha" value="${nunHoy()}"></div>
         <div class="field"><label>Forma de pago *</label><select id="repForma"><option value="">— Elige —</option>${opt(SAT_FORMA_PAGO.filter(([k]) => k !== '99'), '')}</select></div>
         <div class="field"><label>Núm. de operación <span style="color:var(--ink-4);font-weight:400">(opcional)</span></label><input type="text" id="repOperacion" maxlength="40"></div>
         <div class="field full"><label>Cuenta donde entró *</label><select id="repCuenta"><option value="">— Selecciona —</option>${cuentas.map(x => `<option value="${escapeHTML(x.nombre)}">${escapeHTML(x.nombre)}</option>`).join('')}</select></div>
@@ -7301,10 +7363,19 @@ function nunCfdiComplementoPago(f, pago){
   const rate = items.some(it => +it.iva_pct > 0) && (+f.iva || 0) > 0 ? 0.16 : 0;
   const base = rate ? nunR2(pagado / (1 + rate)) : nunR2(pagado);
   const iva = rate ? nunR2(pagado - base) : 0;
+  // v3.80 — factura con renglones al 16% Y al 0%: el pago se reparte en proporción (antes se declaraba todo al 16%)
+  let taxes = [{ Name:'IVA', Rate: rate, Total: iva, Base: base, IsRetention: false }];
+  const _con = items.filter(it => +it.iva_pct > 0), _sin = items.filter(it => !(+it.iva_pct > 0));
+  if (rate && _con.length && _sin.length) {
+    const t16 = nunCalcDoc(_con, false), t0 = nunCalcDoc(_sin, false), tot = t16.total + t0.total;
+    const prop = tot > 0 ? pagado / tot : 0;
+    const b0 = nunR2(t0.subtotal * prop), iva16 = nunR2(t16.iva * prop), b16 = nunR2(pagado - b0 - iva16);
+    taxes = [{ Name:'IVA', Rate: 0.16, Total: iva16, Base: b16, IsRetention: false }, { Name:'IVA', Rate: 0, Total: 0, Base: b0, IsRetention: false }];
+  }
   const serieF = (String(f.folio||'').match(/^[A-Za-z]+/)||[])[0], folioF = String(f.folio||'').replace(/\D/g,'');
   const rel = { Uuid: String(f.uuid_sat), PartialityNumber: pago.parcialidad, Currency:'MXN',
     PreviousBalanceAmount: saldoAnt, AmountPaid: pagado, ImpSaldoInsoluto: nunR2(saldoAnt - pagado), TaxObject:'02',
-    Taxes: [{ Name:'IVA', Rate: rate, Total: iva, Base: base, IsRetention: false }] };
+    Taxes: taxes }; // v3.80
   if (serieF) rel.Serie = serieF; if (folioF) rel.Folio = folioF;
   const p = { Date: pago.fecha + 'T12:00:00', PaymentForm: pago.forma, Amount: pagado, RelatedDocuments: [rel] };
   if (pago.operacion) p.OperationNumber = pago.operacion;
@@ -7337,16 +7408,27 @@ async function nunConfirmarComplementoPago(idFactura){
   try {
     if (conTimbre) {
       nunOcupado('Timbrando complemento de pago…');
+      // v3.80 — antes de timbrar: releer (otro usuario pudo registrar un complemento) y no timbrar si hay uno sin guardar
+      const _pend = nunRepPendiente(f.id);
+      if (_pend) throw new Error('Hay un complemento que SÍ se timbró pero no se guardó en el sistema (' + _pend + '). Avísame antes de timbrar otro.');
+      await cargarTabla('facturas');
+      const _ff = (State.data.facturas||[]).find(x => x.id === f.id) || f;
+      if (nunRepsDeFactura(_ff).length !== m._parc - 1) throw new Error('Mientras tenías esta ventana abierta se registró otro complemento para esta factura. Ciérrala y vuelve a abrirla.');
+      f.notas = _ff.notas;
       const folioRep = nunSiguienteFolioREP();
       const cfdi = nunCfdiComplementoPago(f, { monto, fecha, forma, operacion, parcialidad: m._parc, saldoAnterior: m._saldo, folioRep });
       const r = await api({ accion:'facturama_timbrar', cfdi });
       if (!(r && r.ok && r.uuid)) throw new Error('Facturama: ' + ((r && r.error) || 'no se pudo timbrar el complemento') + (hecho.length ? '' : ' · no se registró nada'));
       const nota = 'REP ' + folioRep + ' uuid=' + r.uuid + ' monto=' + monto.toFixed(2) + ' fecha=' + fecha + ' parc=' + m._parc + (r.id ? ' fid=' + r.id : '');
       f.notas = (f.notas ? f.notas + ' · ' : '') + nota;
-      await Promise.all([
-        api({ accion:'erp_upsert_batch', tabla:'facturas', items:[{ id: f.id, notas: f.notas }] }),
-        r.xml ? api({ accion:'cfdi_xml_guardar', docs:[{ uuid:r.uuid, xml:r.xml, fecha, total:monto, cliente:f.cliente, tipo:'P' }] }).catch(()=>null) : null
+      // v3.80 — primero se apunta en esta computadora; se borra solo cuando el servidor confirma que lo guardó
+      try { localStorage.setItem('nun_rep_pend_' + f.id, nota); } catch(e){}
+      const [_okNotas] = await Promise.all([
+        nunGuardarSeguro('facturas', { id: f.id, notas: f.notas }),
+        r.xml ? api({ accion:'cfdi_xml_guardar', docs:[{ uuid:r.uuid, xml:r.xml, fecha, total:monto, cliente:f.cliente, tipo:'P' }] }).then(x => { if (!(x && x.ok)) toast('⚠ No se guardó el XML del complemento ' + folioRep + '. Descárgalo de Facturama.', { type:'error', duration:10000 }); }).catch(()=>toast('⚠ No se guardó el XML del complemento ' + folioRep + '. Descárgalo de Facturama.', { type:'error', duration:10000 })) : null
       ]);
+      if (_okNotas) { try { localStorage.removeItem('nun_rep_pend_' + f.id); } catch(e){} }
+      else toast('⚠ El complemento ' + folioRep + ' SÍ se timbró (UUID ' + r.uuid + ') pero no se pudo guardar en la factura. No timbres otro: avísame para registrarlo.', { type:'error', duration:20000 });
       hecho.push('complemento ' + folioRep + ' timbrado (UUID ' + String(r.uuid).substring(0,8) + '…)');
     }
     if (conCobro && c) {
@@ -7555,6 +7637,20 @@ window.nunPdfREP = nunPdfREP; window.nunPdfDoc = nunPdfDoc; window.nunAsegurarAr
 // v3.77 — Documentos conectados: pedido → remisiones → facturas → complementos de pago, notas de crédito y pagos
 // ============================================================
 function nunFolioStr(d){ return String((d && d.folio) != null ? d.folio : '').trim(); }
+// v3.80 — suma de saldos sin contar doble cuando una remisión se partió en varias facturas
+function nunSaldoGrupo(rows, tabla){
+  let total = 0; const porRem = new Map();
+  rows.forEach(r => {
+    if (tabla === 'facturas' && nunEsDeRemision(r) && !nunRepsDeFactura(r).length) { const k = nunRemFolioDeFactura(r); if (!porRem.has(k)) porRem.set(k, []); porRem.get(k).push(r); }
+    else total += nunSaldoDoc(r, tabla);
+  });
+  porRem.forEach(fs => {
+    const suma = fs.reduce((s, f) => s + nunSaldoDoc(f, tabla), 0);
+    const c = nunCobroDeDoc('facturas', fs[0]);
+    total += c ? Math.min(suma, Math.max(0, +c.pendiente||0)) : suma;
+  });
+  return nunR2(total);
+}
 function nunEsDeRemision(f){ return /^(R\d{4,}|REM )/.test(String(f.pedido_origen||'').trim()); }
 function nunRemFolioDeFactura(f){ return String(f.pedido_origen||'').trim().replace(/^REM\s+/, ''); }
 function nunRelDoc(tabla, doc){
@@ -7618,7 +7714,7 @@ function nunPanelDoc(tabla, doc, acciones){
     saldo != null ? `Saldo <b style="color:${saldo > 0.01 ? 'var(--red)' : 'var(--green)'}">${fmtFull(saldo)}</b>` : '',
     R.pagos.length ? `${R.pagos.length} pago(s) ${fmtFull(cobrado)}` : 'Sin pagos',
     R.reps.length ? `${R.reps.length} complemento(s)` : '',
-    R.ncs.length ? `<span style="color:var(--amber,#b45309)">${R.ncs.length} nota(s) de crédito ${fmtFull(R.ncs.reduce((s,n)=>s+(+n.total||0),0))}</span>` : ''
+    R.ncs.length ? `<span style="color:var(--amber,#b45309)">${R.ncs.length} nota(s) de crédito ${fmtFull(R.ncs.filter(n => !/cancel/i.test(n.estatus||'')).reduce((s,n)=>s+(+n.total||0),0))}</span>` : '' /* v3.80 sin canceladas */
   ].filter(Boolean).join(' · ');
   return `<div style="border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px;background:var(--bg-2,#fafafa)">
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${cadena.join('<span style="color:var(--ink-4)">→</span>') || '<span style="font-size:12px;color:var(--ink-3)">Sin documentos ligados</span>'}</div>
@@ -7670,7 +7766,16 @@ function nunIdxCobranza(){ // v3.76 — índice que se rehace solo cuando cambia
   cob.forEach(c => { idx.id.set(String(c.id), c); if (c.factura_origen) idx.fo.set(String(c.factura_origen), c); const n = String(c.numero||'').trim(); if (n) { if (!idx.num.has(n)) idx.num.set(n, c); } });
   nunIdxCobranza._src = cob; nunIdxCobranza._idx = idx; return idx;
 }
-function nunSaldoDoc(r, tabla){
+// v3.80 — notas de crédito hechas en NUN (no las de Bind: Bind ya las descuenta en su saldo) que bajan el saldo del documento
+function nunNCsDelDoc(r, tabla){
+  const x = String(r.folio||'').trim(); if (!x) return [];
+  const esRem = tabla === 'remisiones' || (!tabla && /^R\d{4,}$/.test(x));
+  const o = new Set(esRem ? ['V01' + x, 'REM ' + x].concat(x.startsWith('R') ? [x] : []) : [x, 'A' + x, 'F-' + x]);
+  return (State.data.notascredito||[]).filter(n => o.has(String(n.documento_origen||'').trim()) && !/cancel/i.test(n.estatus||'') && !/^bind_/.test(String(n.id||'')));
+}
+function nunMontoNCs(r, tabla){ return nunR2(nunNCsDelDoc(r, tabla).reduce((s, n) => s + (+n.total||0), 0)); }
+function nunSaldoDoc(r, tabla){ const s0 = nunSaldoDocBase(r, tabla); const nc = nunMontoNCs(r, tabla); return nc ? Math.max(0, nunR2(s0 - nc)) : s0; } // v3.80
+function nunSaldoDocBase(r, tabla){
   if (tabla === 'facturas' || (!tabla && r.uuid_sat)) { // v3.77
     const reps = (typeof nunRepsDeFactura === 'function') ? nunRepsDeFactura(r) : [];
     if (reps.length) return Math.max(0, nunR2((+r.total||0) - reps.reduce((s, x) => s + x.monto, 0)));
@@ -7704,16 +7809,17 @@ function nunOcupado(msg){
   o.innerHTML = '<div style="background:var(--bg,#fff);color:var(--ink,#111);border-radius:14px;padding:22px 26px;font-size:15px;font-weight:600;box-shadow:0 20px 50px rgba(0,0,0,0.3)">⏳ ' + escapeHTML(msg) + '<div style="font-size:12px;font-weight:400;opacity:0.65;margin-top:6px">No cierres ni vuelvas a presionar, el servidor tarda unos segundos.</div></div>';
 }
 async function nunAltaCobranza(tabla, doc){
-  if (!doc || !doc.id || (tabla !== 'remisiones' && tabla !== 'facturas')) return false;
-  if (tabla === 'facturas' && /^(R\d{4,}|REM )/.test(String(doc.pedido_origen||''))) return false; // v3.71 // factura de una remisión: ya está en cobranza
+  // v3.80 — null = no hacía falta; false = el servidor no lo guardó
+  if (!doc || !doc.id || (tabla !== 'remisiones' && tabla !== 'facturas')) return null;
+  if (tabla === 'facturas' && /^(R\d{4,}|REM )/.test(String(doc.pedido_origen||''))) return null; // v3.71 // factura de una remisión: ya está en cobranza
   const cob = await nunListarFresco('cobranza');
-  if (cob.some(c => c.factura_origen === doc.id || c.id === 'cob_' + doc.id)) return false;
+  if (cob.some(c => c.factura_origen === doc.id || c.id === 'cob_' + doc.id)) return null;
   const cli = (State.data.clientes||[]).find(c => String(c.razon_social||'').trim().toUpperCase() === String(doc.cliente||'').trim().toUpperCase()) || {};
   const credito = +cli.credito_dias || 0;
-  const f = String(doc.fecha || new Date().toISOString()).substring(0,10);
+  const f = String(doc.fecha || nunHoy()).substring(0,10); // v3.80
   const venc = new Date(f + 'T12:00:00'); venc.setDate(venc.getDate() + credito);
   const total = +(+doc.total||0).toFixed(2);
-  const item = { id:'cob_' + doc.id, fecha_emision:f, fecha_entrega:f, fecha_vencimiento: venc.toISOString().substring(0,10), cliente:doc.cliente,
+  const item = { id:'cob_' + doc.id, fecha_emision:f, fecha_entrega:f, fecha_vencimiento: nunHoy(venc), cliente:doc.cliente,
     tipo: tabla === 'facturas' ? 'Factura' : 'Remisión', numero: doc.folio, estatus:'', vendedor: String(doc.vendedor||'').toUpperCase(),
     descripcion: 'Alta automática desde ' + (tabla === 'facturas' ? 'factura ' : 'remisión ') + doc.folio + (doc.pedido_origen ? ' · pedido ' + doc.pedido_origen : ''),
     credito: credito ? String(credito) : '', total, cobrado:0, pendiente: total, dias_vencido:0, sin_entregar:false, folio_fiscal: doc.uuid_sat || '', factura_origen: doc.id };
@@ -7761,7 +7867,24 @@ async function guardarDoc(tabla, id, opts) {
     nunOcupado(''); toast('Pusiste vendedor: ingresa su % de comisión', { type:'error' }); if (pctEl) pctEl.focus(); return;
   }
   // Limpiar líneas vacías (sin sku ni descripción) antes de guardar
-  try { const its = (docItems||[]).filter(it => (it.sku||it.descripcion) && (+it.cantidad>0)); item.items_json = JSON.stringify(its); } catch(e){}
+  try { const its = (docItems||[]).filter(it => (it.sku||it.descripcion) && (+it.cantidad>0)); item.items_json = JSON.stringify(its);
+    // v3.80 — el total se saca de los renglones que SÍ se guardan (antes contaba renglones que luego se tiraban)
+    if (its.length) { const _t = nunCalcDoc(its, docSinIva); item.subtotal = _t.subtotal; item.iva = _t.iva; item.total = _t.total; }
+  } catch(e){}
+  // v3.80 — factura ya timbrada: no se cambian productos, totales, cliente ni estatus (para cancelar: "Cancelar ante SAT").
+  // Solo se guardan notas/vendedor, y nunca se pierden el "Facturama ID" ni los complementos (REP) de las notas.
+  const _previo = id ? (State.data[tabla]||[]).find(d => String(d.id) === String(id)) : null;
+  if (_previo && tabla === 'facturas' && _previo.uuid_sat) {
+    let _fresco = _previo; try { _fresco = (await nunListarFresco('facturas')).find(d => String(d.id) === String(id)) || _previo; } catch(e){}
+    const _notas = nunNotasConservando(item.notas, _fresco.notas);
+    const _ok = await nunGuardarSeguro('facturas', { id, notas:_notas, vendedor:item.vendedor, comision_pct:item.comision_pct });
+    nunOcupado('');
+    if (!_ok) { toast('✗ No se pudo guardar. Inténtalo de nuevo.', { type:'error', duration:6000 }); return; }
+    await cargarTabla('facturas'); renderCurrent(); cerrarDrawer();
+    toast('✓ Guardado. Es una factura timbrada: solo se guardan notas y vendedor (productos y totales no cambian)', { duration:7000 });
+    return;
+  }
+  if (_previo && _previo.notas) item.notas = nunNotasConservando(item.notas, _previo.notas); // v3.80
 
   const btnGuardar = document.querySelector('.drawer .btn-primary');
   if (btnGuardar) { btnGuardar.disabled = true; btnGuardar.textContent = 'Guardando…'; }
@@ -7772,7 +7895,8 @@ async function guardarDoc(tabla, id, opts) {
     try {
       // v3.69 — antes de reintentar, revisar si el primer intento sí se guardó (no se duplica)
       if (intento > 1 && _nunIdNuevo && (await nunListarFresco(tabla)).some(d => String(d.id) === _nunIdNuevo)) { data = { ok:true, item:{ id:_nunIdNuevo } }; break; }
-      data = await api({ accion: id?'erp_actualizar':'erp_crear', tabla, item: id?Object.assign({id},item):item });
+      // v3.80 — al editar se mandan solo estos campos (erp_upsert_batch) para no borrar los que la pantalla no conoce (uuid, pedido_origen…)
+      data = id ? await api({ accion:'erp_upsert_batch', tabla, items:[Object.assign({ id }, item)] }) : await api({ accion:'erp_crear', tabla, item });
       break;
     } catch(e) {
       if (intento >= 2) {
@@ -7794,8 +7918,12 @@ async function guardarDoc(tabla, id, opts) {
   window._nunIdPendiente = null; // v3.69
   const idGuardado = id || (data.item && data.item.id) || _nunIdNuevo || null;
   window._nunDocGuardadoOk = idGuardado; // v3.72
-  if (id) { try { await nunSyncCobranzaDoc(tabla, Object.assign({}, item, { id, folio })); await cargarTabla('cobranza'); } catch(e){} } // v3.72
-  if (!id && (tabla === 'remisiones' || tabla === 'facturas')) { try { await nunAltaCobranza(tabla, Object.assign({}, item, { id: idGuardado, folio })); await cargarTabla('cobranza'); } catch(e){} } // v3.69
+  // v3.80 — si otra persona guardó al mismo tiempo con el mismo folio, el nuestro pasa al siguiente libre
+  if (!id && NUN_PREF_FOLIO[tabla] && idGuardado) folio = await nunResolverFolioDuplicado(tabla, idGuardado, folio);
+  // v3.80 — si algo de Cobranza falla, se avisa (antes decía "✓ Creado" aunque el cobro no existiera)
+  if (id && /cancel/i.test(item.estatus||'') && _previo && !/cancel/i.test(_previo.estatus||'')) await nunCancelarCobranzaDoc(tabla, Object.assign({}, _previo, item, { id, folio }));
+  else if (id) { try { await nunSyncCobranzaDoc(tabla, Object.assign({}, _previo||{}, item, { id, folio })); await cargarTabla('cobranza'); } catch(e){ toast('⚠ Se guardó el documento pero no se pudo actualizar Cobranza: ' + e.message, { type:'error', duration:9000 }); } } // v3.72
+  if (!id && (tabla === 'remisiones' || tabla === 'facturas')) { try { const _r = await nunAltaCobranza(tabla, Object.assign({}, item, { id: idGuardado, folio })); if (_r === false) throw new Error('el servidor no confirmó'); await cargarTabla('cobranza'); } catch(e){ toast('⚠ Se creó ' + folio + ' pero NO su renglón de Cobranza (' + e.message + '). Avísame o créalo a mano.', { type:'error', duration:12000 }); } } // v3.69
   await cargarTabla(tabla);
   // v3.47 — flujo "Guardar y Facturar": después de guardar, timbrar sin cerrar
   if (opts.luegoTimbrar && tabla === 'facturas' && idGuardado) {
@@ -7807,11 +7935,39 @@ async function guardarDoc(tabla, id, opts) {
   toast(id?'✓ Actualizado':'✓ Creado · '+folio);
   } finally { window._nunGuardandoDoc = false; nunOcupado(''); } // v3.69
 }
+// v3.80 — dos personas guardando al mismo tiempo podían sacar el mismo folio (P0031 dos veces)
+async function nunResolverFolioDuplicado(tabla, idNuevo, folio){
+  try {
+    const lst = await nunListarFresco(tabla);
+    const otros = lst.filter(d => String(d.folio||'').trim() === String(folio).trim() && String(d.id) !== String(idNuevo) && !/cancel/i.test(d.estatus||''));
+    if (!otros.length) return folio;
+    const nuevo = nunFolioNUNde(tabla, lst);
+    if (await nunGuardarSeguro(tabla, { id: idNuevo, folio: nuevo })) {
+      toast('⚠ Otra persona usó el folio ' + folio + ' al mismo tiempo: el tuyo quedó como ' + nuevo, { type:'error', duration:10000 });
+      return nuevo;
+    }
+    toast('⚠ El folio ' + folio + ' quedó repetido y no se pudo cambiar. Corrígelo a mano.', { type:'error', duration:12000 });
+  } catch(e){}
+  return folio;
+}
+// v3.80 — regla: nunca se borran datos. "Eliminar" ahora marca el documento como cancelado (y su cobro).
 async function eliminarDoc(tabla, id) {
-  const ok = await confirmDialog({ title:'¿Eliminar documento?', message:'Acción permanente.', ok:'Eliminar', danger:true });
+  const doc = (State.data[tabla]||[]).find(d => String(d.id) === String(id)) || { id };
+  if (doc.uuid_sat) { toast('Es una factura timbrada: usa "Cancelar ante SAT"', { type:'error', duration:6000 }); return; }
+  const ok = await confirmDialog({ title:'¿Cancelar documento?', message:'Se marca como CANCELADO (no se borra) y su cobro en Cobranza también se cancela.', ok:'Cancelar documento', danger:true });
   if (!ok) return;
-  const data = await api({ accion:'erp_eliminar', tabla, id });
-  if (data.ok) { await cargarTabla(tabla); renderCurrent(); cerrarDrawer(); toast('✓ Eliminado'); }
+  const est = /^(remisiones|facturas|notascredito)$/.test(tabla) ? 'cancelada' : 'cancelado';
+  const bien = await nunGuardarSeguro(tabla, { id, estatus: est });
+  if (!bien) { toast('✗ No se pudo cancelar. Inténtalo de nuevo.', { type:'error', duration:7000 }); return; }
+  await nunCancelarCobranzaDoc(tabla, doc);
+  await cargarTabla(tabla); renderCurrent(); cerrarDrawer(); toast('✓ Marcado como cancelado');
+}
+// v3.80 — al guardar notas nunca se pierden las líneas del sistema (Facturama ID y complementos de pago REP)
+function nunNotasConservando(nuevas, anteriores){
+  let n = String(nuevas||'');
+  const sis = String(anteriores||'').match(/Facturama ID: ?[\w-]+|REP CP\d+ uuid=[^·]*?(?= ·|$)/g) || [];
+  sis.forEach(l => { const clave = l.startsWith('REP') ? l.split(' uuid=')[0] + ' ' : l; if (n.indexOf(clave) < 0) n = n + (n ? ' · ' : '') + l.trim(); });
+  return n;
 }
 async function convertirDoc(origen, id, destino) {
   const ok = await confirmDialog({ title:'¿Convertir a '+destino.slice(0,-1)+'?', message:'Se genera un documento nuevo con las mismas líneas.', ok:'Convertir' });
@@ -8532,7 +8688,7 @@ function exportarBackup() {
   const blob = new Blob([json], { type:'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `nun-erp-backup-${new Date().toISOString().substring(0,10)}.json`;
+  a.href = url; a.download = `nun-erp-backup-${nunHoy()}.json`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
   toast('✓ Backup descargado');
@@ -8612,9 +8768,12 @@ async function agregarNotaDoc(tabla, idDoc) {
   if (!doc) return;
   let notas = [];
   try { notas = doc.notas_timeline ? JSON.parse(doc.notas_timeline) : []; } catch(e){}
+  // v3.80 — se relee y se manda SOLO notas_timeline (antes la fila completa y decía ✓ aunque fallara)
+  try { const fr = (await nunListarFresco(tabla)).find(d => d.id === idDoc); if (fr) { notas = []; try { notas = fr.notas_timeline ? JSON.parse(fr.notas_timeline) : []; } catch(e){} } } catch(e){}
   notas.push({ texto, autor: State.sesion.usuario.nombre || 'Rafa', fecha: new Date().toISOString() });
+  const bien = await nunGuardarSeguro(tabla, { id: idDoc, notas_timeline: JSON.stringify(notas) });
+  if (!bien) { toast('✗ No se guardó la nota. Inténtalo de nuevo.', { type:'error', duration:6000 }); return; }
   doc.notas_timeline = JSON.stringify(notas);
-  try { await api({ accion:'erp_actualizar', tabla, item: doc }); } catch(e){}
   abrirNotasDoc(tabla, idDoc); // re-render
   toast('✓ Nota agregada');
 }
@@ -8824,7 +8983,7 @@ function renderMigradorBind() {
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               <button class="btn btn-ghost btn-sm" onclick="inspectorBindClientes()">🔍 Inspeccionar Bind</button>
               <button class="btn btn-ghost btn-sm" onclick="diagnosticoFacturas()">📊 Diagnóstico facturas</button>
-              <button class="btn btn-ghost btn-sm" onclick="borrarImportadosBind()" style="color:var(--red,#c00)">🗑 Borrar importados</button>
+              <!-- v3.80 — botón "Borrar importados" quitado: no se borran datos -->
             </div>
             <button class="btn btn-ghost btn-sm" onclick="contarTodoBind()">Contar todo</button>
           </div>
@@ -9133,6 +9292,9 @@ async function diagnosticoFacturas() {
 }
 
 async function borrarImportadosBind() {
+  // v3.80 — desactivado: por regla del sistema no se borran datos (borraba TODO lo de Bind con un solo clic)
+  toast('Por regla del sistema no se borran datos. Si algo de Bind está mal, se marca como cancelado o duplicado.', { type:'error', duration:7000 });
+  return;
   // v3.10.1 — Borra LOCAL + BACKEND con fallback per-item si bulk falla
   const total = Object.values(State.data).reduce((s, arr) => {
     if (!Array.isArray(arr)) return s;
@@ -9319,7 +9481,7 @@ async function ejecutarImportBind() {
 
 function calcularDiasVencido(fechaVenc) {
   if (!fechaVenc) return 0;
-  const venc = new Date(fechaVenc);
+  const venc = nunFechaLocal(fechaVenc); // v3.80 — fecha sin hora = mediodía de México
   if (isNaN(venc.getTime())) return 0;
   const hoy = new Date();
   const diff = Math.floor((hoy - venc) / (1000 * 60 * 60 * 24));
@@ -9361,6 +9523,39 @@ function reiniciarSyncTimer() {
 // v3.59 — CUADRE CON BIND + VENDEDORES DESDE EL CATÁLOGO DEL CRM
 // ============================================================
 let _catClientes = [];
+// v3.80 — Documentos a nombre de CASA (o RAFA) cuyo cliente, en el catálogo, tiene otro vendedor.
+// La comisión de esos cobros se le paga al vendedor del catálogo (así está bien, confirmado por Rafa); esta lista sirve para corregirlos.
+async function nunReporteCasaOtroVendedor(){
+  nunOcupado('Revisando documentos…');
+  try {
+    if (!_catClientes.length) await cargarCatalogoVendedores();
+    await cargarTabla('cobranza');
+  } finally { nunOcupado(''); }
+  if (!_catClientes.length) { toast('No pude leer el catálogo de clientes/vendedores', { type:'error' }); return; }
+  const ingIdx = (typeof nunUltimoPagoIdx === 'function') ? nunUltimoPagoIdx() : new Map();
+  const filas = (State.data.cobranzaTodos || State.data.cobranza || []).filter(c => !/^cancelad/i.test(c.estatus||'')).map(c => {
+    const vd = String(c.vendedor||'').toUpperCase().trim();
+    if (vd !== 'CASA' && vd !== 'RAFA') return null;
+    const vc = String(vendedorDeClienteCat(c.cliente, c.fecha_emision || c.fecha_entrega || c.fecha) || '').toUpperCase().trim();
+    if (!vc || vc === 'CASA' || vc === 'RAFA') return null;
+    return { c, vd, vc };
+  }).filter(Boolean).sort((a, b) => String(b.c.fecha_entrega||b.c.fecha_emision||'').localeCompare(String(a.c.fecha_entrega||a.c.fecha_emision||'')));
+  const tot = filas.reduce((s, x) => s + (+x.c.total||0), 0), cob = filas.reduce((s, x) => s + (+x.c.cobrado||0), 0);
+  let m = document.getElementById('modalCasaVend'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalCasaVend';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = e => { if (e.target === m) m.remove(); };
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:900px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)">
+      <div><h3 style="margin:0">Documentos de CASA / RAFA con cliente de otro vendedor</h3>
+      <div style="font-size:12px;color:var(--ink-3)">${filas.length} documento(s) · total ${fmtFull(tot)} · cobrado ${fmtFull(cob)} · la comisión de lo cobrado se le paga al vendedor del catálogo</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalCasaVend').remove()">✕</button></div>
+    <div style="padding:12px 20px">${filas.length ? `<table class="dt" style="font-size:12px"><thead><tr><th>Entrega</th><th>Núm.</th><th>Cliente</th><th>Vendedor del documento</th><th>Vendedor del catálogo</th><th class="right">Total</th><th class="right">Cobrado</th><th>Últ. pago</th></tr></thead><tbody>
+      ${filas.map(({ c, vd, vc }) => `<tr style="cursor:pointer" onclick="document.getElementById('modalCasaVend').remove();abrirDrawerCobranza(${escapeHTML(JSON.stringify(String(c.id)))})"><td>${fmtFecha(c.fecha_entrega || c.fecha_emision)}</td><td class="mono">${escapeHTML(c.numero||'')}</td><td>${escapeHTML(c.cliente||'')}</td><td>${escapeHTML(vd)}</td><td><b>${escapeHTML(vc)}</b></td><td class="right mono">${fmtFull(c.total)}</td><td class="right mono">${fmtFull(c.cobrado)}</td><td>${ingIdx.get(String(c.numero||'').trim()) ? fmtFecha(ingIdx.get(String(c.numero||'').trim())) : '—'}</td></tr>`).join('')}
+      </tbody></table>` : '<div style="padding:24px;text-align:center;color:var(--mute)">No hay documentos de CASA/RAFA con cliente de otro vendedor 👍</div>'}</div></div>`;
+  document.body.appendChild(m);
+}
+window.nunReporteCasaOtroVendedor = nunReporteCasaOtroVendedor;
 async function cargarCatalogoVendedores(){
   try { const r = await api({ accion:'erp_listar', tabla:'clientescat' }); _catClientes = (r && r.items) || []; } catch(e){ _catClientes = []; }
   return _catClientes.length;
@@ -9675,6 +9870,9 @@ async function sincronizarConBindAhora(esAutomatico) {
     // v3.61 — la cobranza que YA existía se actualiza con lo pagado en Bind
     const _cobAct = { n:0, monto:0, alertas:[] };
     try {
+      // v3.80 — si no se pudieron leer los pagos capturados en el ERP, NO se toca la cobranza (se podían borrar pagos)
+      if (!(State._cargaOk && State._cargaOk.pagosclientes)) { try { await cargarTabla('pagosclientes', { ttl:0 }); } catch(e){} }
+      if (!(State._cargaOk && State._cargaOk.pagosclientes)) throw new Error('no se pudieron leer los pagos del ERP; la cobranza no se actualizó desde Bind esta vez');
       const pagosERP = new Set((State.data.pagosclientes||[]).map(p => p.id_doc));
       const porId = {}; (State.data.cobranza||[]).forEach(c => porId[c.id] = c);
       const upd = [];
@@ -9690,20 +9888,21 @@ async function sincronizarConBindAhora(esAutomatico) {
       for (let i=0; i<upd.length; i+=40) await api({ accion:'erp_upsert_batch', tabla:'cobranza', items: upd.slice(i,i+40) });
       _cobAct.n = upd.length;
       if (upd.length) console.log('[Sync] cobranza actualizada desde Bind:', upd.length, 'docs ·', _cobAct.monto.toFixed(2));
-    } catch(e) { console.warn('[Sync] actualizar cobranza existente falló:', e); }
+    } catch(e) { console.warn('[Sync] actualizar cobranza existente falló:', e); if (/pagos del ERP/.test(e.message||'')) toast('⚠ ' + e.message, { type:'error', duration:9000 }); } // v3.80
     // v3.58 — completar lo nuevo: partidas, vendedor, XML original y QR
     try { await enriquecerNuevosBind(facturasNuevas, remisionesNuevas, cobranzaNueva, esAutomatico); }
     catch(e) { console.warn('[Sync] enriquecer falló (se guardan igual los encabezados):', e); }
 
     // 3. Push nuevos al backend + State
-    const tareas = [];
-    if (cliNuevos.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'clientes', items:cliNuevos }).then(() => { State.data.clientes.push(...cliNuevos); }));
-    if (prodNuevos.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'productos', items:prodNuevos }).then(() => { State.data.productos.push(...prodNuevos); }));
-    if (pvNuevos.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'proveedores', items:pvNuevos }).then(() => { State.data.proveedores.push(...pvNuevos); }));
-    if (facturasNuevas.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'facturas', items:facturasNuevas }).then(() => { State.data.facturas.push(...facturasNuevas); }));
-    if (remisionesNuevas.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'remisiones', items:remisionesNuevas }).then(() => { State.data.remisiones.push(...remisionesNuevas); }));
-    if (cobranzaNueva.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'cobranza', items:cobranzaNueva }).then(() => { State.data.cobranza.push(...cobranzaNueva); }));
+    const tareas = []; const _bindFallos = []; // v3.80 — se avisa si el servidor no guardó algo
+    if (cliNuevos.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'clientes', items:cliNuevos }).then(r => { if (!(r && r.ok)) { _bindFallos.push('clientes'); return; } State.data.clientes.push(...cliNuevos); }));
+    if (prodNuevos.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'productos', items:prodNuevos }).then(r => { if (!(r && r.ok)) { _bindFallos.push('productos'); return; } State.data.productos.push(...prodNuevos); }));
+    if (pvNuevos.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'proveedores', items:pvNuevos }).then(r => { if (!(r && r.ok)) { _bindFallos.push('proveedores'); return; } State.data.proveedores.push(...pvNuevos); }));
+    if (facturasNuevas.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'facturas', items:facturasNuevas }).then(r => { if (!(r && r.ok)) { _bindFallos.push('facturas'); return; } State.data.facturas.push(...facturasNuevas); }));
+    if (remisionesNuevas.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'remisiones', items:remisionesNuevas }).then(r => { if (!(r && r.ok)) { _bindFallos.push('remisiones'); return; } State.data.remisiones.push(...remisionesNuevas); }));
+    if (cobranzaNueva.length) tareas.push(api({ accion:'erp_bulk_crear', tabla:'cobranza', items:cobranzaNueva }).then(r => { if (!(r && r.ok)) { _bindFallos.push('cobranza'); return; } State.data.cobranza.push(...cobranzaNueva); }));
     await Promise.all(tareas);
+    if (_bindFallos.length) toast('⚠ Bind: el servidor no guardó lo nuevo de ' + _bindFallos.join(', ') + '. Se reintenta en la próxima sincronización.', { type:'error', duration:12000 }); // v3.80
     // v3.59 — cuadre con Bind: pedidos, cancelaciones y vendedores
     let _cuadre = null;
     try { _cuadre = await cuadrarConBind(facts, esAutomatico); } catch(e){ console.warn('[Sync] cuadre falló:', e); }
@@ -10025,12 +10224,12 @@ function generarNotificaciones() {
   }
 
   // 2. Vencen hoy / esta semana
-  const hoyStr = hoy.toISOString().substring(0,10);
+  const hoyStr = nunHoy(hoy); // v3.80
   const vencenSemana = (State.data.cobranza||[]).filter(c => {
     if (c.sin_entregar || (+c.pendiente||0) <= 0) return false;
     const venc = c.fecha_vencimiento;
     if (!venc) return false;
-    const diff = (new Date(venc) - hoy) / (1000*60*60*24);
+    const diff = (nunFechaLocal(String(venc).substring(0,10)) - hoy) / (1000*60*60*24); // v3.80
     return diff >= 0 && diff <= 7;
   });
   if (vencenSemana.length > 0) {
@@ -10149,6 +10348,7 @@ async function cargarTabla(tabla, opts) {
       const o = JSON.parse(cached);
       if (Date.now() - o.t < ttl && o.items) {
         State.data[tabla] = o.items;
+        if (tabla === 'cobranza') State.data[tabla] = nunRecalcAtraso(o.items.filter(c => !/^cancelad/i.test(c.estatus||''))); // v3.80 — igual que al cargar del servidor
         if (tabla === 'ingresos') nunSepararIngresos(); // v3.61
         // Trigger render rápido si la tabla mostrada es esta
         if (State.modulo === tabla) renderCurrent();
@@ -10171,7 +10371,7 @@ async function cargarTabla(tabla, opts) {
       State.data[tabla] = data.items || [];
       if (tabla === 'cobranza') State.data.cobranzaTodos = data.items.slice(); // v3.64 incluye canceladas
       // v3.59 — cobranza de documentos cancelados no cuenta
-      if (tabla === 'cobranza') State.data[tabla] = State.data[tabla].filter(c => !/^cancelad/i.test(c.estatus||''));
+      if (tabla === 'cobranza') State.data[tabla] = nunRecalcAtraso(State.data[tabla].filter(c => !/^cancelad/i.test(c.estatus||''))); // v3.80 atraso de hoy
       if (tabla === 'ingresos') nunSepararIngresos(); // v3.61 — sin duplicados del Excel
       // Cachear (sin items_json pesados para no saturar localStorage)
       try {
@@ -10255,7 +10455,7 @@ function sembrarDatosDemo() {
     { id:'demo_pv_2', rfc:'NAC850101AB1', razon_social:'Nacional de Plásticos SA', contacto:'Pedro López', telefono:'5544332211', activo:true }
   ];
   const today = new Date();
-  const daysAgo = (d) => { const x = new Date(today); x.setDate(x.getDate() - d); return x.toISOString().substring(0,10); };
+  const daysAgo = (d) => { const x = new Date(today); x.setDate(x.getDate() - d); return nunHoy(x); }; // v3.80
   State.data.cobranza = [
     { id:'demo_cob_1', fecha_entrega:daysAgo(5), fecha_emision:daysAgo(5), cliente:'Liverpool S.A. de C.V.', tipo:'Factura', numero:'F-3145', total:89000, cobrado:0, pendiente:89000, dias_vencido:5, vendedor:'EDGAR', sin_entregar:false, estatus:'pendiente' },
     { id:'demo_cob_2', fecha_entrega:daysAgo(18), fecha_emision:daysAgo(18), cliente:'Coppel S.A. de C.V.', tipo:'Remisión', numero:'R-892', total:120000, cobrado:60000, pendiente:60000, dias_vencido:18, vendedor:'LUIS', sin_entregar:false },
@@ -10641,6 +10841,8 @@ window.loginDemoNUN = loginDemoNUN;
 function cerrarSesionNUN(){
   kvFlush(); // subir cambios pendientes antes de salir
   localStorage.removeItem('nun_sesion_v2');
+  // v3.80 — no dejar datos del negocio en la computadora al salir (cachés y llave de Bind)
+  try { Object.keys(localStorage).filter(k => k.indexOf('nun_cache_') === 0 || k === 'nun_bind_api_key').forEach(k => localStorage.removeItem(k)); } catch(e){}
   setTimeout(() => location.reload(), 250);
 }
 window.cerrarSesionNUN = cerrarSesionNUN;
@@ -10674,7 +10876,7 @@ async function boot() {
     setInterval(kvPull, 180000);
   } catch(e) {
     console.error('[NUN ERP] boot fallo:', e);
-    document.getElementById('appMain').innerHTML = '<div class="placeholder-pane"><h3>Error en boot</h3><p>' + (e && e.message ? e.message : '?') + '</p></div>';
+    document.getElementById('appMain').innerHTML = '<div class="placeholder-pane"><h3>Error en boot</h3><p>' + escapeHTML(e && e.message ? e.message : '?') + '</p></div>'; // v3.80
   }
   // Cargas en background — totalmente desacopladas
   const tablas = ['clientes','productos','proveedores','cotizaciones','pedidos','remisiones','facturas','notascredito','ordenescompra','recepciones','importaciones','pagosproveedores','cobranza','ingresos','gastos','sucursales','listasprecios','seriesfolios','categorias','oportunidades','contactoscrm','recordatorios','pagosclientes','movinventario','tiposcambio'];
@@ -10683,12 +10885,10 @@ async function boot() {
       // Detección de modo demo: si después de cargar TODO sigue vacío, sembramos
       const todoVacio = !tablas.some(t => (State.data[t]||[]).length > 0);
       if (todoVacio) {
-        if (sembrarDatosDemo()) {
-          setConexionStatus('demo');
-          toast('Modo demo activado · datos ficticios cargados', { type:'success', duration:4000 });
-        } else {
-          setConexionStatus('error');
-        }
+        // v3.80 — ya no se cargan datos ficticios solos: si el servidor no respondió, se avisa
+        // (antes se podían crear documentos reales sobre clientes de demo)
+        setConexionStatus('error');
+        toast('No pude cargar datos del servidor. Revisa tu conexión y recarga la página.', { type:'error', duration:8000 });
       } else {
         setConexionStatus('connected');
       }
@@ -10815,7 +11015,7 @@ function renderBalanceGeneral(){
     <div class="page-title">
       <div>
         <h1>Balance General</h1>
-        <div class="sub">Al ${fmtFecha(new Date().toISOString().substring(0,10))} · NUN ERP · MXN</div>
+        <div class="sub">Al ${fmtFecha(nunHoy())} · NUN ERP · MXN</div>
       </div>
       <div class="actions">
         <span class="refresh-stamp">Cálculo en vivo desde GL</span>
@@ -10911,7 +11111,7 @@ function renderEstadoResultados(){
     <div class="page-title">
       <div>
         <h1>Estado de Resultados</h1>
-        <div class="sub">Periodo a ${fmtFecha(new Date().toISOString().substring(0,10))} · NUN · MXN</div>
+        <div class="sub">Periodo a ${fmtFecha(nunHoy())} · NUN · MXN</div>
       </div>
       <div class="actions">
         <span class="refresh-stamp">Cálculo en vivo desde GL</span>
@@ -10961,7 +11161,7 @@ function renderTrialBalance(){
     <div class="page-title">
       <div>
         <h1>Trial Balance (Balanza de Comprobación)</h1>
-        <div class="sub">Movimientos del periodo · NUN · ${fmtFecha(new Date().toISOString().substring(0,10))}</div>
+        <div class="sub">Movimientos del periodo · NUN · ${fmtFecha(nunHoy())}</div>
       </div>
       <div class="actions">
         <span class="refresh-stamp">Cálculo en vivo</span>
@@ -11383,7 +11583,7 @@ function invTransition(itemId, fromStatus, toStatus, qty, reference){
   const mov = {
     id: 'mov_'+Date.now(),
     movement_number: 'MV-'+new Date().getFullYear()+'-'+String(Date.now()).slice(-7),
-    movement_date: new Date().toISOString().substring(0,10),
+    movement_date: nunHoy(),
     movement_type: fromKey && toKey ? 'TRANSFER' : (toKey ? 'RECEIPT' : 'ISSUE'),
     item_id: itemId,
     sku: s.sku,
@@ -11928,7 +12128,7 @@ function cuadreExportarCSV(){
   const blob = new Blob(['﻿' + lines.join('\n')], { type:'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `cuadre_excel_vs_bind_${new Date().toISOString().slice(0,10)}.csv`;
+  a.download = `cuadre_excel_vs_bind_${nunHoy()}.csv`;
   a.click();
   toast(`✓ Exportadas ${probs.length} diferencias a CSV`, 'success');
 }
@@ -12402,8 +12602,8 @@ async function cargarCostosNUN(){
   if (!cambios.length){ toast('Todos los productos ya tienen su costo correcto'); return; }
   if (!confirm(`Voy a asignar costo a ${cambios.length} productos (por familia: SF/RL/YH).\n\nLas piezas individuales (SKU con Z) reciben el costo de su familia — ajusta manualmente las que sean fracción de caja.\n\n¿Continuar?`)) return;
   let ok=0;
-  for (const p of cambios){ try { await api({ accion:'erp_actualizar', tabla:'productos', item:p }); ok++; } catch(e){} }
-  toast(`✓ Costo cargado a ${ok} productos · ya puedes ver el margen`, { type:'success', duration:5000 });
+  for (const p of cambios){ if (await nunGuardarSeguro('productos', { id:p.id, costo:p.costo }, 2)) ok++; } // v3.80 — solo el costo, y se cuenta solo si se guardó
+  toast(`✓ Costo cargado a ${ok} productos · ya puedes ver el margen` + (ok < cambios.length ? ` · ⚠ ${cambios.length - ok} no se guardaron` : ''), { type: ok < cambios.length ? 'error' : 'success', duration:7000 });
   renderCurrent();
 }
 window.cargarCostosNUN = cargarCostosNUN;
@@ -12439,8 +12639,8 @@ async function cargarPreciosNUN(){
   if (!cambios.length){ toast('No hay precios nuevos que actualizar (o no hay ventas de esos SKUs)'); return; }
   if (!confirm('Voy a poner el precio de venta a ' + cambios.length + ' productos, calculado del precio típico de tus facturas reales.\n\n¿Continuar? (puedes editar cualquiera después)')) return;
   let ok=0;
-  for (const p of cambios){ try { await api({ accion:'erp_actualizar', tabla:'productos', item:p }); ok++; } catch(e){} }
-  toast('✓ Precio de venta cargado a ' + ok + ' productos', { type:'success', duration:5000 });
+  for (const p of cambios){ if (await nunGuardarSeguro('productos', { id:p.id, precio:p.precio }, 2)) ok++; } // v3.80
+  toast('✓ Precio de venta cargado a ' + ok + ' productos' + (ok < cambios.length ? ' · ⚠ ' + (cambios.length - ok) + ' no se guardaron' : ''), { type: ok < cambios.length ? 'error' : 'success', duration:7000 });
   renderCurrent();
 }
 window.cargarPreciosNUN = cargarPreciosNUN;
@@ -12485,9 +12685,11 @@ function computeEstadosReales(){
   try {
     const cob = State.data.cobranza || [];
     if (!cob.length) return base; // datos aún no cargados → usa la base editable
-    const facturado = cob.reduce((s,c)=>s+(+c.total||0),0);
-    const cobrado   = cob.reduce((s,c)=>s+(+c.cobrado||0),0);
-    const cartera   = cob.reduce((s,c)=>s+(c.saldo!=null ? (+c.saldo||0) : ((+c.total||0)-(+c.cobrado||0))),0);
+    // v3.80 — sin "por entregar" (todavía no es venta) y la cartera sale de "pendiente"
+    const _cobV = cob.filter(c => !c.sin_entregar);
+    const facturado = _cobV.reduce((s,c)=>s+(+c.total||0),0);
+    const cobrado   = _cobV.reduce((s,c)=>s+(+c.cobrado||0),0);
+    const cartera   = _cobV.reduce((s,c)=>s+Math.max(0, +c.pendiente||0),0);
     let comisiones = 0;
     try { const cc = calcularComisiones('todos'); comisiones = Object.values(cc).reduce((s,x)=>s+(+x.comisionTotal||0),0); } catch(e){}
     const otrosGastos = (State.data.gastos||[]).reduce((s,g)=>s+(+g.monto||0),0);
@@ -12510,7 +12712,7 @@ function computeEstadosReales(){
       costoVentas = subtotalFact*(1-margen);
     }
     const gastosOperativos = comisiones + otrosGastos;
-    const utilNeta = facturado - costoVentas - gastosOperativos;
+    const utilNeta = subtotalFact - costoVentas - gastosOperativos; // v3.80 — el IVA no es ingreso: se usa la venta sin IVA
     // Balance: sustituir CxC e Inventario por valores derivados; conservar bancos/capital de la base
     const invValor = (State.data.productos||[]).reduce((s,p)=>s+((+p.stock_actual||0)*(+p.costo||0)),0);
     const balance = JSON.parse(JSON.stringify(base.balance));
@@ -12527,7 +12729,7 @@ function computeEstadosReales(){
       if(keys.length) mensual = keys.map(k=>[k, Math.round(porMes[k]), cntMes[k]||0]);
     }
     return Object.assign({}, base, {
-      ingresos: Math.round(facturado),
+      ingresos: Math.round(subtotalFact), // v3.80 sin IVA (aprox. total/1.16)
       costoVentas: Math.round(costoVentas),
       gastosOperativos: Math.round(gastosOperativos),
       mensual, balance,
@@ -12537,7 +12739,7 @@ function computeEstadosReales(){
         porCobrar: Math.round(cartera),
         cartera: Math.round(cartera)
       },
-      metodo: 'Datos en vivo del ERP (cobranza, gastos, comisiones, inventario)' + (cobertura>0.05 && cobertura<0.98 ? ` · costo de ventas proyectado desde ${(cobertura*100).toFixed(0)}% de partidas con SKU` : ''),
+      metodo: 'Datos en vivo del ERP (cobranza, gastos, comisiones, inventario) · ventas sin IVA (total ÷ 1.16)' + (cobertura>0.05 && cobertura<0.98 ? ` · costo de ventas proyectado desde ${(cobertura*100).toFixed(0)}% de partidas con SKU` : ''),
       _real: true, _cobertura: cobertura
     });
   } catch(e){ console.warn('computeEstadosReales', e); return base; }
@@ -12660,7 +12862,9 @@ function facturaACfdiFacturama(doc){
       UnitCode: 'H87', Unit: it.unidad||'Pieza',
       Description: it.descripcion || it.sku || 'Producto',
       IdentificationNumber: it.sku || '',
-      UnitPrice: pu.toFixed(2), Subtotal: sub.toFixed(2),
+      // v3.80 — precio con hasta 6 decimales y el descuento va aparte (antes el SAT veía cantidad×precio ≠ importe)
+      UnitPrice: String(+pu.toFixed(6)), Subtotal: _c.bruto.toFixed(2),
+      ...(_c.desc > 0 ? { Discount: _c.desc.toFixed(2) } : {}),
       TaxObject: '02',
       Taxes: [{ Name:'IVA', Rate: ivaPct.toFixed(6), Total: _c.iva.toFixed(2), Base: sub.toFixed(2), IsRetention:'false', IsFederalTax:'true' }],
       Total: _c.total.toFixed(2)
@@ -12708,6 +12912,13 @@ function facturaValidarTimbrado(doc){
   if (mp === 'PPD' && fp && fp !== '99') errs.push('Con PPD la forma de pago debe ser 99 (Por definir)');
   if (mp === 'PUE' && fp === '99') errs.push('Con PUE la forma de pago no puede ser 99; elige cómo pagó');
   items.forEach((it, i) => { if (!/^\d{8}$/.test(String(it.clave_sat||'').trim())) errs.push('Falta la Clave SAT de ' + (it.sku || it.descripcion || ('renglón ' + (i+1)))); });
+  // v3.80 — "Sin IVA" solo cambiaba la pantalla y se timbraba CON 16%: ahora no se deja timbrar así
+  if (nunEsVerdad(doc.sin_iva)) errs.push('La factura está marcada "Sin IVA". Ante el SAT se timbraría con el IVA de cada producto. Quita la marca "Sin IVA" (o pon IVA 0% en los productos que de verdad lleven tasa 0) y guarda antes de timbrar');
+  // v3.80 — lo que se timbra tiene que ser igual a lo que dice el sistema
+  if (items.length && +doc.total > 0) {
+    const _t = nunCalcDoc(items, false).total;
+    if (Math.abs(_t - (+doc.total)) > 0.01) errs.push('El total guardado (' + fmtFull(+doc.total) + ') no coincide con la suma de los productos (' + fmtFull(_t) + '). Abre la factura, revisa y guarda antes de timbrar');
+  }
   return errs;
 }
 
@@ -12890,7 +13101,7 @@ function nunFacturarRemisionLineas(){
     if (cant > max) { errs.push((it.sku||it.descripcion) + ': máximo ' + max + ' (lo que falta por facturar)'); return; }
     const pu = +it.precio_unitario || 0;
     lineas.push({ sku: it.sku||'', descripcion: it.descripcion||'', cantidad: cant,
-      precio_unitario: modo === 'incluye' ? +(pu / 1.16).toFixed(2) : pu, // 2 decimales: igual a lo que se timbra
+      precio_unitario: modo === 'incluye' ? +(pu / 1.16).toFixed(6) : pu, // v3.80 — 6 decimales (el SAT los acepta): con 2 el total se descuadraba en cantidades grandes
       descuento_pct: +it.descuento_pct || 0, iva_pct: modo === 'sin' ? 0 : 16,
       clave_sat: it.clave_sat || '', unidad: it.unidad || '' });
   });
@@ -12921,7 +13132,7 @@ async function nunFacturarRemisionCrear(){
     m.dataset.idNuevo = id;
     if (!lista.some(f => String(f.id) === id)) {
       const folioRem = String(rem.folio||'').trim();
-      const item = { id, folio: nunFolioNUNde('facturas', lista), fecha: new Date().toISOString().substring(0,10),
+      const item = { id, folio: nunFolioNUNde('facturas', lista), fecha: nunHoy(),
         cliente: rem.cliente, vendedor: rem.vendedor || '', subtotal: +sub.toFixed(2), iva: +iva.toFixed(2), total: +(sub + iva).toFixed(2),
         estatus: 'borrador', items_json: JSON.stringify(lineas), sin_iva: modo === 'sin',
         pedido_origen: /^R\d{4,}$/.test(folioRem) ? folioRem : 'REM ' + folioRem,
@@ -13029,9 +13240,15 @@ async function facturaCancelar(idFactura){
     try {
       const r = await api({ accion:'facturama_cancelar', id: doc.facturama_id, motivo: m });
       if (r && r.ok){
+        // v3.80 — solo se guardan estatus y notas (antes se mandaba la fila completa y sin revisar si se guardó)
         doc.estatus='cancelada';
-        try { await api({ accion:'erp_actualizar', tabla:'facturas', item:doc }); } catch(e){}
-        toast('✓ Factura cancelada ante el SAT', { type:'success', duration:6000 });
+        doc.notas = String(doc.notas||'') + ' · Cancelada ante el SAT ' + nunHoy() + ' motivo ' + m;
+        const _ok = await nunGuardarSeguro('facturas', { id:doc.id, estatus:'cancelada', notas:doc.notas });
+        if (!_ok) {
+          try { localStorage.setItem('nun_cancelada_sat_' + doc.id, nunHoy()); } catch(e){}
+          toast('⚠ La factura SÍ se canceló ante el SAT, pero el sistema no la pudo marcar como cancelada. Márcala a mano: ' + (doc.folio||''), { type:'error', duration:15000 });
+        } else toast('✓ Factura cancelada ante el SAT', { type:'success', duration:6000 });
+        await nunCancelarCobranzaDoc('facturas', doc);
         cerrarDrawer(); renderCurrent();
       } else { toast('✗ '+((r&&r.error)||'El SAT/Facturama rechazó la cancelación'), { type:'error', duration:8000 }); }
     } catch(e){ toast('✗ Error: '+e.message, { type:'error', duration:7000 }); }
@@ -13040,9 +13257,12 @@ async function facturaCancelar(idFactura){
 
   // Caso B: importada (timbrada con otro PAC, ej. Bind) → no se puede cancelar por este Facturama
   if (!confirm('Esta factura se timbró con OTRO proveedor (no con tu Facturama), así que la cancelación fiscal debe hacerse en Bind o en el portal del SAT.\n\n¿Quieres marcarla como CANCELADA aquí en el ERP (solo para tu control), asumiendo que ya la cancelaste en el SAT?')) return;
+  // v3.80 — solo estatus (antes fila completa sin revisar) y también se cancela su cobro
+  const _ok = await nunGuardarSeguro('facturas', { id:doc.id, estatus:'cancelada' });
+  if (!_ok) { toast('✗ No se pudo marcar como cancelada. Inténtalo de nuevo.', { type:'error', duration:8000 }); return; }
   doc.estatus='cancelada';
-  try { await api({ accion:'erp_actualizar', tabla:'facturas', item:doc }); toast('✓ Marcada cancelada en el ERP (recuerda cancelarla también en el SAT/Bind)', { type:'success', duration:7000 }); cerrarDrawer(); renderCurrent(); }
-  catch(e){ toast('✗ Error: '+e.message, { type:'error' }); }
+  await nunCancelarCobranzaDoc('facturas', doc);
+  toast('✓ Marcada cancelada en el ERP (recuerda cancelarla también en el SAT/Bind)', { type:'success', duration:7000 }); cerrarDrawer(); renderCurrent();
 }
 window.facturaCancelar = facturaCancelar;
 
@@ -13187,7 +13407,7 @@ function shipConfirm(soId){
     so_id: soId,
     so_number: so.folio,
     customer: so.cliente,
-    shipment_date: new Date().toISOString().substring(0,10),
+    shipment_date: nunHoy(),
     carrier: 'PAQUETEXPRESS',
     tracking_number: 'TRK'+Date.now(),
     status: 'SHIPPED'
@@ -13329,7 +13549,7 @@ function renderAgingDetail(){
     <div class="page-title">
       <div>
         <h1>Aging Report</h1>
-        <div class="sub">Análisis de saldos por antigüedad · Al ${fmtFecha(new Date().toISOString().substring(0,10))} · NUN</div>
+        <div class="sub">Análisis de saldos por antigüedad · Al ${fmtFecha(nunHoy())} · NUN</div>
       </div>
       <div class="actions">
         <span class="refresh-stamp">${clientes.length} clientes con saldo</span>
@@ -13539,7 +13759,7 @@ function renderOracleWorkspace(){
     <div class="page-title">
       <div>
         <h1>Workspace</h1>
-        <div class="sub">Dashboard ejecutivo · ${fmtFecha(new Date().toISOString().substring(0,10))} · sincronizado con Bind ERP</div>
+        <div class="sub">Dashboard ejecutivo · ${fmtFecha(nunHoy())} · sincronizado con Bind ERP</div>
       </div>
       <div class="actions">
         <span class="refresh-stamp">${(State.data.facturas||[]).length + (State.data.remisiones||[]).length} docs · ${(State.data.clientes||[]).length} clientes</span>

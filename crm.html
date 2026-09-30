@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.11</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.12</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.11</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.12</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -1686,17 +1686,17 @@
 
 
 
-<!-- PANE MIS COMISIONES (solo Rafa) -->
-<section class="pane" id="pane-miscomisiones">
+<!-- PANE MIS COMISIONES · detalle por persona (solo Rafa) — v1.9.12: id propio, se muestra junto con Mis Comisiones -->
+<section class="pane" id="pane-miscomisiones-det" data-pane="miscomisiones">
   <div class="filters" style="margin-top:24px">
-    <div class="filter"><label>Mes / Periodo</label><select id="mcPeriodo" onchange="renderMisComisiones()">
+    <div class="filter"><label>Mes / Periodo</label><select id="mcPeriodoDet" onchange="renderMisComisionesDetalle()">
       <option value="mes-actual" selected>Mes actual</option>
       <option value="mes-anterior">Mes anterior</option>
       <option value="trimestre">Trimestre actual</option>
       <option value="ano">Año actual</option>
       <option value="historico">Histórico completo</option>
     </select></div>
-    <div class="filter"><label>Ver persona</label><select id="mcPersona" onchange="renderMisComisiones()">
+    <div class="filter"><label>Ver persona</label><select id="mcPersona" onchange="renderMisComisionesDetalle()">
       <option value="RAFA" selected>RAFA (yo)</option>
       <option value="YADAH">YADAH</option>
       <option value="EDGAR">EDGAR</option>
@@ -1753,7 +1753,7 @@
     
     <div class="modal-actions">
       <button class="btn ghost" onclick="cerrarRegistrarPagoCom()">Cancelar</button>
-      <button class="btn solid" onclick="guardarPagoComision()">Registrar pago</button>
+      <button class="btn solid" onclick="guardarPagoComisionRapido()">Registrar pago</button>
     </div>
   </div>
 </div>
@@ -2552,7 +2552,48 @@ const KEY_CACHE_I = 'nun_cache_ingresos';
 const KEY_CACHE_C = 'nun_cache_cobranza';
 const KEY_CACHE_CLI = 'nun_cache_clientes';
 
-let gastos = cargarCache(KEY_CACHE_G);
+// ============================================================
+// v1.9.12 — utilidades: escapar HTML, fechas locales, caché segura, permisos y cálculo SAT
+// ============================================================
+// Escapa texto de la base antes de meterlo en HTML (evita que un nombre con <img onerror> ejecute código)
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+// Para onclick="fn(${jsq(id)})": cadena JS segura dentro de un atributo HTML
+function jsq(s){ return esc(JSON.stringify(String(s==null?'':s))); }
+// Solo ligas http(s) (nada de javascript:)
+function nunUrlSegura(u){ u = String(u||'').trim(); return /^https?:\/\//i.test(u) ? u : ''; }
+// Fecha LOCAL AAAA-MM-DD (toISOString da "mañana" después de las 18:00 en México)
+function nunHoyLocal(d){ d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+// Guardar en localStorage sin tronar la sincronización si el espacio está lleno
+function nunLSset(k, v){ try { localStorage.setItem(k, v); return true; } catch(e){ try { console.warn('[NUN] localStorage lleno, no guardé', k); } catch(e2){} return false; } }
+// 'false', '0', 'no', '' → false; true, 'true', '1', 'si' → true
+function nunBool(v){ if (v === true || v === 1) return true; if (v === false || v === 0 || v == null) return false; return ['true','1','si','sí','yes','x','✓'].includes(String(v).trim().toLowerCase()); }
+// Dueños por PREFIJO del código (los códigos se rotan): RAFA-…, YADAH-…, MASTER-NUN-…
+function nunCodigoSesion(){ try { return String((sesionActual && sesionActual.codigo) || '').trim().toUpperCase(); } catch(e){ return ''; } }
+function nunCodigoPrefijo(cod, prefijos){ const c = String(cod==null?'':cod).trim().toUpperCase(); return (prefijos||[]).some(p => c.length > p.length && c.startsWith(p)); }
+function nunEsRafaMaster(cod){ return nunCodigoPrefijo(cod === undefined ? nunCodigoSesion() : cod, ['RAFA-','MASTER-NUN-']); }
+function esDuenoCodigo(cod){ return nunCodigoPrefijo(cod === undefined ? nunCodigoSesion() : cod, ['RAFA-','YADAH-','MASTER-NUN-']); }
+function nunSocioDeCodigo(cod){ const c = cod === undefined ? nunCodigoSesion() : cod; if (nunEsRafaMaster(c)) return 'RAFA'; if (nunCodigoPrefijo(c, ['YADAH-'])) return 'YADAH'; return null; }
+// Admin = puede eliminar documentos o gestionar usuarios (mismo criterio que Cuentas/Vendedores)
+function nunEsAdmin(){ try { const p = sesionActual && sesionActual.permisos; return !!(p && (p.eliminar_documentos === true || p.gestionar_usuarios === true)); } catch(e){ return false; } }
+// Cálculo igual al SAT (redondeo por renglón), mismo que el sistema NUN (nunCalcLinea / nunCalcDoc)
+function nunR2(x){ return Math.round((+x || 0) * 100 + (x >= 0 ? 1e-9 : -1e-9)) / 100; }
+function nunEsSinIva(d){ return !!d && (d.sin_iva === true || d.sin_iva === 'true' || d.sin_iva === 1 || d.sin_iva === '1'); }
+function nunCalcLinea(it, sinIva){
+  const bruto = nunR2((+it.cantidad||0) * (+it.precio_unitario||0));
+  const desc = nunR2(bruto * (+it.descuento_pct||0) / 100);
+  const base = nunR2(bruto - desc);
+  const pct = sinIva ? 0 : ((+it.iva_pct === 0) ? 0 : 16); // IVA solo 16% o 0%
+  const iva = nunR2(base * pct / 100);
+  return { bruto, desc, base, pct, iva, total: nunR2(base + iva) };
+}
+function nunCalcDoc(items, sinIva){
+  let sub = 0, iva = 0;
+  (items||[]).forEach(it => { const c = nunCalcLinea(it, sinIva); sub += c.base; iva += c.iva; });
+  sub = nunR2(sub); iva = nunR2(iva);
+  return { subtotal: sub, iva, total: nunR2(sub + iva) };
+}
+
+let gastos = cargarCache(KEY_CACHE_G).filter(x => !/^cancelad/i.test(String(x.estatus||''))); // v1.9.12 sin gastos cancelados
 // v1.9.4 — Ingresos válidos: sin pagos cancelados en Bind, sin duplicados manuales, sin el export de Bind (ING-…) que repite pagos ya importados
 function nunIngresosValidos(arr){
   arr = Array.isArray(arr) ? arr : [];
@@ -2560,7 +2601,7 @@ function nunIngresosValidos(arr){
   return arr.filter(i => !( /^(CANCELADO|DUPLICADO)/i.test(String(i.tipo||'')) || (corte && /^ING-/.test(String(i.id||'')) && /^(PAGO|AJUSTE)$/i.test(String(i.tipo||'')) && String(i.fecha||'').slice(0,10) <= corte) ));
 }
 let ingresos = nunIngresosValidos(cargarCache(KEY_CACHE_I));
-let cobranza = cargarCache(KEY_CACHE_C);
+let cobranza = cargarCache(KEY_CACHE_C).filter(x => !/^cancelad/i.test(String(x.estatus||''))); // v1.9.12 igual que después de sincronizar
 let clientesCatalogo = cargarCache(KEY_CACHE_CLI);  // v1.3.7: catálogo cliente→vendedor
 let urlScript = localStorage.getItem(KEY_URL) || 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 let tabActiva = 'gastos';
@@ -2802,11 +2843,12 @@ function renderControlesPaginacion(tabla, totalItems) {
 // ============================================================
 function cobranzaVisible() {
   if (typeof cobranza === 'undefined') return [];
-  if (!sesionActual || !sesionActual.permisos || sesionActual.permisos.ver_todos_clientes !== false) {
-    return cobranza;
-  }
-  const vend = (sesionActual.permisos.vendedor_asignado || sesionActual.usuario.vendedor_asignado || '').toUpperCase().trim();
-  if (!vend) return cobranza;
+  // v1.9.12 — falla CERRADO: sin sesión o sin vendedor asignado no se ve nada
+  if (!sesionActual || !sesionActual.permisos) return [];
+  if (nunEsAdmin() || sesionActual.permisos.ver_todos_clientes !== false) return cobranza;
+  // v1.9.12 — si no tiene vendedor asignado se usa su nombre (igual que en Pedidos)
+  const vend = String(sesionActual.permisos.vendedor_asignado || (sesionActual.usuario && (sesionActual.usuario.vendedor_asignado || sesionActual.usuario.nombre)) || '').toUpperCase().trim();
+  if (!vend) return [];
   return cobranza.filter(c => (c.vendedor || '').toUpperCase().trim() === vend);
 }
 
@@ -2927,13 +2969,13 @@ async function cargarCuentas() {
   try {
     const r = await fetch(urlScript, {
       method: 'POST',
-      body: JSON.stringify({ accion: 'listar_cuentas' }),
+      body: JSON.stringify({ accion: 'listar_cuentas', codigo: nunCodigoSesion() }), // v1.9.12
       headers: {'Content-Type': 'text/plain;charset=utf-8'}
     });
     const data = await r.json();
     if (data.ok) {
       cuentasCache = data.cuentas.filter(c => c.activa);
-      localStorage.setItem('nun_cuentas', JSON.stringify(cuentasCache));
+      nunLSset('nun_cuentas', JSON.stringify(cuentasCache));
     }
   } catch(e) {
     const cache = localStorage.getItem('nun_cuentas');
@@ -2946,13 +2988,13 @@ async function cargarVendedores() {
   try {
     const r = await fetch(urlScript, {
       method: 'POST',
-      body: JSON.stringify({ accion: 'listar_vendedores' }),
+      body: JSON.stringify({ accion: 'listar_vendedores', codigo: nunCodigoSesion() }), // v1.9.12
       headers: {'Content-Type': 'text/plain;charset=utf-8'}
     });
     const data = await r.json();
     if (data.ok) {
       vendedoresCache = data.vendedores.filter(v => v.activo);
-      localStorage.setItem('nun_vendedores', JSON.stringify(vendedoresCache));
+      nunLSset('nun_vendedores', JSON.stringify(vendedoresCache));
     }
   } catch(e) {
     const cache = localStorage.getItem('nun_vendedores');
@@ -2964,7 +3006,7 @@ function llenarSelectCuentas(selectId) {
   const sel = document.getElementById(selectId);
   if (!sel) return;
   sel.innerHTML = '<option value="">Selecciona cuenta...</option>' +
-    cuentasCache.map(c => `<option value="${c.nombre}">${c.nombre}</option>`).join('') +
+    cuentasCache.map(c => `<option value="${esc(c.nombre)}">${esc(c.nombre)}</option>`).join('') +
     '<option value="__otra__">Otra (escribir)</option>';
 }
 
@@ -2972,7 +3014,7 @@ function llenarSelectVendedores(selectId, defaultVal) {
   const sel = document.getElementById(selectId);
   if (!sel) return;
   sel.innerHTML = '<option value="">Sin asignar</option>' +
-    vendedoresCache.map(v => `<option value="${v.nombre}" ${v.nombre === (defaultVal||'').toUpperCase() ? 'selected' : ''}>${v.nombre}</option>`).join('');
+    vendedoresCache.map(v => `<option value="${esc(v.nombre)}" ${v.nombre === (defaultVal||'').toUpperCase() ? 'selected' : ''}>${esc(v.nombre)}</option>`).join('');
 }
 
 function abrirEditorCobranza(idDoc) {
@@ -2984,14 +3026,14 @@ function abrirEditorCobranza(idDoc) {
   // v1.3.3: mostrar el ID del documento como referencia para admins
   const puedeVerId = sesionActual && sesionActual.permisos && sesionActual.permisos.eliminar_documentos;
   const idTag = puedeVerId && doc.id 
-    ? `<span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:2px 6px;border-radius:3px;border:1px solid var(--line);margin-left:8px" title="ID determinístico para rastreo">${doc.id}</span>`
+    ? `<span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:2px 6px;border-radius:3px;border:1px solid var(--line);margin-left:8px" title="ID determinístico para rastreo">${esc(doc.id)}</span>`
     : '';
-  document.getElementById('ecSubtitulo').innerHTML = (doc.tipo || '') + ' ' + (doc.numero || '') + ' · ' + fmtFull(doc.total||0) + idTag;
+  document.getElementById('ecSubtitulo').innerHTML = esc(doc.tipo || '') + ' ' + esc(doc.numero || '') + ' · ' + fmtFull(doc.total||0) + idTag;
   document.getElementById('ecIdDoc').value = idDoc;
   document.getElementById('ecSaldoPendiente').textContent = fmtFull(doc.pendiente || 0);
   document.getElementById('ecCobradoTotal').textContent = fmtFull(doc.cobrado || 0);
   document.getElementById('ecMonto').value = '';
-  document.getElementById('ecFecha').value = new Date().toISOString().substring(0,10);
+  document.getElementById('ecFecha').value = nunHoyLocal();
   document.getElementById('ecNotas').value = '';
   
   llenarSelectCuentas('ecCuenta');
@@ -3009,7 +3051,7 @@ function abrirEditorCobranza(idDoc) {
   // Permisos: mostrar/ocultar tab "Editar" según permiso
   const puedeEditar = sesionActual && sesionActual.permisos && sesionActual.permisos.editar_cobranza;
   const puedeEliminar = sesionActual && sesionActual.permisos && sesionActual.permisos.eliminar_documentos;
-  document.getElementById('tabBtnEditar').style.display = puedeEditar ? '' : 'none';
+  document.getElementById('tabBtnEditar').style.display = (puedeEditar && nunEsAdmin()) ? '' : 'none'; // v1.9.12 — vendedores no editan total/cliente/vendedor
   document.getElementById('btnEliminarDoc').style.display = puedeEliminar ? '' : 'none';
   
   // Si no puede editar pago tampoco (solo lectura), bloquear ese tab
@@ -3040,7 +3082,7 @@ async function cargarHistorialPagos() {
   try {
     const r = await fetch(urlScript, {
       method: 'POST',
-      body: JSON.stringify({ accion: 'obtener_pagos_doc', id_doc: docActualEditor.id }),
+      body: JSON.stringify({ accion: 'obtener_pagos_doc', id_doc: docActualEditor.id, codigo: nunCodigoSesion() }), // v1.9.12
       headers: {'Content-Type': 'text/plain;charset=utf-8'}
     });
     const data = await r.json();
@@ -3065,16 +3107,16 @@ async function cargarHistorialPagos() {
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
             <div style="flex:1">
               <div style="font-size:16px;font-weight:500">${fmtFull(p.monto)}</div>
-              <div style="font-size:12px;color:var(--mute);margin-top:2px">${fmtFecha(p.fecha)} · ${p.cuenta || '—'}</div>
-              ${p.notas ? '<div style="font-size:13px;color:var(--ink-2);margin-top:6px;font-style:italic">' + p.notas + '</div>' : ''}
+              <div style="font-size:12px;color:var(--mute);margin-top:2px">${fmtFecha(p.fecha)} · ${esc(p.cuenta || '—')}</div>
+              ${p.notas ? '<div style="font-size:13px;color:var(--ink-2);margin-top:6px;font-style:italic">' + esc(p.notas) + '</div>' : ''}
             </div>
-            <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute)">por ${p.usuario || 'usuario'}</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute)">por ${esc(p.usuario || 'usuario')}</div>
           </div>
         </div>
       `).join('')}
     `;
   } catch(e) {
-    cont.innerHTML = '<div style="padding:20px;color:var(--accent)">Error: ' + e.message + '</div>';
+    cont.innerHTML = '<div style="padding:20px;color:var(--accent)">Error: ' + esc(e.message) + '</div>';
   }
 }
 
@@ -3141,7 +3183,7 @@ async function guardarPagoCobranza() {
     if (idx >= 0) {
       cobranza[idx].cobrado = _nc;
       cobranza[idx].pendiente = _np;
-      localStorage.setItem(KEY_CACHE_C, JSON.stringify(cobranza));
+      nunLSset(KEY_CACHE_C, JSON.stringify(cobranza));
     }
     
     mostrarToast('✓ Pago de ' + fmtFull(monto) + ' registrado · ' + cuenta);
@@ -3158,6 +3200,8 @@ async function guardarPagoCobranza() {
 
 async function guardarEdicionDoc() {
   if (!docActualEditor) return;
+  // v1.9.12 — solo admins editan total, cliente o vendedor
+  if (!nunEsAdmin()) { alert('Solo un administrador puede editar el documento (total, cliente o vendedor).'); return; }
   const cambios = {
     cliente: document.getElementById('edCliente').value.trim(),
     tipo: document.getElementById('edTipo').value,
@@ -3170,6 +3214,15 @@ async function guardarEdicionDoc() {
   };
   
   if (!cambios.cliente) { alert('El cliente es obligatorio'); return; }
+  // v1.9.12 — el total manda sobre el saldo: pendiente = total - cobrado
+  const _totAnt = nunR2(+docActualEditor.total || 0), _cobrado = nunR2(+docActualEditor.cobrado || 0);
+  cambios.total = nunR2(cambios.total);
+  if (Math.abs(cambios.total - _totAnt) > 0.005) {
+    if (docActualEditor.folio_fiscal || docActualEditor.uuid_sat || docActualEditor.uuid) { alert('Esta factura ya está timbrada: su total no se puede cambiar aquí. Haz una nota de crédito o cancélala en el sistema NUN.'); return; }
+    if (cambios.total <= 0) { alert('El total debe ser mayor a 0'); return; }
+    if (cambios.total + 0.005 < _cobrado) { alert('El total (' + fmtFull(cambios.total) + ') no puede ser menor a lo ya cobrado (' + fmtFull(_cobrado) + ').'); return; }
+    cambios.pendiente = nunR2(cambios.total - _cobrado);
+  }
   
   const btn = event.target;
   const txtO = btn.textContent;
@@ -3181,6 +3234,7 @@ async function guardarEdicionDoc() {
       method: 'POST',
       body: JSON.stringify({
         accion: 'actualizar_pedido',
+        codigo: nunCodigoSesion(), // v1.9.12
         id: docActualEditor.id,
         cambios: cambios
       }),
@@ -3219,7 +3273,7 @@ function abrirNuevoPedido() {
   document.getElementById('npNumero').value = '';
   document.getElementById('npTotal').value = '';
   document.getElementById('npFechaEntrega').value = '';
-  document.getElementById('npFechaEmision').value = new Date().toISOString().substring(0,10);
+  document.getElementById('npFechaEmision').value = nunHoyLocal();
   document.getElementById('npDescripcion').value = '';
   
   // Llenar datalist de clientes existentes
@@ -3264,6 +3318,7 @@ async function guardarNuevoPedido() {
       method: 'POST',
       body: JSON.stringify({
         accion: 'crear_pedido',
+        codigo: nunCodigoSesion(), // v1.9.12
         cliente, tipo, numero, total, vendedor,
         fecha_entrega: fechaEntrega,
         fecha_emision: fechaEmision,
@@ -3305,7 +3360,7 @@ function renderListaCuentas() {
   lista.innerHTML = cuentasCache.map((c, idx) => `
     <div class="cuenta-row ${c.activa ? '' : 'inactiva'}">
       <div>
-        <div style="font-weight:500">${c.nombre}</div>
+        <div style="font-weight:500">${esc(c.nombre)}</div>
         <div style="font-size:11px;color:var(--mute)">${c.activa ? 'Activa' : 'Inactiva'}</div>
       </div>
       <div style="display:flex;gap:6px">
@@ -3370,7 +3425,7 @@ function renderListaVendedores() {
   const lista = document.getElementById('listaVendedores');
   lista.innerHTML = vendedoresCache.map((v, idx) => `
     <div class="vendedor-row ${v.activo ? '' : 'inactiva'}">
-      <div style="font-weight:500;font-family:'JetBrains Mono',monospace">${v.nombre}</div>
+      <div style="font-weight:500;font-family:'JetBrains Mono',monospace">${esc(v.nombre)}</div>
       <div style="display:flex;gap:6px">
         <button class="btn-mini" onclick="toggleVendedor(${idx})">${v.activo ? 'Desactivar' : 'Activar'}</button>
         <button class="btn-mini danger" onclick="eliminarVendedor(${idx})">Eliminar</button>
@@ -3417,134 +3472,37 @@ async function guardarVendedoresServer() {
   } catch(e) { alert('Error: ' + e.message); }
 }
 
+// v1.9.12 — Regla del sistema: nunca se borran datos. "Eliminar" ahora CANCELA el documento
+// (estatus cancelado, saldo 0, motivo en notas) con la misma llamada que usa el sistema NUN.
 async function eliminarPedido() {
   if (!docActualEditor) return;
-  
-  // 1. Validación de permiso (defensa en profundidad — el botón ya está oculto, pero por si acaso)
-  const puedeEliminar = sesionActual && sesionActual.permisos && sesionActual.permisos.eliminar_documentos;
-  if (!puedeEliminar) {
-    alert('No tienes permiso para eliminar documentos. Pídeselo a Rafa.');
-    return;
-  }
-  
+  const puedeEliminar = sesionActual && sesionActual.permisos && sesionActual.permisos.eliminar_documentos === true;
+  if (!puedeEliminar) { alert('No tienes permiso para cancelar documentos. Pídeselo a Rafa.'); return; }
   const doc = docActualEditor;
   const folio = doc.numero || doc.id;
-  
-  // 2. Primera confirmación
-  if (!confirm(`¿Eliminar el pedido de ${doc.cliente} (${folio}) por ${fmtFull(doc.total)}?\n\nEsta acción NO se puede deshacer.`)) return;
-  
-  // 3. Detectar pagos asociados en Ingresos
-  // Como la tabla Ingresos NO tiene columna doc_id, usamos múltiples heurísticas:
-  //   - factura del pago coincide con número del documento
-  //   - cliente del pago coincide + monto + fecha cercana
-  //   - comentarios del pago mencionan el folio del documento
-  const pagosAsociados = (typeof ingresos !== 'undefined' ? ingresos : []).filter(i => {
-    const folioDoc = String(doc.numero || '').toUpperCase().trim();
-    const facturaPago = String(i.factura || '').toUpperCase().trim();
-    const clientePago = String(i.cliente || '').toUpperCase().trim();
-    const clienteDoc = String(doc.cliente || '').toUpperCase().trim();
-    const comentariosPago = String(i.comentarios || '').toUpperCase();
-    
-    // Match 1: factura del pago = folio del documento (más fuerte)
-    if (folioDoc && facturaPago === folioDoc) return true;
-    
-    // Match 2: el folio aparece en los comentarios del pago
-    if (folioDoc && comentariosPago.includes(folioDoc)) return true;
-    
-    // Match 3: mismo cliente y la factura del pago coincide con la del documento
-    const facturaDoc = String(doc.factura || '').toUpperCase().trim();
-    if (clientePago === clienteDoc && facturaDoc && facturaPago === facturaDoc) return true;
-    
-    return false;
-  });
-  
-  let eliminarPagosTambien = false;
-  if (pagosAsociados.length > 0) {
-    const totalPagado = pagosAsociados.reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
-    const elegido = confirm(
-      `⚠️ Este documento tiene ${pagosAsociados.length} pago(s) registrado(s) por un total de ${fmtFull(totalPagado)}.\n\n` +
-      `¿También quieres ELIMINAR esos pagos de Ingresos?\n\n` +
-      `• Aceptar = eliminar documento + pagos asociados (limpio)\n` +
-      `• Cancelar = eliminar solo el documento, dejar pagos en Ingresos (auditoría)`
-    );
-    eliminarPagosTambien = elegido;
-  }
-  
-  // 4. Doble confirmación: escribir "ELIMINAR"
-  const respuesta = prompt(
-    `Última confirmación.\n\nPara eliminar definitivamente, escribe en mayúsculas:\n\nELIMINAR\n\n(documento: ${folio} · ${fmtFull(doc.total)})`
-  );
-  if (respuesta === null) return; // cancelado
-  if (respuesta.trim().toUpperCase() !== 'ELIMINAR') {
-    alert('Texto incorrecto. Eliminación cancelada por seguridad.');
-    return;
-  }
-  
-  // 5. Ejecutar eliminación
+  const pagos = (typeof ingresos !== 'undefined' ? ingresos : []).filter(i => { const f = String(doc.numero || '').toUpperCase().trim(); return f && String(i.factura || '').toUpperCase().trim() === f; });
+  const avisoPagos = pagos.length ? `\n\n⚠️ Tiene ${pagos.length} pago(s) registrado(s). Los pagos NO se tocan: si también hay que cancelarlos, hazlo en el sistema NUN.` : '';
+  const motivo = prompt(`Cancelar el documento ${folio} de ${doc.cliente} por ${fmtFull(doc.total)}.\n\nNo se borra: queda marcado como CANCELADO.${avisoPagos}\n\nEscribe el motivo:`, '');
+  if (motivo === null) return;
+  if (!motivo.trim()) { alert('Escribe el motivo de la cancelación.'); return; }
   try {
-    mostrarToast('Eliminando…');
-    
-    // 5a. Eliminar el documento de cobranza
-    const respDoc = await fetch(urlScript, {
+    mostrarToast('Cancelando…');
+    const nota = String(doc.notas || '') + (doc.notas ? ' · ' : '') + 'CANCELADO ' + nunHoyLocal() + ' por ' + ((sesionActual.usuario && sesionActual.usuario.nombre) || nunCodigoSesion()) + ': ' + motivo.trim();
+    const resp = await fetch(urlScript, {
       method: 'POST',
-      body: JSON.stringify({
-        accion: 'eliminar',
-        tabla: 'cobranza',
-        id: doc.id,
-        codigo: sesionActual.codigo
-      }),
+      body: JSON.stringify({ accion: 'erp_upsert_batch', tabla: 'cobranza', items: [{ id: doc.id, estatus: 'cancelado', pendiente: 0, notas: nota }], codigo: sesionActual.codigo }),
       headers: {'Content-Type': 'text/plain;charset=utf-8'}
     });
-    const dataDoc = await respDoc.json();
-    if (!dataDoc.ok) throw new Error(dataDoc.error || 'No se pudo eliminar el documento');
-    
-    // 5b. Eliminar pagos asociados si el usuario eligió
-    let pagosEliminados = 0;
-    if (eliminarPagosTambien && pagosAsociados.length > 0) {
-      for (const pago of pagosAsociados) {
-        try {
-          const respPago = await fetch(urlScript, {
-            method: 'POST',
-            body: JSON.stringify({
-              accion: 'eliminar',
-              tabla: 'ingresos',
-              id: pago.id,
-              codigo: sesionActual.codigo
-            }),
-            headers: {'Content-Type': 'text/plain;charset=utf-8'}
-          });
-          const dataPago = await respPago.json();
-          if (dataPago.ok) pagosEliminados++;
-        } catch (e) {
-          console.warn('No se pudo eliminar pago', pago.id, e);
-        }
-      }
-    }
-    
-    // 6. Actualizar datos locales en memoria sin esperar a sync
-    if (typeof cobranza !== 'undefined' && Array.isArray(cobranza)) {
-      const idx = cobranza.findIndex(c => c.id === doc.id);
-      if (idx >= 0) cobranza.splice(idx, 1);
-    }
-    if (eliminarPagosTambien && typeof ingresos !== 'undefined' && Array.isArray(ingresos)) {
-      const idsEliminados = new Set(pagosAsociados.map(p => p.id));
-      for (let i = ingresos.length - 1; i >= 0; i--) {
-        if (idsEliminados.has(ingresos[i].id)) ingresos.splice(i, 1);
-      }
-    }
-    
-    // 7. Cerrar modal y refrescar vista
+    const data = await resp.json();
+    if (!data || !data.ok) throw new Error((data && data.error) || 'El servidor no confirmó la cancelación');
+    const idx = cobranza.findIndex(c => c.id === doc.id);
+    if (idx >= 0) cobranza.splice(idx, 1); // se oculta de la vista (sigue en la base como cancelado)
+    nunLSset(KEY_CACHE_C, JSON.stringify(cobranza));
     cerrarEditorCobranza();
     renderActual();
-    
-    const msg = eliminarPagosTambien && pagosEliminados > 0
-      ? `✓ Documento y ${pagosEliminados} pago(s) eliminados`
-      : '✓ Documento eliminado';
-    mostrarToast(msg);
-    
+    mostrarToast('✓ Documento ' + folio + ' cancelado (no se borró)');
   } catch (err) {
-    console.error('Error eliminando:', err);
-    alert('Error al eliminar: ' + err.message + '\n\nIntenta sincronizar y vuelve a intentar.');
+    alert('No se pudo cancelar: ' + err.message + '\n\nIntenta sincronizar y vuelve a intentar.');
   }
 }
 
@@ -3583,7 +3541,7 @@ function obtenerOCrearDeviceId() {
     }
     const random = Math.random().toString(36).substring(2, 10);
     id = 'd_' + Math.abs(hash).toString(36) + '_' + random;
-    localStorage.setItem(KEY_DEVICE_ID, id);
+    nunLSset(KEY_DEVICE_ID, id);
   }
   return id;
 }
@@ -3654,14 +3612,14 @@ async function hacerLogin() {
     const data = await r.json();
     
     if (!data.ok) {
-      let msg = data.error || 'Código inválido';
+      let msg = esc(data.error || 'Código inválido'); // v1.9.12
       // Si dice "código inválido" agregar tip
       if (msg.toLowerCase().includes('inválido') || msg.toLowerCase().includes('invalido')) {
         msg += '<br><small style="display:block;margin-top:6px;color:var(--mute);font-size:11px">Verifica que el código esté EXACTAMENTE como te lo dieron (incluyendo números al final).</small>';
       }
       err.innerHTML = msg;
       if (data.dispositivos_actuales && data.dispositivos_actuales.length > 0) {
-        err.innerHTML += '<br><small style="color:var(--mute);font-size:11px">Dispositivos activos: ' + data.dispositivos_actuales.map(d => d.nombre).join(', ') + '</small>';
+        err.innerHTML += '<br><small style="color:var(--mute);font-size:11px">Dispositivos activos: ' + data.dispositivos_actuales.map(d => esc(d.nombre)).join(', ') + '</small>';
       }
       btn.disabled = false;
       btn.textContent = 'Entrar';
@@ -3676,7 +3634,7 @@ async function hacerLogin() {
       device_id: deviceId
     };
     nunNormalizarSesion(); // v1.9.8
-    localStorage.setItem(KEY_SESSION, JSON.stringify(sesionActual));
+    nunLSset(KEY_SESSION, JSON.stringify(sesionActual));
     
     // Mostrar app
     document.getElementById('loginOverlay').style.display = 'none';
@@ -3701,10 +3659,9 @@ function recargarLogin() {
 }
 
 // v1.9.4 — GASTOS: solo el dueño (Rafa) y el código maestro. Ni otros admins.
-const NUN_DUENOS_GASTOS = ['RAFA-2026','YADAH-2026','MASTER-NUN-ERP-2026']; // v3.65 Yadah también
+// v1.9.12 — por prefijo (RAFA-, YADAH-, MASTER-NUN-): los códigos se rotan, ya no van escritos aquí
 function nunEsDuenoGastos(){
-  const c = String((sesionActual && sesionActual.codigo) || '').toUpperCase().trim();
-  return NUN_DUENOS_GASTOS.includes(c);
+  return esDuenoCodigo(nunCodigoSesion());
 }
 function nunQuitarGastos(){
   if (!sesionActual || nunEsDuenoGastos()) return;
@@ -3750,8 +3707,7 @@ function aplicarPermisos() {
   // Aplazadas: solo Rafa (admin maestro) que puede aplazar las puede ver
   const linkAplazadas = document.getElementById('linkAplazadas');
   if (linkAplazadas) {
-    const esRafa = sesionActual && sesionActual.codigo && 
-      (sesionActual.codigo === 'MASTER-NUN-2026' || sesionActual.codigo.startsWith('RAFA'));
+    const esRafa = nunEsRafaMaster(); // v1.9.12
     linkAplazadas.style.display = esRafa ? '' : 'none';
   }
   
@@ -3774,10 +3730,10 @@ function aplicarPermisos() {
   setTimeout(() => {
     if (sesionActual && sesionActual.permisos && sesionActual.permisos.ver_todos_clientes === false) {
       const vendAsignado = (sesionActual.permisos.vendedor_asignado || sesionActual.usuario.vendedor_asignado || '').toUpperCase();
-      if (vendAsignado && !localStorage.getItem('nun_dashboard_visto_hoy_' + new Date().toISOString().substring(0,10))) {
+      if (vendAsignado && !localStorage.getItem('nun_dashboard_visto_hoy_' + nunHoyLocal())) {
         // Mostrar dashboard personal una vez al día
         mostrarDashboardPersonalVendedor(vendAsignado);
-        localStorage.setItem('nun_dashboard_visto_hoy_' + new Date().toISOString().substring(0,10), '1');
+        nunLSset('nun_dashboard_visto_hoy_' + nunHoyLocal(), '1');
       }
     }
   }, 3000);
@@ -3792,15 +3748,11 @@ function aplicarPermisos() {
   
   // v1.3.2: Botón "🧹 Limpiar duplicados" solo si tiene eliminar_documentos
   const btnDedupe = document.getElementById('btnDedupeCobranza');
-  if (btnDedupe) btnDedupe.style.display = permisos.eliminar_documentos ? '' : 'none';
+  if (btnDedupe) btnDedupe.style.display = 'none'; // v1.9.12 — no se borran datos
   
   // v1.3.3: Botón "🗑️ Borrar TODO" SOLO Rafa y master (más estricto)
   const btnBorrarTodo = document.getElementById('btnBorrarTodoCobranza');
-  if (btnBorrarTodo) {
-    const cod = (sesionActual?.codigo || '').toUpperCase();
-    const esRafaMaster = cod === 'MASTER-NUN-2026' || cod.startsWith('RAFA');
-    btnBorrarTodo.style.display = (esRafaMaster && permisos.eliminar_documentos) ? '' : 'none';
-  }
+  if (btnBorrarTodo) btnBorrarTodo.style.display = 'none'; // v1.9.12 — regla: no se borran datos
   
   // v1.3.7: Tab Clientes solo para admins
   const tabClientes = document.getElementById('tabClientes');
@@ -3812,11 +3764,7 @@ function aplicarPermisos() {
   
   // v1.3.9: Botón "🗑️ Borrar TODO" en Ingresos - SOLO Rafa y master
   const btnBorrarTodoIng = document.getElementById('btnBorrarTodoIngresos');
-  if (btnBorrarTodoIng) {
-    const cod = (sesionActual?.codigo || '').toUpperCase();
-    const esRafaMaster = cod === 'MASTER-NUN-2026' || cod.startsWith('RAFA');
-    btnBorrarTodoIng.style.display = (esRafaMaster && permisos.eliminar_documentos) ? '' : 'none';
-  }
+  if (btnBorrarTodoIng) btnBorrarTodoIng.style.display = 'none'; // v1.9.12 — regla: no se borran datos
   
   // Mostrar nota "Vista personalizada" si es vendedor con restricción
   const vendNote = document.getElementById('vendedorRestrictionNote');
@@ -3859,7 +3807,14 @@ function actualizarUserBadge() {
 
 function cerrarSesion() {
   if (!confirm('¿Cerrar sesión?')) return;
-  localStorage.removeItem(KEY_SESSION);
+  // v1.9.12 — borrar sesión y caché de datos del navegador (otro usuario no debe ver lo anterior)
+  try {
+    const llaves = [];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && (/^nun_cache_/.test(k) || k === 'nun_cuentas' || k === 'nun_vendedores')) llaves.push(k); }
+    llaves.forEach(k => localStorage.removeItem(k));
+    localStorage.removeItem(KEY_SESSION);
+  } catch(e){}
+  try { gastos = []; ingresos = []; cobranza = []; clientesCatalogo = []; } catch(e){}
   sesionActual = null;
   document.getElementById('loginOverlay').style.display = 'flex';
   document.getElementById('appWrap').style.display = 'none';
@@ -3882,7 +3837,7 @@ function abrirConfigDesdeLogin() {
     return;
   }
   urlScript = limpia;
-  localStorage.setItem(KEY_URL, limpia);
+  nunLSset(KEY_URL, limpia);
   document.getElementById('loginError').innerHTML = '<span style="color:var(--green)">✓ URL configurada. Ahora ingresa tu código.</span>';
   // Mostrar también en el status del topbar de login
   const ls = document.getElementById('loginStatus');
@@ -3901,7 +3856,7 @@ function guardarConfigLogin() {
   if (!url) { alert('Pega la URL'); return; }
   if (!url.includes('/exec')) { alert('La URL debe terminar en /exec'); return; }
   urlScript = url;
-  localStorage.setItem(KEY_URL, url);
+  nunLSset(KEY_URL, url);
   cerrarConfigLogin();
   document.getElementById('loginError').innerHTML = '<span style="color:var(--green)">✓ URL configurada. Ahora ingresa tu código.</span>';
   setTimeout(() => { document.getElementById('loginError').textContent = ''; }, 4000);
@@ -3917,6 +3872,10 @@ function nunNormalizarSesion(){
   const u = sesionActual.usuario || {};
   if (!p.vendedor_asignado && u.vendedor_asignado) p.vendedor_asignado = u.vendedor_asignado;
   if (p.gestionar_usuarios === undefined) p.gestionar_usuarios = false;
+  // v1.9.12 — booleanos de verdad: 'false', '0', 'no' ya no cuentan como sí
+  ['ver_gastos','editar_gastos','ver_ingresos','editar_ingresos','ver_cobranza','editar_cobranza','agregar_pedidos','ver_dashboard',
+   'eliminar_documentos','gestionar_usuarios','cambiar_fecha_entrega','agregar_notas','ver_todos_clientes'].forEach(k => { if (p[k] !== undefined) p[k] = nunBool(p[k]); });
+  if (p.ver_todos_clientes === undefined && String(u.rol || '').toLowerCase() === 'vendedor') p.ver_todos_clientes = false; // vendedor: solo lo suyo
   const si = k => p[k] === true || p[k] === 'true';
   const pest = [];
   if (si('ver_gastos')) pest.push('gastos');
@@ -3999,7 +3958,7 @@ async function cargarListaUsuarios() {
     });
     const data = await r.json();
     if (!data.ok) {
-      lista.innerHTML = '<div style="padding:20px;color:var(--accent);text-align:center">' + (data.error || 'Error') + '</div>';
+      lista.innerHTML = '<div style="padding:20px;color:var(--accent);text-align:center">' + esc(data.error || 'Error') + '</div>';
       return;
     }
     
@@ -4031,10 +3990,10 @@ async function cargarListaUsuarios() {
         devicesHtml = dispositivos.map(d => `
           <div class="device-row">
             <div>
-              <div class="device-name">${d.nombre || 'Dispositivo'}</div>
+              <div class="device-name">${esc(d.nombre || 'Dispositivo')}</div>
               <div class="device-meta">Activado: ${fmtSesionFecha(d.activado)} · Último acceso: ${fmtSesionFecha(d.ultimo_acceso)}</div>
             </div>
-            <button class="btn-mini danger" onclick="liberarDispositivo('${u.codigo}', '${d.id}')">Liberar</button>
+            <button class="btn-mini danger" onclick="liberarDispositivo(${jsq(u.codigo)}, ${jsq(d.id)})">Liberar</button>
           </div>
         `).join('');
       }
@@ -4043,26 +4002,26 @@ async function cargarListaUsuarios() {
         <div class="user-card">
           <div class="user-card-head">
             <div>
-              <div class="user-name">${u.nombre}</div>
+              <div class="user-name">${esc(u.nombre)}</div>
               <div class="user-rol">${rolLabel} · ${dispositivos.length}/${u.max_dispositivos || 1} dispositivos</div>
             </div>
             <div style="display:flex;gap:6px;align-items:center">
-              <div class="user-codigo" onclick="copiarCodigo('${u.codigo}')" title="Click para copiar">${u.codigo}</div>
+              <div class="user-codigo" onclick="copiarCodigo(${jsq(u.codigo)})" title="Click para copiar">${esc(u.codigo)}</div>
             </div>
           </div>
           <div class="user-devices">
             ${devicesHtml}
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;border-top:1px dashed var(--line);padding-top:10px">
-            <button class="btn-mini" onclick="editarUsuario('${u.codigo}')">Editar</button>
-            <button class="btn-mini danger" onclick="eliminarUsuario('${u.codigo}', '${u.nombre}')">Eliminar</button>
+            <button class="btn-mini" onclick="editarUsuario(${jsq(u.codigo)})">Editar</button>
+            <button class="btn-mini danger" onclick="eliminarUsuario(${jsq(u.codigo)}, ${jsq(u.nombre)})">Eliminar</button>
           </div>
         </div>
       `;
     }).join('');
     
   } catch(e) {
-    lista.innerHTML = '<div style="padding:20px;color:var(--accent);text-align:center">Error: ' + e.message + '</div>';
+    lista.innerHTML = '<div style="padding:20px;color:var(--accent);text-align:center">Error: ' + esc(e.message) + '</div>';
   }
 }
 
@@ -4266,7 +4225,10 @@ if (!document.getElementById('toastStyle')) {
 }
 
 async function eliminarUsuario(codigo, nombre) {
-  if (!confirm('¿Eliminar a "' + nombre + '"? Esta acción no se puede deshacer.')) return;
+  // v1.9.12 — la hoja de usuarios no tiene campo "activo": solo el dueño puede darlo de baja, con doble confirmación
+  if (!nunEsRafaMaster()) { alert('Solo el dueño (Rafa) puede dar de baja usuarios.'); return; }
+  if (!confirm('¿Dar de baja a "' + nombre + '"? Ya no podrá entrar al sistema.')) return;
+  if (prompt('Para confirmar escribe el código del usuario (' + codigo + '):') !== codigo) { alert('No coincide. No se hizo nada.'); return; }
   try {
     const r = await fetch(urlScript, {
       method: 'POST',
@@ -4381,7 +4343,7 @@ function updateBadges() {
 async function getTabla(tabla) {
   if (!urlScript) return null;
   try {
-    const r = await fetch(urlScript + '?tabla=' + tabla);
+    const r = await fetch(urlScript + '?tabla=' + encodeURIComponent(tabla) + '&codigo=' + encodeURIComponent(nunCodigoSesion())); // v1.9.12
     const data = await r.json();
     if (!data.ok) throw new Error(data.error);
     return data.data || [];
@@ -4399,11 +4361,11 @@ async function sincronizarTodo() {
     getTabla('clientes')
   ]);
   let ok = true;
-  if (g) { if (nunEsDuenoGastos()) { gastos = g; localStorage.setItem(KEY_CACHE_G, JSON.stringify(gastos)); } else { gastos = []; } } else ok = false; // v1.9.4 solo Rafa
-  if (i) { ingresos = nunIngresosValidos(i); localStorage.setItem(KEY_CACHE_I, JSON.stringify(i)); } else ok = false; // v1.9.4
-  if (c) { cobranza = c.filter(x => !/^cancelad/i.test(String(x.estatus||''))); localStorage.setItem(KEY_CACHE_C, JSON.stringify(cobranza)); } else ok = false; // v1.9.2: sin cobranza cancelada
+  if (g) { if (nunEsDuenoGastos()) { gastos = g.filter(x => !/^cancelad/i.test(String(x.estatus||''))); /* v1.9.12 */ nunLSset(KEY_CACHE_G, JSON.stringify(gastos)); } else { gastos = []; } } else ok = false; // v1.9.4 solo Rafa
+  if (i) { ingresos = nunIngresosValidos(i); nunLSset(KEY_CACHE_I, JSON.stringify(i)); } else ok = false; // v1.9.4
+  if (c) { cobranza = c.filter(x => !/^cancelad/i.test(String(x.estatus||''))); nunLSset(KEY_CACHE_C, JSON.stringify(cobranza)); } else ok = false; // v1.9.2: sin cobranza cancelada
   // El catálogo es opcional: si no existe la pestaña, no falla la sincronización
-  if (cli) { clientesCatalogo = cli; localStorage.setItem(KEY_CACHE_CLI, JSON.stringify(clientesCatalogo)); }
+  if (cli) { clientesCatalogo = cli; nunLSset(KEY_CACHE_CLI, JSON.stringify(clientesCatalogo)); }
   if (ok) {
     const hora = new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
     setSync('ok', `Conectado · ${hora}`);
@@ -4431,7 +4393,7 @@ function cerrarConfig() { document.getElementById('modalConfig').classList.remov
 async function guardarConfig() {
   const url = document.getElementById('configUrl').value.trim();
   if (!url || !url.includes('/exec')) { alert('URL inválida'); return; }
-  urlScript = url; localStorage.setItem(KEY_URL, url);
+  urlScript = url; nunLSset(KEY_URL, url);
   cerrarConfig();
   await sincronizarTodo();
 }
@@ -4439,9 +4401,9 @@ async function guardarConfig() {
 const _nunTabInicial = (function(){ try { return localStorage.getItem('nun_crm_tab'); } catch(e){ return null; } })(); // v1.9.9
 function cambiarTab(tab) {
   tabActiva = tab;
-  try { localStorage.setItem('nun_crm_tab', tab); } catch(e){} // v1.9.9
+  try { nunLSset('nun_crm_tab', tab); } catch(e){} // v1.9.9
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + tab));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('active', p.id === 'pane-' + tab || p.dataset.pane === tab)); // v1.9.12
   document.getElementById('fab').classList.toggle('show', tab === 'gastos');
   renderActual();
 }
@@ -4450,7 +4412,7 @@ function renderActual() {
   else if (tabActiva === 'ingresos') renderIngresos();
   else if (tabActiva === 'cobranza') renderCobranza();
   else if (tabActiva === 'clientes') renderClientes();
-  else if (tabActiva === 'miscomisiones') renderMisComisiones();
+  else if (tabActiva === 'miscomisiones') { renderMisComisiones(); renderMisComisionesDetalle(); } // v1.9.12
   else if (tabActiva === 'micomision') renderMiComision();
   else if (tabActiva === 'vendedores') renderComisionesNuevo();
   else if (tabActiva === 'dashboard') renderDashboard();
@@ -4462,7 +4424,7 @@ function poblarSelects() {
     if (!sel) return;
     const v = sel.value;
     sel.innerHTML = primero ? `<option value="">${primero}</option>` : '';
-    opts.forEach(o => sel.innerHTML += `<option value="${o}">${o}</option>`);
+    opts.forEach(o => sel.innerHTML += `<option value="${esc(o)}">${esc(o)}</option>`);
     sel.value = v;
   };
   llenar('gCat', CATEGORIAS, 'Todas');
@@ -4530,8 +4492,8 @@ function renderGastos() {
     tbody.innerHTML = '<tr><td colspan="7" class="empty">Sin movimientos</td></tr>';
     cards.innerHTML = '<div class="empty">Sin movimientos</div>';
   } else {
-    tbody.innerHTML = fPaginado.map(g => `<tr onclick="editarGasto('${g.id}')"><td class="date">${fmtFecha(g.fecha)}</td><td class="title">${g.concepto||''}</td><td class="meta">${g.descripcion||'—'}</td><td><span class="tag">${g.categoria||''}</span></td><td><span class="tag bold">${g.metodo||''}</span></td><td><span class="tag">${g.responsable||''}</span></td><td class="amount">${fmtFull(g.monto)}</td></tr>`).join('');
-    cards.innerHTML = fPaginado.map(g => `<div class="card" onclick="editarGasto('${g.id}')"><div class="card-head"><div class="card-title">${g.concepto||''}</div><div class="card-amount">${fmtFull(g.monto)}</div></div><div class="card-sub">${g.descripcion||'—'}</div><div class="card-tags"><span class="card-date">${fmtFecha(g.fecha)}</span><span class="tag">${g.categoria||''}</span><span class="tag bold">${g.metodo||''}</span></div></div>`).join('');
+    tbody.innerHTML = fPaginado.map(g => `<tr onclick="editarGasto(${jsq(g.id)})"><td class="date">${fmtFecha(g.fecha)}</td><td class="title">${esc(g.concepto||'')}</td><td class="meta">${esc(g.descripcion||'—')}</td><td><span class="tag">${esc(g.categoria||'')}</span></td><td><span class="tag bold">${esc(g.metodo||'')}</span></td><td><span class="tag">${esc(g.responsable||'')}</span></td><td class="amount">${fmtFull(g.monto)}</td></tr>`).join('');
+    cards.innerHTML = fPaginado.map(g => `<div class="card" onclick="editarGasto(${jsq(g.id)})"><div class="card-head"><div class="card-title">${esc(g.concepto||'')}</div><div class="card-amount">${fmtFull(g.monto)}</div></div><div class="card-sub">${esc(g.descripcion||'—')}</div><div class="card-tags"><span class="card-date">${fmtFecha(g.fecha)}</span><span class="tag">${esc(g.categoria||'')}</span><span class="tag bold">${esc(g.metodo||'')}</span></div></div>`).join('');
   }
   
   // v1.3.6: controles paginación
@@ -4652,8 +4614,8 @@ function renderAlertsGastos(filtroMes, filtrados) {
     const pct = totalMes > 0 ? (mayor.monto/totalMes*100).toFixed(0) : 0;
     alertas.push({
       label: 'Mayor gasto del mes',
-      text: `<b>${mayor.concepto}</b> · ${fmtFull(mayor.monto)}`,
-      sub: `${mayor.categoria} · ${pct}% del gasto total del mes`
+      text: `<b>${esc(mayor.concepto)}</b> · ${fmtFull(mayor.monto)}`,
+      sub: `${esc(mayor.categoria)} · ${pct}% del gasto total del mes`
     });
   }
 
@@ -4690,13 +4652,13 @@ function renderAlertsGastos(filtroMes, filtrados) {
     if (topCrecimiento.nueva) {
       alertas.push({
         label: 'Categoría nueva',
-        text: `<b>${topCrecimiento.cat}</b> · ${fmtFull(topCrecimiento.valAct)}`,
+        text: `<b>${esc(topCrecimiento.cat)}</b> · ${fmtFull(topCrecimiento.valAct)}`,
         sub: `No tuvo gasto en ${nombreMesAnt} · ahora ${fmtFull(topCrecimiento.valAct)}`
       });
     } else {
       alertas.push({
         label: 'Mayor crecimiento vs mes anterior',
-        text: `<b>${topCrecimiento.cat}</b> subió <b>${Math.round(topCrecimiento.pct)}%</b>`,
+        text: `<b>${esc(topCrecimiento.cat)}</b> subió <b>${Math.round(topCrecimiento.pct)}%</b>`,
         sub: `${fmtFull(topCrecimiento.valAnt)} en ${nombreMesAnt} → ${fmtFull(topCrecimiento.valAct)} ahora`
       });
     }
@@ -4725,8 +4687,7 @@ function renderAlertsGastos(filtroMes, filtrados) {
   alertsDiv.style.display = 'grid';
   
   // Solo Rafa (admin maestro) puede aplazar
-  const puedeAplazar = sesionActual && sesionActual.codigo && 
-    (sesionActual.codigo === 'MASTER-NUN-2026' || sesionActual.codigo.startsWith('RAFA'));
+  const puedeAplazar = nunEsRafaMaster(); // v1.9.12
   
   alertsDiv.innerHTML = alertasFiltradas.map(a => `
     <div class="alert">
@@ -4737,9 +4698,9 @@ function renderAlertsGastos(filtroMes, filtrados) {
         <div class="alert-sub">${a.sub}</div>
         ${puedeAplazar ? `
           <div style="display:flex;gap:5px;margin-top:10px;flex-wrap:wrap">
-            <button class="btn-aplazar" onclick="aplazarAlerta('${a.id}', 1)">⏰ 1 día</button>
-            <button class="btn-aplazar" onclick="aplazarAlerta('${a.id}', 3)">⏰ 3 días</button>
-            <button class="btn-aplazar" onclick="aplazarAlerta('${a.id}', 7)">⏰ 1 sem</button>
+            <button class="btn-aplazar" onclick="aplazarAlerta(${jsq(a.id)}, 1)">⏰ 1 día</button>
+            <button class="btn-aplazar" onclick="aplazarAlerta(${jsq(a.id)}, 3)">⏰ 3 días</button>
+            <button class="btn-aplazar" onclick="aplazarAlerta(${jsq(a.id)}, 7)">⏰ 1 sem</button>
           </div>
         ` : ''}
       </div>
@@ -4765,7 +4726,7 @@ function abrirModalGasto__v194(id) {
       document.getElementById('gBtnEliminar').style.display = 'inline-flex';
     }
   } else {
-    document.getElementById('gFecha').value = new Date().toISOString().substring(0,10);
+    document.getElementById('gFecha').value = nunHoyLocal();
     document.getElementById('gMonto').value = '';
     document.getElementById('gConcepto').value = '';
     document.getElementById('gDescripcion').value = '';
@@ -4802,7 +4763,7 @@ async function guardarGasto() {
     gastos.push(ng);
     await enviarAccion('gastos', 'crear', {item: ng});
   }
-  localStorage.setItem(KEY_CACHE_G, JSON.stringify(gastos));
+  nunLSset(KEY_CACHE_G, JSON.stringify(gastos));
   updateBadges();
   poblarSelects();
   renderGastos();
@@ -4813,7 +4774,7 @@ async function eliminarGasto() {
   const id = document.getElementById('gEditId').value;
   if (!id) { alert('No hay ID válido para eliminar'); return; }
   // Mostrar modal de confirmación custom (más confiable que confirm)
-  document.getElementById('confirmModalText').textContent = '¿Eliminar este gasto permanentemente?';
+  document.getElementById('confirmModalText').textContent = '¿Cancelar este gasto? No se borra: queda marcado como cancelado.'; // v1.9.12
   document.getElementById('confirmModalAccion').dataset.id = id;
   document.getElementById('modalConfirm').classList.add('show');
 }
@@ -4823,18 +4784,26 @@ async function ejecutarEliminacion() {
   if (!id) return;
   document.getElementById('modalConfirm').classList.remove('show');
   
-  // Eliminar localmente
+  // v1.9.12 — nunca se borra: se marca cancelado y solo se quita de la vista cuando el servidor confirma
+  const g0 = gastos.find(g => g.id === id) || {};
+  const nota = String(g0.notas || '') + (g0.notas ? ' · ' : '') + 'CANCELADO ' + nunHoyLocal() + ' por ' + ((sesionActual && sesionActual.usuario && sesionActual.usuario.nombre) || nunCodigoSesion());
+  let ok = false;
+  try {
+    const r = await fetch(urlScript, { method:'POST', body: JSON.stringify({ accion:'erp_upsert_batch', tabla:'gastos', items:[{ id, estatus:'cancelado', notas: nota }], codigo: nunCodigoSesion() }), headers: {'Content-Type': 'text/plain;charset=utf-8'} });
+    const d = await r.json();
+    ok = !!(d && d.ok);
+    if (!ok) throw new Error((d && d.error) || 'sin confirmación');
+    // El servidor tira columnas que no existen: confirmar que el estatus sí quedó guardado
+    const fres = await getTabla('gastos');
+    const quedo = (fres || []).find(x => x.id === id);
+    if (fres && quedo && !/^cancelad/i.test(String(quedo.estatus || ''))) throw new Error('la hoja de Gastos no guardó el estatus (falta la columna "estatus"). No se canceló');
+  } catch(e) { setSync('error', 'No se pudo cancelar el gasto · ' + e.message); alert('No se pudo cancelar el gasto: ' + e.message); return; }
   gastos = gastos.filter(g => g.id !== id);
-  localStorage.setItem(KEY_CACHE_G, JSON.stringify(gastos));
+  nunLSset(KEY_CACHE_G, JSON.stringify(gastos));
   updateBadges();
   renderGastos();
   cerrarModalGasto();
-  
-  // Enviar al servidor (asíncrono)
-  const ok = await enviarAccion('gastos', 'eliminar', {id});
-  if (!ok) {
-    setSync('error', 'No se pudo eliminar en Google Sheets · revisa sincronización');
-  }
+  mostrarToast('✓ Gasto cancelado (no se borró)');
 }
 
 function cerrarConfirm() {
@@ -4893,23 +4862,23 @@ function renderIngresos() {
   } else {
     tbody.innerHTML = fPaginado.map(i => {
       const btnEliminar = puedeEliminar 
-        ? `<td><button class="btn ghost" style="padding:4px 10px;font-size:11px;color:#dc2626" onclick="eliminarPagoIngreso('${i.id}')">Eliminar</button></td>` 
+        ? `<td><button class="btn ghost" style="padding:4px 10px;font-size:11px;color:#dc2626" onclick="eliminarPagoIngreso(${jsq(i.id)})">Eliminar</button></td>` 
         : '';
       // v1.3.7: vendedor computado vía catálogo
       const vendCli = vendedorDeCliente(i.cliente, nunFechaDocDeIngreso(i));
       const colorVend = {EDGAR:'#c47b00',LUIS:'#1d4ed8',YADAH:'#be185d',ESTEBAN:'#374151'}[vendCli] || 'var(--mute)';
       const vendDisplay = vendCli 
-        ? `<span class="tag" style="font-size:10px;color:${colorVend};font-weight:600">${vendCli}</span>` 
+        ? `<span class="tag" style="font-size:10px;color:${colorVend};font-weight:600">${esc(vendCli)}</span>` 
         : `<span style="font-size:10px;color:var(--mute);font-style:italic">—</span>`;
-      return `<tr><td class="date">${fmtFecha(i.fecha)}</td><td class="title">${i.cliente||''}</td><td>${vendDisplay}</td><td class="meta">${i.factura||'—'}</td><td><span class="tag bold">${i.cuenta||''}</span></td><td><span class="tag">${(i.tipo||'').substring(0,22)}</span></td><td class="amount paid">${fmtFull(i.monto)}</td>${btnEliminar}</tr>`;
+      return `<tr><td class="date">${fmtFecha(i.fecha)}</td><td class="title">${esc(i.cliente||'')}</td><td>${vendDisplay}</td><td class="meta">${esc(i.factura||'—')}</td><td><span class="tag bold">${esc(i.cuenta||'')}</span></td><td><span class="tag">${esc((i.tipo||'').substring(0,22))}</span></td><td class="amount paid">${fmtFull(i.monto)}</td>${btnEliminar}</tr>`;
     }).join('');
     cards.innerHTML = fPaginado.map(i => {
       const btnEliminar = puedeEliminar 
-        ? `<button class="btn ghost" style="padding:4px 10px;font-size:11px;color:#dc2626;margin-top:6px" onclick="event.stopPropagation();eliminarPagoIngreso('${i.id}')">Eliminar</button>` 
+        ? `<button class="btn ghost" style="padding:4px 10px;font-size:11px;color:#dc2626;margin-top:6px" onclick="event.stopPropagation();eliminarPagoIngreso(${jsq(i.id)})">Eliminar</button>` 
         : '';
       const vendCli = vendedorDeCliente(i.cliente, nunFechaDocDeIngreso(i));
-      const vendTag = vendCli ? `<span class="tag" style="font-size:10px">${vendCli}</span>` : '';
-      return `<div class="card"><div class="card-head"><div class="card-title">${i.cliente||''}</div><div class="card-amount paid">${fmtFull(i.monto)}</div></div><div class="card-sub">${i.factura ? 'Factura: ' + i.factura : '—'}</div><div class="card-tags"><span class="card-date">${fmtFecha(i.fecha)}</span><span class="tag bold">${i.cuenta||''}</span>${vendTag}</div>${btnEliminar}</div>`;
+      const vendTag = vendCli ? `<span class="tag" style="font-size:10px">${esc(vendCli)}</span>` : '';
+      return `<div class="card"><div class="card-head"><div class="card-title">${esc(i.cliente||'')}</div><div class="card-amount paid">${fmtFull(i.monto)}</div></div><div class="card-sub">${i.factura ? 'Factura: ' + esc(i.factura) : '—'}</div><div class="card-tags"><span class="card-date">${fmtFecha(i.fecha)}</span><span class="tag bold">${esc(i.cuenta||'')}</span>${vendTag}</div>${btnEliminar}</div>`;
     }).join('');
   }
   
@@ -4926,46 +4895,40 @@ function renderIngresos() {
   renderDesgloseIng(f);
 }
 
-// v1.2.9: eliminar un pago de Ingresos (solo Rafa/master)
+// v1.9.12 — eliminar un pago: igual que el sistema NUN (editar_pago_manual con nuevo_monto 0),
+// así cobranza (cobrado/pendiente) queda cuadrada. Solo el dueño.
 async function eliminarPagoIngreso(id) {
-  // Validación de permiso (defensa en profundidad)
-  const puedeEliminar = sesionActual && sesionActual.permisos && sesionActual.permisos.eliminar_documentos;
-  if (!puedeEliminar) {
-    alert('No tienes permiso para eliminar pagos.');
+  if (!(sesionActual && sesionActual.permisos && sesionActual.permisos.eliminar_documentos === true && nunEsRafaMaster())) {
+    alert('Solo el dueño (Rafa) puede eliminar pagos.');
     return;
   }
-  
   const pago = ingresos.find(i => i.id === id);
   if (!pago) { alert('Pago no encontrado.'); return; }
-  
-  // Una sola confirmación
-  const fecha = (pago.fecha || '').substring(0, 10);
-  const cliente = pago.cliente || '—';
-  const monto = fmtFull(pago.monto || 0);
-  const factura = pago.factura || '—';
-  if (!confirm(`¿Eliminar este pago?\n\nFecha: ${fecha}\nCliente: ${cliente}\nFactura: ${factura}\nMonto: ${monto}\n\nNo se puede deshacer.`)) return;
-  
+  const fecha = String(pago.fecha || '').substring(0, 10);
+  const monto = nunR2(+pago.monto || 0);
+  // Documento de cobranza al que se aplicó
+  const fac = String(pago.factura || '').toUpperCase().trim();
+  const doc = fac ? cobranza.find(c => String(c.numero || '').toUpperCase().trim() === fac) : null;
+  if (!doc) { alert('No encontré el documento de cobranza de este pago (' + (pago.factura || 'sin factura') + '). Elimínalo desde el sistema NUN.'); return; }
+  let pm = null;
   try {
-    mostrarToast('Eliminando…');
+    const r = await fetch(urlScript, { method:'POST', body: JSON.stringify({ accion:'obtener_pagos_doc', id_doc: doc.id, codigo: nunCodigoSesion() }), headers: {'Content-Type': 'text/plain;charset=utf-8'} });
+    const d = await r.json();
+    pm = ((d && d.pagos) || []).find(p => Math.abs(nunR2(+p.monto || 0) - monto) < 0.01 && String(p.fecha || '').substring(0,10) === fecha) || null;
+  } catch(e) {}
+  if (!pm || !pm.timestamp) { alert('Este pago no se capturó a mano (viene de Bind o del sistema). Cancélalo desde el sistema NUN.'); return; }
+  if (!confirm(`¿Eliminar este pago?\n\nFecha: ${fecha}\nCliente: ${pago.cliente || '—'}\nFactura: ${pago.factura || '—'}\nMonto: ${fmtFull(monto)}\n\nSe resta del cobrado y vuelve al pendiente del documento (queda en bitácora).`)) return;
+  try {
+    mostrarToast('Eliminando pago…');
     const resp = await fetch(urlScript, {
       method: 'POST',
-      body: JSON.stringify({
-        accion: 'eliminar',
-        tabla: 'ingresos',
-        id: id,
-        codigo: sesionActual.codigo
-      }),
+      body: JSON.stringify({ accion: 'editar_pago_manual', timestamp: pm.timestamp, id_doc: doc.id, nuevo_monto: 0, codigo_usuario: sesionActual.codigo, codigo: sesionActual.codigo }),
       headers: {'Content-Type': 'text/plain;charset=utf-8'}
     });
     const data = await resp.json();
-    if (!data.ok) throw new Error(data.error || 'No se pudo eliminar');
-    
-    // Quitar de memoria local
-    const idx = ingresos.findIndex(i => i.id === id);
-    if (idx >= 0) ingresos.splice(idx, 1);
-    
+    if (!data || !data.ok) throw new Error((data && data.error) || 'No se pudo eliminar');
     mostrarToast('✓ Pago eliminado');
-    renderIngresos();
+    await sincronizarTodo();
   } catch (err) {
     alert('Error al eliminar: ' + err.message);
   }
@@ -5085,7 +5048,7 @@ function renderAlertsIngresos(filtroMes, filtrados) {
     if (pct >= 30) {
       alertas.push({
         label: 'Alta concentración de cliente',
-        text: `<b>${nombre}</b> representa <b>${pct.toFixed(0)}%</b> de los ingresos`,
+        text: `<b>${esc(nombre)}</b> representa <b>${pct.toFixed(0)}%</b> de los ingresos`,
         sub: `${fmtFull(valor)} de ${fmtFull(totalMes)} · riesgo de dependencia`
       });
     }
@@ -5124,8 +5087,7 @@ function renderAlertsIngresos(filtroMes, filtrados) {
   alertsDiv.style.display = 'grid';
   
   // Solo Rafa (admin maestro) puede aplazar
-  const puedeAplazar = sesionActual && sesionActual.codigo && 
-    (sesionActual.codigo === 'MASTER-NUN-2026' || sesionActual.codigo.startsWith('RAFA'));
+  const puedeAplazar = nunEsRafaMaster(); // v1.9.12
   
   alertsDiv.innerHTML = alertasFiltradas.map(a => `
     <div class="alert">
@@ -5136,9 +5098,9 @@ function renderAlertsIngresos(filtroMes, filtrados) {
         <div class="alert-sub">${a.sub}</div>
         ${puedeAplazar ? `
           <div style="display:flex;gap:5px;margin-top:10px;flex-wrap:wrap">
-            <button class="btn-aplazar" onclick="aplazarAlerta('${a.id}', 1)">⏰ 1 día</button>
-            <button class="btn-aplazar" onclick="aplazarAlerta('${a.id}', 3)">⏰ 3 días</button>
-            <button class="btn-aplazar" onclick="aplazarAlerta('${a.id}', 7)">⏰ 1 sem</button>
+            <button class="btn-aplazar" onclick="aplazarAlerta(${jsq(a.id)}, 1)">⏰ 1 día</button>
+            <button class="btn-aplazar" onclick="aplazarAlerta(${jsq(a.id)}, 3)">⏰ 3 días</button>
+            <button class="btn-aplazar" onclick="aplazarAlerta(${jsq(a.id)}, 7)">⏰ 1 sem</button>
           </div>
         ` : ''}
       </div>
@@ -5186,7 +5148,7 @@ function filtrarCobranza() {
     // Filtro fecha hoy (botón rápido "Entregados hoy")
     if (window._filtroFechaHoy) {
       if (esPorEntregar(c)) return false;
-      const hoy = new Date().toISOString().substring(0,10);
+      const hoy = nunHoyLocal();
       const fechaC = String(c.fecha_entrega||'').substring(0,10);
       if (fechaC !== hoy) return false;
     }
@@ -5263,7 +5225,7 @@ function renderCobranza() {
         : `<td class="amount pending">${fmtFull(c.pendiente)}</td>`;
       const rowStyle = esPorEntregar(c) ? ' style="background:#fff8e6"' : '';
       const vendedor = c.vendedor || '—';
-      return `<tr${rowStyle} data-cliente="${(c.cliente||'').replace(/"/g,'&quot;')}"><td class="date">${fechaMostrar}</td><td class="title">${c.cliente||''}</td><td><span class="tag" style="font-size:10px">${vendedor}</span></td><td class="date">${c.numero||''}</td><td class="amount">${fmtFull(c.total)}</td><td class="amount paid">${fmtFull(c.cobrado)}</td>${saldoCell}<td>${ag}</td><td style="text-align:right"><button class="btn-mini" onclick="event.stopPropagation();abrirEditorCobranza('${c.id}')" style="padding:4px 12px;border:1px solid var(--ink);border-radius:100px;background:transparent;color:var(--ink);font-size:11px;cursor:pointer;font-family:'Inter Tight',sans-serif">Editar</button></td></tr>`;
+      return `<tr${rowStyle} data-cliente="${esc(c.cliente||'')}"><td class="date">${fechaMostrar}</td><td class="title">${esc(c.cliente||'')}</td><td><span class="tag" style="font-size:10px">${esc(vendedor)}</span></td><td class="date">${esc(c.numero||'')}</td><td class="amount">${fmtFull(c.total)}</td><td class="amount paid">${fmtFull(c.cobrado)}</td>${saldoCell}<td>${ag}</td><td style="text-align:right"><button class="btn-mini" onclick="event.stopPropagation();abrirEditorCobranza(${jsq(c.id)})" style="padding:4px 12px;border:1px solid var(--ink);border-radius:100px;background:transparent;color:var(--ink);font-size:11px;cursor:pointer;font-family:'Inter Tight',sans-serif">Editar</button></td></tr>`;
     }).join('');
     cards.innerHTML = fPaginado.map(c => {
       const dias = c.dias_vencido || 0;
@@ -5275,7 +5237,7 @@ function renderCobranza() {
       else if (dias > 30) ag = `<span class="aging warn">${dias}d</span>`;
       else ag = `<span class="aging warn">${dias}d</span>`;
       const fechaMostrar = esPorEntregar(c) ? 'Por entregar' : fmtFecha(c.fecha_entrega);
-      return `<div class="card" onclick="abrirEditorCobranza('${c.id}')" style="cursor:pointer"><div class="card-head"><div class="card-title">${c.cliente||''}</div><div class="card-amount ${esPorEntregar(c) ? '' : (c.pendiente > 0 ? 'pending' : 'paid')}" style="${esPorEntregar(c) ? 'color:#6a5d3a;font-style:italic' : ''}">${esPorEntregar(c) ? fmtFull(c.total) + ' (pdte)' : fmtFull(c.pendiente)}</div></div><div class="card-sub">${c.tipo} ${c.numero} · Total ${fmtFull(c.total)}${esPorEntregar(c) ? ' · esperando entrega' : ''}</div><div class="card-tags"><span class="card-date">${fechaMostrar}</span><span class="tag">${c.tipo||''}</span>${ag}</div></div>`;
+      return `<div class="card" onclick="abrirEditorCobranza(${jsq(c.id)})" style="cursor:pointer"><div class="card-head"><div class="card-title">${esc(c.cliente||'')}</div><div class="card-amount ${esPorEntregar(c) ? '' : (c.pendiente > 0 ? 'pending' : 'paid')}" style="${esPorEntregar(c) ? 'color:#6a5d3a;font-style:italic' : ''}">${esPorEntregar(c) ? fmtFull(c.total) + ' (pdte)' : fmtFull(c.pendiente)}</div></div><div class="card-sub">${esc(c.tipo)} ${esc(c.numero)} · Total ${fmtFull(c.total)}${esPorEntregar(c) ? ' · esperando entrega' : ''}</div><div class="card-tags"><span class="card-date">${fechaMostrar}</span><span class="tag">${esc(c.tipo||'')}</span>${ag}</div></div>`;
     }).join('');
   }
   
@@ -5324,7 +5286,7 @@ function renderHeroCobranza() {
     document.getElementById('heroCobranza').innerHTML = `
       <div class="stat"><div class="stat-label">Por entregar total</div><div class="stat-val" style="color:#6a5d3a">${fmt(total)}</div><div class="stat-sub">${filtrados.length} pedidos pendientes</div></div>
       <div class="stat"><div class="stat-label">Clientes con pedidos</div><div class="stat-val">${clientesUnicos}</div><div class="stat-sub">esperan entrega</div></div>
-      <div class="stat"><div class="stat-label">Pedido más grande</div><div class="stat-val small">${mayorPedido.cliente || '—'}</div><div class="stat-sub">${fmt(mayorPedido.total||0)}</div></div>
+      <div class="stat"><div class="stat-label">Pedido más grande</div><div class="stat-val small">${esc(mayorPedido.cliente || '—')}</div><div class="stat-sub">${fmt(mayorPedido.total||0)}</div></div>
       <div class="stat"><div class="stat-label">Promedio por pedido</div><div class="stat-val">${fmt(promPedido)}</div><div class="stat-sub">ticket promedio</div></div>`;
     renderAlertsCobranza([]); // Sin alertas en esta vista
     return;
@@ -5339,7 +5301,7 @@ function renderHeroCobranza() {
     document.getElementById('heroCobranza').innerHTML = `
       <div class="stat"><div class="stat-label">Histórico cobrado</div><div class="stat-val green">${fmt(totalCobrado)}</div><div class="stat-sub">${filtrados.length} docs pagados</div></div>
       <div class="stat"><div class="stat-label">Clientes</div><div class="stat-val">${clientesUnicos}</div><div class="stat-sub">han pagado</div></div>
-      <div class="stat"><div class="stat-label">Mayor cobro</div><div class="stat-val small">${mayorCobro.cliente || '—'}</div><div class="stat-sub">${fmt(mayorCobro.cobrado||0)}</div></div>
+      <div class="stat"><div class="stat-label">Mayor cobro</div><div class="stat-val small">${esc(mayorCobro.cliente || '—')}</div><div class="stat-sub">${fmt(mayorCobro.cobrado||0)}</div></div>
       <div class="stat"><div class="stat-label">Promedio por doc</div><div class="stat-val">${fmt(promCobro)}</div><div class="stat-sub">ticket promedio</div></div>`;
     renderAlertsCobranza([]); // Sin alertas en histórico
     return;
@@ -5457,7 +5419,7 @@ function renderAlertsCobranza(docs) {
       alertas.push({
         id: 'cobranza_deudor_alto',
         label: 'Deudor de alto riesgo',
-        text: `<b>${nombre}</b> · ${fmtFull(info.monto)} pendiente`,
+        text: `<b>${esc(nombre)}</b> · ${fmtFull(info.monto)} pendiente`,
         sub: `${info.docs} documento${info.docs>1?'s':''} con hasta ${info.maxDias} días de atraso`
       });
     }
@@ -5487,8 +5449,7 @@ function renderAlertsCobranza(docs) {
   alertsDiv.style.display = 'grid';
   
   // Solo Rafa (admin maestro) puede aplazar
-  const puedeAplazar = sesionActual && sesionActual.codigo && 
-    (sesionActual.codigo === 'MASTER-NUN-2026' || sesionActual.codigo.startsWith('RAFA'));
+  const puedeAplazar = nunEsRafaMaster(); // v1.9.12
   
   alertsDiv.innerHTML = alertasFiltradas.map(a => `
     <div class="alert">
@@ -5499,9 +5460,9 @@ function renderAlertsCobranza(docs) {
         <div class="alert-sub">${a.sub}</div>
         ${puedeAplazar ? `
           <div style="display:flex;gap:5px;margin-top:10px;flex-wrap:wrap">
-            <button class="btn-aplazar" onclick="aplazarAlerta('${a.id}', 1)">⏰ 1 día</button>
-            <button class="btn-aplazar" onclick="aplazarAlerta('${a.id}', 3)">⏰ 3 días</button>
-            <button class="btn-aplazar" onclick="aplazarAlerta('${a.id}', 7)">⏰ 1 sem</button>
+            <button class="btn-aplazar" onclick="aplazarAlerta(${jsq(a.id)}, 1)">⏰ 1 día</button>
+            <button class="btn-aplazar" onclick="aplazarAlerta(${jsq(a.id)}, 3)">⏰ 3 días</button>
+            <button class="btn-aplazar" onclick="aplazarAlerta(${jsq(a.id)}, 7)">⏰ 1 sem</button>
           </div>
         ` : ''}
       </div>
@@ -5847,7 +5808,7 @@ function exportarCSV(tabla) {
   const blob = new Blob([csv.join('\n')], {type: 'text/csv'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'nun-' + tabla + '-' + new Date().toISOString().substring(0,10) + '.csv';
+  a.href = url; a.download = 'nun-' + tabla + '-' + nunHoyLocal() + '.csv';
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -5959,7 +5920,7 @@ function cerrarRecordatorio(razon) {
     aplazarAlerta('recordatorio_dia15', Math.ceil((proxMes - ahora) / (1000*60*60*24)));
     mostrarToast('✓ Recordatorio cerrado · reaparecerá el día 15 del próximo mes');
   } else {
-    localStorage.setItem('nun_recordatorio_cerrado_' + mesActual, '1');
+    nunLSset('nun_recordatorio_cerrado_' + mesActual, '1');
     const banner = document.getElementById('recordatoriosBanner');
     if (banner) banner.remove();
   }
@@ -6121,12 +6082,12 @@ function renderListaAplazamientos() {
       <div style="border:1px solid var(--line);border-radius:6px;padding:14px 16px;margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
           <div style="flex:1">
-            <div style="font-weight:500;font-size:14px">${nombres[id] || id}</div>
+            <div style="font-weight:500;font-size:14px">${esc(nombres[id] || id)}</div>
             <div style="font-size:12px;color:var(--mute);margin-top:4px">
               Reaparece en <b>${tiempoRestante}</b> · ${expira.toLocaleDateString('es-MX', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})}
             </div>
           </div>
-          <button class="btn-mini danger" onclick="reactivarAlerta('${id}')">Reactivar ahora</button>
+          <button class="btn-mini danger" onclick="reactivarAlerta(${jsq(id)})">Reactivar ahora</button>
         </div>
       </div>
     `;
@@ -6294,7 +6255,7 @@ function renderProyeccionCobranza() {
   
   // Lista detallada
   proyecciones.slice(0, 30).forEach(p => {
-    const fechaStr = p.fechaEsperada.toISOString().substring(0,10);
+    const fechaStr = nunHoyLocal(p.fechaEsperada);
     const fechaLeg = fmtFecha(fechaStr);
     let color = 'var(--ink)';
     let estado = '';
@@ -6314,8 +6275,8 @@ function renderProyeccionCobranza() {
     html += `
       <div class="rank" style="align-items:center">
         <div style="flex:1;min-width:0">
-          <div style="color:var(--ink);font-weight:500;font-size:14px">${p.cliente}</div>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--mute);margin-top:2px">${p.numero} · ${historial}</div>
+          <div style="color:var(--ink);font-weight:500;font-size:14px">${esc(p.cliente)}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--mute);margin-top:2px">${esc(p.numero)} · ${historial}</div>
         </div>
         <div style="text-align:right">
           <div class="v pending" style="margin-bottom:2px">${fmtFull(p.pendiente)}</div>
@@ -6412,7 +6373,7 @@ function cambiarVista(modo) {
     table.classList.add('vista-' + modo);
   }
   
-  localStorage.setItem('nun_vista_cobranza', modo);
+  nunLSset('nun_vista_cobranza', modo);
 }
 
 // Restaurar vista al cargar
@@ -6620,7 +6581,7 @@ document.addEventListener('keydown', (e) => {
       buscar.focus();
       buscar.select();
       // Cambiar a pestaña cobranza si no está
-      if (typeof switchTab === 'function') switchTab('cobranza');
+      if (tabActiva !== 'cobranza' && typeof cambiarTab === 'function') cambiarTab('cobranza'); // v1.9.12 (antes switchTab, no existe)
     }
     return;
   }
@@ -6687,7 +6648,7 @@ function rangoPeriodo(periodo) {
     desde = new Date(hoy.getFullYear(), 0, 1);
     hasta = new Date(hoy.getFullYear(), 11, 31, 23, 59, 59);
   } else if (periodo === 'historico') {
-    desde = new Date(FECHA_INICIO_COMISIONES);
+    desde = nunFechaLocal(FECHA_INICIO_COMISIONES);
     hasta = new Date(hoy.getFullYear(), 11, 31, 23, 59, 59);
   } else if (periodo === 'personalizado') {
     // v1.3.7: el usuario elige mes específico ("2026-04" formato)
@@ -6984,10 +6945,10 @@ function renderVendedores() {
       
       const accionBtn = d._esAdmin 
         ? `<button class="btn-mini" disabled style="opacity:0.4;cursor:not-allowed">Admin</button>`
-        : `<button class="btn-mini" onclick="abrirDetalleVendedor('${d.vendedor}')">Ver detalle</button>`;
+        : `<button class="btn-mini" onclick="abrirDetalleVendedor(${jsq(d.vendedor)})">Ver detalle</button>`;
       
       return `<tr>
-        <td><b>${d.vendedor}</b>${d._esAdmin ? ' <span style="font-size:10px;color:var(--mute)">(socio)</span>' : ''}</td>
+        <td><b>${esc(d.vendedor)}</b>${d._esAdmin ? ' <span style="font-size:10px;color:var(--mute)">(socio)</span>' : ''}</td>
         <td class="amount">${fmtFull(d.vendido)}</td>
         <td class="amount paid">${fmtFull(d.cobrado)}</td>
         <td class="amount pending">${fmtFull(d.porCobrar)}</td>
@@ -7002,9 +6963,9 @@ function renderVendedores() {
     cards.innerHTML = filasAMostrar.map(d => {
       const com = calcularComision(d.vendedor, datosCompletos);
       const pagado = comisionPagadaEnPeriodo(d.vendedor, desde, hasta);
-      return `<div class="card" onclick="${d._esAdmin ? '' : `abrirDetalleVendedor('${d.vendedor}')`}">
+      return `<div class="card" onclick="${d._esAdmin ? '' : `abrirDetalleVendedor(${jsq(d.vendedor)})`}">
         <div class="card-head">
-          <div class="title"><b>${d.vendedor}</b>${d._esAdmin ? ' (socio)' : ''}</div>
+          <div class="title"><b>${esc(d.vendedor)}</b>${d._esAdmin ? ' (socio)' : ''}</div>
         </div>
         <div style="font-size:13px;line-height:1.6;margin-top:6px">
           Vendido: <b>${fmtFull(d.vendido)}</b><br>
@@ -7034,7 +6995,7 @@ function renderGraficaVendedores(periodo) {
   const meses = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
-    if (d < new Date(FECHA_INICIO_COMISIONES)) continue;
+    if (d < nunFechaLocal(FECHA_INICIO_COMISIONES)) continue;
     meses.push({
       label: d.toLocaleDateString('es-MX', { month: 'short', year: '2-digit' }).toUpperCase(),
       desde: new Date(d.getFullYear(), d.getMonth(), 1),
@@ -7156,7 +7117,7 @@ function renderMorososPorVendedor(vendedores) {
       <h4 style="font-size:13px;color:var(--ink);margin-bottom:10px;font-family:'JetBrains Mono',monospace;letter-spacing:0.05em">${v} · <span style="color:#dc2626">${fmtFull(totalMoroso)}</span></h4>
       ${docsMorosos.map(c => `
         <div class="rank">
-          <span class="name">${c.cliente} · <span style="font-size:11px;color:var(--mute)">${c.numero || ''}</span></span>
+          <span class="name">${esc(c.cliente)} · <span style="font-size:11px;color:var(--mute)">${esc(c.numero || '')}</span></span>
           <span class="v pending">${fmtFull(c.pendiente)} · <span style="color:#dc2626;font-size:11px">${c.dias_vencido}d</span></span>
         </div>
       `).join('')}
@@ -7224,8 +7185,8 @@ function abrirDetalleVendedor(vendedor) {
         <tbody>
           ${datos.docs.map(c => `<tr style="border-bottom:1px solid var(--line)">
             <td style="padding:8px">${esPorEntregar(c) ? 'POR ENTREGAR' : fmtFecha(c.fecha_entrega)}</td>
-            <td style="padding:8px">${c.cliente || ''}</td>
-            <td style="padding:8px;font-family:'JetBrains Mono',monospace;font-size:11px">${c.numero || ''}</td>
+            <td style="padding:8px">${esc(c.cliente || '')}</td>
+            <td style="padding:8px;font-family:'JetBrains Mono',monospace;font-size:11px">${esc(c.numero || '')}</td>
             <td style="padding:8px;text-align:right;font-family:'JetBrains Mono',monospace">${fmtFull(c.total)}</td>
             <td style="padding:8px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--green)">${fmtFull(c.cobrado)}</td>
             <td style="padding:8px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--accent)">${fmtFull(c.pendiente)}</td>
@@ -7270,7 +7231,7 @@ function exportarReporteVendedores() {
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = `reporte-vendedores-${desde.toISOString().substring(0,10)}-${hasta.toISOString().substring(0,10)}.csv`;
+  link.download = `reporte-vendedores-${nunHoyLocal(desde)}-${nunHoyLocal(hasta)}.csv`;
   link.click();
 }
 
@@ -7312,7 +7273,7 @@ function mostrarDashboardPersonalVendedor(vendedor) {
   const hoy = new Date();
   const desdeM = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
   const hastaM = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0, 23, 59, 59);
-  const desdeAno = new Date(Math.max(new Date(FECHA_INICIO_COMISIONES).getTime(), new Date(hoy.getFullYear(), 0, 1).getTime()));
+  const desdeAno = new Date(Math.max(nunFechaLocal(FECHA_INICIO_COMISIONES).getTime(), new Date(hoy.getFullYear(), 0, 1).getTime()));
   
   const datosM = calcularDatosVendedor(vendedor, desdeM, hastaM);
   const datosA = calcularDatosVendedor(vendedor, desdeAno, hastaM);
@@ -7379,8 +7340,8 @@ function mostrarDashboardPersonalVendedor(vendedor) {
       ${morososVend.map(c => `
         <div style="padding:8px 0;border-bottom:1px solid #fecaca;display:flex;justify-content:space-between;align-items:center">
           <div>
-            <div style="font-weight:500;color:#991b1b">${c.cliente}</div>
-            <div style="font-size:11px;color:#7f1d1d">${c.numero || ''} · ${c.dias_vencido} días de atraso</div>
+            <div style="font-weight:500;color:#991b1b">${esc(c.cliente)}</div>
+            <div style="font-size:11px;color:#7f1d1d">${esc(c.numero || '')} · ${c.dias_vencido} días de atraso</div>
           </div>
           <div style="font-family:'JetBrains Mono',monospace;color:#991b1b;font-weight:600">${fmtFull(c.pendiente)}</div>
         </div>
@@ -7402,8 +7363,8 @@ function abrirModalComisiones() {
   // Pre-llenar con mes anterior (default)
   const hoy = new Date();
   const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
-  document.getElementById('comMes').value = mesAnterior.toISOString().substring(0, 7);
-  document.getElementById('comFecha').value = hoy.toISOString().substring(0, 10);
+  document.getElementById('comMes').value = nunHoyLocal(mesAnterior).substring(0, 7);
+  document.getElementById('comFecha').value = nunHoyLocal(hoy);
   
   actualizarPreviewComisiones();
   document.getElementById('modalComisiones').classList.add('show');
@@ -7426,7 +7387,7 @@ function actualizarPreviewComisiones() {
   const hasta = new Date(year, month, 0, 23, 59, 59);
   
   // Validar que no sea antes de FECHA_INICIO_COMISIONES
-  if (desde < new Date(FECHA_INICIO_COMISIONES)) {
+  if (desde < nunFechaLocal(FECHA_INICIO_COMISIONES)) {
     document.getElementById('previewComisiones').innerHTML = `
       <div style="padding:20px;background:#fef3c7;border-left:4px solid #f59e0b;border-radius:6px;color:#92400e">
         ⚠️ El sistema de comisiones empezó en ${FECHA_INICIO_COMISIONES}. Elige un mes posterior.
@@ -7461,14 +7422,14 @@ function actualizarPreviewComisiones() {
     ${items.map(i => `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border:1px solid var(--line);border-radius:6px;margin-bottom:6px">
         <div>
-          <div style="font-weight:500">${i.vendedor}</div>
+          <div style="font-weight:500">${esc(i.vendedor)}</div>
           <div style="font-size:11px;color:var(--mute)">
             Calculado: ${fmtFull(i.comision)}${i.propia > 0 && i.otros > 0 ? ` (propia: ${fmtFull(i.propia)} + otros: ${fmtFull(i.otros)})` : ''}
             ${i.pagado > 0 ? ` · Ya pagado: ${fmtFull(i.pagado)}` : ''}
           </div>
         </div>
         <div style="text-align:right">
-          <input type="checkbox" id="comGen_${i.vendedor}" ${i.pendiente > 0.01 ? 'checked' : 'disabled'} data-vendedor="${i.vendedor}" data-monto="${i.pendiente.toFixed(2)}" data-mes="${mesInput}">
+          <input type="checkbox" id="comGen_${esc(i.vendedor)}" ${i.pendiente > 0.01 ? 'checked' : 'disabled'} data-vendedor="${esc(i.vendedor)}" data-monto="${i.pendiente.toFixed(2)}" data-mes="${mesInput}">
           <div style="font-family:'JetBrains Mono',monospace;font-weight:600;font-size:16px;color:${i.pendiente > 0.01 ? '#854d0e' : '#16a34a'}">${fmtFull(i.pendiente)}</div>
           <div style="font-size:10px;color:var(--mute)">${i.pendiente > 0.01 ? 'a generar' : 'ya pagado'}</div>
         </div>
@@ -7570,7 +7531,7 @@ function calcularComisionSocio(socio, desde, hasta) {
   if (typeof ingresos === 'undefined') return { ingresos: 0, comision: 0, pagos: 0 };
   
   // Aplicar fecha mínima para socios (abril 2026)
-  const fechaMin = new Date(FECHA_INICIO_SOCIOS);
+  const fechaMin = nunFechaLocal(FECHA_INICIO_SOCIOS);
   if (desde < fechaMin) desde = fechaMin;
   
   const ingresosPeriodo = ingresos.filter(i => {
@@ -7599,10 +7560,7 @@ function renderComisionSocio() {
     div.style.display = 'none';
     return;
   }
-  const codigo = sesionActual.codigo.toUpperCase();
-  let socio = null;
-  if (codigo === 'MASTER-NUN-2026' || codigo.startsWith('RAFA')) socio = 'RAFA';
-  else if (codigo.startsWith('YADAH')) socio = 'YADAH';
+  const socio = nunSocioDeCodigo(); // v1.9.12
   
   if (!socio) {
     div.style.display = 'none';
@@ -7622,7 +7580,7 @@ function renderComisionSocio() {
   // Calcular histórico del año
   const inicioAno = new Date(new Date().getFullYear(), 0, 1);
   const finAno = new Date(new Date().getFullYear(), 11, 31, 23, 59, 59);
-  const minDate = new Date(FECHA_INICIO_COMISIONES);
+  const minDate = nunFechaLocal(FECHA_INICIO_COMISIONES);
   const desdeAno = inicioAno < minDate ? minDate : inicioAno;
   
   const datosAno = calcularComisionSocio(socio, desdeAno, finAno);
@@ -7776,8 +7734,12 @@ function generarTablaMensualVendedor(vendedor) {
 // ============================================================
 // MÓDULO MIS COMISIONES (solo Rafa)
 // ============================================================
-function renderMisComisiones() {
-  const periodo = document.getElementById('mcPeriodo').value;
+// v1.9.12 — antes se llamaba igual que renderMisComisiones (la de socios) y nunca corría
+function renderMisComisionesDetalle() {
+  const pane = document.getElementById('pane-miscomisiones-det');
+  if (pane) pane.style.display = nunEsRafaMaster() ? '' : 'none';
+  if (!nunEsRafaMaster()) return;
+  const periodo = document.getElementById('mcPeriodoDet').value;
   const persona = document.getElementById('mcPersona').value;
   const { desde, hasta } = rangoPeriodo(periodo);
   
@@ -7986,7 +7948,7 @@ function exportarMisComisiones() {
 function abrirRegistrarPagoComision() {
   const personaSel = document.getElementById('mcPersona').value;
   document.getElementById('rpcPersona').value = personaSel;
-  document.getElementById('rpcFecha').value = new Date().toISOString().substring(0,10);
+  document.getElementById('rpcFecha').value = nunHoyLocal();
   document.getElementById('rpcMonto').value = '';
   document.getElementById('rpcDescripcion').value = '';
   document.getElementById('rpcMetodo').value = '';
@@ -7997,7 +7959,8 @@ function cerrarRegistrarPagoCom() {
   document.getElementById('modalRegistrarPagoCom').classList.remove('show');
 }
 
-async function guardarPagoComision() {
+// v1.9.12 — renombrada: la de abajo (modal comPagoA) tenía el mismo nombre y la tapaba
+async function guardarPagoComisionRapido() {
   const persona = document.getElementById('rpcPersona').value;
   const fecha = document.getElementById('rpcFecha').value;
   const monto = parseFloat(document.getElementById('rpcMonto').value);
@@ -8011,7 +7974,7 @@ async function guardarPagoComision() {
   
   const esSocio = persona === 'RAFA' || persona === 'YADAH';
   const categoria = esSocio ? 'Comisiones socios' : 'Comisiones a vendedores';
-  const fechaTexto = new Date(fecha).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+  const fechaTexto = nunFechaLocal(fecha).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }); // v1.9.12 hora local
   
   if (!confirm(`¿Registrar pago de comisión de ${fmtFull(monto)} a ${persona}?`)) return;
   
@@ -8031,14 +7994,13 @@ async function guardarPagoComision() {
       responsable: 'Rafa',
       receptor: persona
     };
-    gastos.push(ng);
     let exito = false;
     try {
-      await enviarAccion('gastos', 'crear', { item: ng });
-      exito = true;
+      exito = await enviarAccion('gastos', 'crear', { item: ng }); // v1.9.12 — enviarAccion regresa false si falla
     } catch(e) { console.error(e); }
+    if (exito) gastos.push(ng);
     
-    localStorage.setItem(KEY_CACHE_G, JSON.stringify(gastos));
+    nunLSset(KEY_CACHE_G, JSON.stringify(gastos));
     updateBadges();
     if (typeof renderGastos === 'function') renderGastos();
     
@@ -8068,12 +8030,8 @@ setTimeout(() => {
 // KPI "Mi comisión" en COBRANZA para Edgar y Luis
 // ============================================================
 function renderKPIMiComision() {
-  // Solo si el usuario es Edgar o Luis
-  if (!sesionActual || !sesionActual.codigo) return null;
-  const codigo = sesionActual.codigo.toUpperCase();
-  let vend = null;
-  if (codigo.startsWith('EDGAR')) vend = 'EDGAR';
-  else if (codigo.startsWith('LUIS')) vend = 'LUIS';
+  // v1.9.12 — cualquier vendedor con sesión
+  const vend = obtenerVendedorActual();
   if (!vend) return null;
   
   // Calcular comisión del mes actual
@@ -8081,16 +8039,17 @@ function renderKPIMiComision() {
   const desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
   const hasta = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0, 23, 59, 59);
   
-  const datosCompletos = ['EDGAR', 'LUIS'].map(v => calcularDatosVendedor(v, desde, hasta));
+  const datosCompletos = [...new Set(['EDGAR', 'LUIS', vend])].map(v => calcularDatosVendedor(v, desde, hasta));
   const com = calcularComision(vend, datosCompletos);
   const pagado = comisionPagadaEnPeriodo(vend, desde, hasta);
   const pendiente = com.total - pagado;
+  const veoPagos = nunEsDuenoGastos(); // v1.9.12 — sin gastos no se sabe lo pagado
   
   return `
     <div class="stat" style="background:linear-gradient(135deg,#fff3cd 0%,#fef9c3 100%);border:1px solid #fde047">
       <div class="stat-label" style="color:#854d0e">💰 Mi comisión · este mes</div>
       <div class="stat-val" style="color:#854d0e">${fmtFull(com.total)}</div>
-      <div class="stat-sub" style="color:#92400e">${pendiente > 0.01 ? 'Pendiente: ' + fmtFull(pendiente) : '✓ Al corriente'}</div>
+      <div class="stat-sub" style="color:#92400e">${!veoPagos ? 'Pagado: consulta con administración' : (pendiente > 0.01 ? 'Pendiente: ' + fmtFull(pendiente) : '✓ Al corriente')}</div>
     </div>
   `;
 }
@@ -8107,8 +8066,7 @@ function mostrarPestanaMisComisiones() {
     tab.style.display = 'none';
     return;
   }
-  const codigo = sesionActual.codigo.toUpperCase();
-  const esRafa = codigo === 'MASTER-NUN-2026' || codigo.startsWith('RAFA');
+  const esRafa = nunEsRafaMaster(); // v1.9.12
   tab.style.display = esRafa ? '' : 'none';
 }
 
@@ -8124,7 +8082,7 @@ function abrirModalComision() {
   document.getElementById('comOtro').value = '';
   document.getElementById('comOtroWrap').style.display = 'none';
   document.getElementById('comMonto').value = '';
-  document.getElementById('comFechaPago').value = new Date().toISOString().substring(0, 10);
+  document.getElementById('comFechaPago').value = nunHoyLocal();
   document.getElementById('comMetodoPago').value = '';
   document.getElementById('comResponsable').value = 'Rafa';
   document.getElementById('comDetalle').value = '';
@@ -8208,7 +8166,7 @@ async function guardarPagoComision() {
     await enviarAccion('gastos', 'crear', { item: ng });
     
     // Cache local
-    localStorage.setItem(KEY_CACHE_G, JSON.stringify(gastos));
+    nunLSset(KEY_CACHE_G, JSON.stringify(gastos));
     updateBadges();
     if (typeof poblarSelects === 'function') poblarSelects();
     if (typeof renderGastos === 'function') renderGastos();
@@ -8239,10 +8197,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================================
 function obtenerSocioActual() {
   if (!sesionActual || !sesionActual.codigo) return null;
-  const codigo = sesionActual.codigo.toUpperCase();
-  if (codigo === 'MASTER-NUN-2026' || codigo.startsWith('RAFA')) return 'RAFA';
-  if (codigo.startsWith('YADAH')) return 'YADAH';
-  return null;
+  return nunSocioDeCodigo(); // v1.9.12 — por prefijo RAFA-/MASTER-NUN-/YADAH-
 }
 
 function mostrarPestanaMisComisionesSegunPermisos() {
@@ -8273,7 +8228,7 @@ function renderMisComisiones() {
   `;
   
   // Tabla mes a mes
-  const fechaMin = new Date(FECHA_INICIO_SOCIOS);
+  const fechaMin = nunFechaLocal(FECHA_INICIO_SOCIOS);
   const hoy = new Date();
   const meses = [];
   let cursor = new Date(fechaMin.getFullYear(), fechaMin.getMonth(), 1);
@@ -8380,10 +8335,7 @@ function renderComisionSocioIngresos() {
     div.style.display = 'none';
     return;
   }
-  const codigo = sesionActual.codigo.toUpperCase();
-  let socio = null;
-  if (codigo === 'MASTER-NUN-2026' || codigo.startsWith('RAFA')) socio = 'RAFA';
-  else if (codigo.startsWith('YADAH')) socio = 'YADAH';
+  const socio = nunSocioDeCodigo(); // v1.9.12
   
   if (!socio) {
     div.style.display = 'none';
@@ -8402,7 +8354,7 @@ function renderComisionSocioIngresos() {
   const hoy = new Date();
   const inicioAno = new Date(hoy.getFullYear(), 0, 1);
   const finAno = new Date(hoy.getFullYear(), 11, 31, 23, 59, 59);
-  const minDate = new Date(FECHA_INICIO_SOCIOS);
+  const minDate = nunFechaLocal(FECHA_INICIO_SOCIOS);
   const desdeAno = inicioAno < minDate ? minDate : inicioAno;
   
   const datosAno = calcularComisionSocio(socio, desdeAno, finAno);
@@ -8475,20 +8427,7 @@ function cambiarPeriodoSocioIng(periodo) {
   renderComisionSocioIngresos();
 }
 
-function abrirPagoComisionPropia() {
-  // Determinar socio actual
-  const codigo = sesionActual.codigo.toUpperCase();
-  let socio = null;
-  if (codigo === 'MASTER-NUN-2026' || codigo.startsWith('RAFA')) socio = 'RAFA';
-  else if (codigo.startsWith('YADAH')) socio = 'YADAH';
-  if (!socio) return;
-  
-  abrirModalComision();
-  setTimeout(() => {
-    const sel = document.getElementById('comPagoA');
-    if (sel) sel.value = socio;
-  }, 100);
-}
+// v1.9.12 — abrirPagoComisionPropia estaba repetida; queda una sola (arriba, usa obtenerSocioActual)
 
 
 // ===== DARK MODE =====
@@ -8517,7 +8456,7 @@ function toggleDarkMode() {
   if (actual === 'dark') nuevo = 'light';
   else if (actual === 'light') nuevo = 'auto';
   else nuevo = 'dark';
-  localStorage.setItem('nun_tema', nuevo);
+  nunLSset('nun_tema', nuevo);
   aplicarTemaInicial();
 }
 
@@ -8537,12 +8476,16 @@ function aplicarTemaInicial() {
 // ============================================================
 
 // --- Detectores de usuario ---
+// v1.9.12 — cualquier vendedor (EDGAR, LUIS, ESTEBAN…): su vendedor asignado o, si es rol vendedor, su nombre
 function obtenerVendedorActual() {
   if (!sesionActual || !sesionActual.codigo) return null;
-  const codigo = sesionActual.codigo.toUpperCase();
-  if (codigo.startsWith('EDGAR')) return 'EDGAR';
-  if (codigo.startsWith('LUIS')) return 'LUIS';
-  return null;
+  if (nunSocioDeCodigo()) return null; // socios usan "Mis Comisiones"
+  const p = sesionActual.permisos || {}, u = sesionActual.usuario || {};
+  let v = String(p.vendedor_asignado || u.vendedor_asignado || '').toUpperCase().trim();
+  if (!v && (String(u.rol || '').toLowerCase() === 'vendedor' || p.ver_todos_clientes === false)) v = String(u.nombre || '').toUpperCase().trim();
+  if (!v) { const codigo = nunCodigoSesion(); if (codigo.startsWith('EDGAR')) v = 'EDGAR'; else if (codigo.startsWith('LUIS')) v = 'LUIS'; }
+  if (!v || v === 'RAFA' || v === 'CASA') return null;
+  return v;
 }
 
 function mostrarPestanaMiComisionSegunPermisos() {
@@ -8706,14 +8649,14 @@ function renderComisionesNuevo() {
         const opacidad = f.codigo === 'ESTEBAN' ? 'opacity:0.55' : '';
         return `
           <tr style="${opacidad}">
-            <td><b>${f.codigo}</b></td>
+            <td><b>${esc(f.codigo)}</b></td>
             <td style="color:var(--mute);font-size:12px">${f.rol}</td>
             <td class="right" style="font-family:'JetBrains Mono',monospace;font-weight:600">${pctTexto}</td>
             <td class="right" style="font-family:'JetBrains Mono',monospace">${fmtFull(f.base)}</td>
             <td class="right" style="font-family:'JetBrains Mono',monospace;font-weight:600;color:#854d0e">${fmtFull(f.comision)}</td>
             <td class="right" style="font-family:'JetBrains Mono',monospace;color:#166534">${fmtFull(f.pagado)}</td>
             <td class="right" style="font-family:'JetBrains Mono',monospace;font-weight:700;color:${colorPend}">${fmtFull(Math.max(0, f.pendiente))}</td>
-            <td><button class="btn ghost" style="padding:4px 10px;font-size:11px" onclick="abrirDetalleComisionPersona('${f.codigo}')">Ver detalle</button></td>
+            <td><button class="btn ghost" style="padding:4px 10px;font-size:11px" onclick="abrirDetalleComisionPersona(${jsq(f.codigo)})">Ver detalle</button></td>
           </tr>
         `;
       }).join('');
@@ -8727,9 +8670,9 @@ function renderComisionesNuevo() {
         const colorPend = f.pendiente > 0.01 ? '#dc2626' : '#166534';
         const opacidad = f.codigo === 'ESTEBAN' ? 'opacity:0.55;' : '';
         return `
-          <div class="card" onclick="abrirDetalleComisionPersona('${f.codigo}')" style="${opacidad}cursor:pointer">
+          <div class="card" onclick="abrirDetalleComisionPersona(${jsq(f.codigo)})" style="${opacidad}cursor:pointer">
             <div class="card-head">
-              <div><b>${f.codigo}</b><div style="font-size:11px;color:var(--mute)">${f.rol} · ${pctTexto}</div></div>
+              <div><b>${esc(f.codigo)}</b><div style="font-size:11px;color:var(--mute)">${f.rol} · ${pctTexto}</div></div>
               <div style="font-family:'JetBrains Mono',monospace;font-weight:700;color:${colorPend}">${fmtFull(Math.max(0, f.pendiente))}</div>
             </div>
             <div class="card-body" style="display:flex;gap:14px;font-size:12px;margin-top:6px;flex-wrap:wrap">
@@ -8747,7 +8690,7 @@ function renderComisionesNuevo() {
   } catch (err) {
     console.error('[NUN] ERROR en renderComisionesNuevo:', err);
     const hero = document.getElementById('heroComisionesNuevo');
-    if (hero) hero.innerHTML = `<div style="padding:20px;background:#fef2f2;border:1px solid #dc2626;border-radius:8px;color:#dc2626">Error: ${err.message}<br><small>Abre consola (F12) para detalles</small></div>`;
+    if (hero) hero.innerHTML = `<div style="padding:20px;background:#fef2f2;border:1px solid #dc2626;border-radius:8px;color:#dc2626">Error: ${esc(err.message)}<br><small>Abre consola (F12) para detalles</small></div>`;
   }
 }
 
@@ -8760,7 +8703,7 @@ function renderHistoricoComisionesMensual(personas) {
   if (!thead || !tbody) return;
 
   // Generar lista de meses desde inicio comisiones hasta hoy
-  const inicio = new Date(FECHA_INICIO_COMISIONES);
+  const inicio = nunFechaLocal(FECHA_INICIO_COMISIONES);
   const hoy = new Date();
   const meses = [];
   let cursor = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
@@ -8789,7 +8732,7 @@ function renderHistoricoComisionesMensual(personas) {
     const opacidad = p.codigo === 'ESTEBAN' ? 'opacity:0.55' : '';
     return `
       <tr style="${opacidad}">
-        <td style="position:sticky;left:0;background:var(--bg);z-index:1"><b>${p.codigo}</b></td>
+        <td style="position:sticky;left:0;background:var(--bg);z-index:1"><b>${esc(p.codigo)}</b></td>
         ${valores.map(v => `
           <td class="right" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${v > 0 ? '#854d0e' : 'var(--mute)'}">${v > 0 ? fmtFull(v) : '—'}</td>
         `).join('')}
@@ -8814,6 +8757,8 @@ function renderMiComision() {
     const periodo = document.getElementById('micPeriodo')?.value || 'mes-actual';
     const { desde, hasta } = rangoPeriodo(periodo);
     const datos = calcularComisionPersonaV2(vend, desde, hasta);
+    // v1.9.12 — los vendedores no descargan gastos: lo pagado no se puede saber aquí
+    const veoPagos = nunEsDuenoGastos();
 
     // Header
     const nombreEl = document.getElementById('miComNombre');
@@ -8830,13 +8775,14 @@ function renderMiComision() {
       hero.innerHTML = `
         <div class="stat"><div class="stat-label">Base del periodo</div><div class="stat-val">${fmtFull(datos.base)}</div><div class="stat-sub">cobrado</div></div>
         <div class="stat"><div class="stat-label">Mi comisión</div><div class="stat-val" style="color:#854d0e">${fmtFull(datos.comision)}</div><div class="stat-sub">generada</div></div>
-        <div class="stat"><div class="stat-label">Ya recibido</div><div class="stat-val green">${fmtFull(datos.pagado)}</div><div class="stat-sub">en el periodo</div></div>
-        <div class="stat"><div class="stat-label">Pendiente</div><div class="stat-val ${datos.pendiente > 0.01 ? 'red' : 'green'}">${fmtFull(Math.max(0, datos.pendiente))}</div><div class="stat-sub">${datos.pendiente > 0.01 ? 'me deben' : 'al corriente'}</div></div>
+        ${veoPagos ? `<div class="stat"><div class="stat-label">Ya recibido</div><div class="stat-val green">${fmtFull(datos.pagado)}</div><div class="stat-sub">en el periodo</div></div>
+        <div class="stat"><div class="stat-label">Pendiente</div><div class="stat-val ${datos.pendiente > 0.01 ? 'red' : 'green'}">${fmtFull(Math.max(0, datos.pendiente))}</div><div class="stat-sub">${datos.pendiente > 0.01 ? 'me deben' : 'al corriente'}</div></div>`
+        : `<div class="stat"><div class="stat-label">Pagado</div><div class="stat-val" style="font-size:15px">Consulta con administración</div><div class="stat-sub">los pagos no se ven en esta app</div></div>`}
       `;
     }
 
     // Tabla mes a mes
-    const inicio = new Date(FECHA_INICIO_COMISIONES);
+    const inicio = nunFechaLocal(FECHA_INICIO_COMISIONES);
     const hoy = new Date();
     const meses = [];
     let cursor = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
@@ -8868,8 +8814,8 @@ function renderMiComision() {
                   <td>${m.label}</td>
                   <td class="right" style="font-family:'JetBrains Mono',monospace">${fmtFull(m.base)}</td>
                   <td class="right" style="font-family:'JetBrains Mono',monospace;font-weight:600;color:#854d0e">${fmtFull(m.comision)}</td>
-                  <td class="right" style="font-family:'JetBrains Mono',monospace;color:#166534">${fmtFull(m.pagado)}</td>
-                  <td class="right" style="font-family:'JetBrains Mono',monospace;color:${(m.comision - m.pagado) > 0.01 ? '#dc2626' : '#166534'}">${fmtFull(Math.max(0, m.comision - m.pagado))}</td>
+                  <td class="right" style="font-family:'JetBrains Mono',monospace;color:#166534">${veoPagos ? fmtFull(m.pagado) : '—'}</td>
+                  <td class="right" style="font-family:'JetBrains Mono',monospace;color:${!veoPagos ? 'var(--mute)' : (m.comision - m.pagado) > 0.01 ? '#dc2626' : '#166534'}">${veoPagos ? fmtFull(Math.max(0, m.comision - m.pagado)) : '—'}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -8891,7 +8837,7 @@ function renderMiComision() {
     const pagosDiv = document.getElementById('pagosMiComision');
     if (pagosDiv) {
       if (pagos.length === 0) {
-        pagosDiv.innerHTML = '<div style="padding:14px;color:var(--mute);font-size:13px;text-align:center;background:var(--bg-soft);border-radius:8px">No hay pagos registrados todavía</div>';
+        pagosDiv.innerHTML = '<div style="padding:14px;color:var(--mute);font-size:13px;text-align:center;background:var(--bg-soft);border-radius:8px">' + (veoPagos ? 'No hay pagos registrados todavía' : 'Pagado: consulta con administración') + '</div>'; // v1.9.12
       } else {
         pagosDiv.innerHTML = `
           <div class="table-wrap">
@@ -8903,8 +8849,8 @@ function renderMiComision() {
                 ${pagos.map(g => `
                   <tr>
                     <td style="font-family:'JetBrains Mono',monospace">${(g.fecha || '').substring(0, 10)}</td>
-                    <td>${g.descripcion || g.concepto || '—'}</td>
-                    <td style="font-size:12px">${g.metodo || '—'}</td>
+                    <td>${esc(g.descripcion || g.concepto || '—')}</td>
+                    <td style="font-size:12px">${esc(g.metodo || '—')}</td>
                     <td class="right" style="font-family:'JetBrains Mono',monospace;font-weight:600;color:#166534">${fmtFull(g.monto || 0)}</td>
                   </tr>
                 `).join('')}
@@ -8917,7 +8863,7 @@ function renderMiComision() {
   } catch (err) {
     console.error('[NUN] ERROR en renderMiComision:', err);
     const hero = document.getElementById('heroMiComision');
-    if (hero) hero.innerHTML = `<div style="padding:20px;background:#fef2f2;border:1px solid #dc2626;border-radius:8px;color:#dc2626">Error: ${err.message}</div>`;
+    if (hero) hero.innerHTML = `<div style="padding:20px;background:#fef2f2;border:1px solid #dc2626;border-radius:8px;color:#dc2626">Error: ${esc(err.message)}</div>`;
   }
 }
 
@@ -8947,8 +8893,8 @@ function abrirDetalleComisionPersona(persona) {
 
   // Desglose mes a mes (todo el histórico desde inicio)
   const inicio = (p === 'RAFA' || p === 'YADAH')
-    ? new Date(FECHA_INICIO_SOCIOS)
-    : new Date(FECHA_INICIO_COMISIONES);
+    ? nunFechaLocal(FECHA_INICIO_SOCIOS)
+    : nunFechaLocal(FECHA_INICIO_COMISIONES);
   const hoy = new Date();
   const meses = [];
   let cursor = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
@@ -9034,8 +8980,8 @@ function abrirDetalleComisionPersona(persona) {
           ${pagos.map(g => `
             <tr>
               <td style="font-family:'JetBrains Mono',monospace">${(g.fecha || '').substring(0, 10)}</td>
-              <td>${g.descripcion || g.concepto || '—'}</td>
-              <td style="font-size:12px">${g.metodo || '—'}</td>
+              <td>${esc(g.descripcion || g.concepto || '—')}</td>
+              <td style="font-size:12px">${esc(g.metodo || '—')}</td>
               <td class="right" style="font-family:'JetBrains Mono',monospace;font-weight:600;color:#166534">${fmtFull(g.monto || 0)}</td>
             </tr>
           `).join('')}
@@ -9416,8 +9362,8 @@ function analizarYMostrarPreview() {
       html += `
         <tr>
           <td style="font-size:11px;color:var(--mute)">Hoja ${sv._hojaOrigen}, fila ${sv._filaOrigen}</td>
-          <td><b>${sv.cliente}</b></td>
-          <td style="font-family:'JetBrains Mono',monospace;font-size:11px">${sv.numero}</td>
+          <td><b>${esc(sv.cliente)}</b></td>
+          <td style="font-family:'JetBrains Mono',monospace;font-size:11px">${esc(sv.numero)}</td>
           <td class="right" style="font-family:'JetBrains Mono',monospace">${fmtFull(sv.total)}</td>
           <td class="right" style="font-family:'JetBrains Mono',monospace">${fmtFull(sv.cobrado)}</td>
           <td>
@@ -9451,7 +9397,7 @@ function analizarYMostrarPreview() {
     html += `<h3 style="margin:18px 0 8px 0;font-size:14px;color:#166534">🆕 Documentos nuevos (${nuevos.length})</h3>`;
     html += '<div class="table-wrap"><table style="font-size:12px"><thead><tr><th>Cliente</th><th>Núm.</th><th>Vendedor</th><th class="right">Total</th><th class="right">Cobrado</th></tr></thead><tbody>';
     for (const n of nuevos.slice(0, 50)) {
-      html += `<tr><td>${n.cliente}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${n.numero}</td><td>${n.vendedor}</td><td class="right" style="font-family:'JetBrains Mono',monospace">${fmtFull(n.total)}</td><td class="right" style="font-family:'JetBrains Mono',monospace">${fmtFull(n.cobrado)}</td></tr>`;
+      html += `<tr><td>${esc(n.cliente)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:11px">${esc(n.numero)}</td><td>${esc(n.vendedor)}</td><td class="right" style="font-family:'JetBrains Mono',monospace">${fmtFull(n.total)}</td><td class="right" style="font-family:'JetBrains Mono',monospace">${fmtFull(n.cobrado)}</td></tr>`;
     }
     if (nuevos.length > 50) html += `<tr><td colspan="5" style="text-align:center;color:var(--mute);font-style:italic">… y ${nuevos.length - 50} más</td></tr>`;
     html += '</tbody></table></div>';
@@ -9591,8 +9537,8 @@ async function confirmarImportacion() {
     // Refresh automático de datos
     setTimeout(async () => {
       mostrarToast('Sincronizando datos…');
-      if (typeof sincronizar === 'function') {
-        await sincronizar();
+      if (typeof sincronizarTodo === 'function') {
+        await sincronizarTodo(); // v1.9.12 (antes sincronizar, no existe)
       }
       renderActual();
     }, 1000);
@@ -9601,7 +9547,7 @@ async function confirmarImportacion() {
     document.getElementById('impPaso3').style.display = 'none';
     document.getElementById('impPaso4').style.display = '';
     document.getElementById('impResultadoTitulo').textContent = '❌ Error en la importación';
-    document.getElementById('impResultadoDetalle').innerHTML = `<div style="color:#dc2626">${err.message}</div>`;
+    document.getElementById('impResultadoDetalle').innerHTML = `<div style="color:#dc2626">${esc(err.message)}</div>`;
   }
 }
 
@@ -9613,6 +9559,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // v1.3.2: Limpiar duplicados de Cobranza (operación delicada con preview y confirmación)
 async function ejecutarDedupeCobranza() {
+  mostrarToast('Por regla del sistema no se borran datos; se marcan como cancelados'); return; // v1.9.12
   // Paso 1: dry run (preview) — sin tocar nada en Sheets
   mostrarToast('Analizando duplicados…');
   
@@ -9686,7 +9633,7 @@ async function ejecutarDedupeCobranza() {
     alert(`✓ Limpieza completa.\n\nEliminados: ${r.eliminados}\nConservados: ${r.conservados}\nTotal final: ${r.total_filas - r.eliminados} docs`);
     
     // Refresh
-    if (typeof sincronizar === 'function') await sincronizar();
+    if (typeof sincronizarTodo === 'function') await sincronizarTodo(); // v1.9.12
     renderActual();
   } catch (err) {
     alert('Error al limpiar: ' + err.message);
@@ -9695,9 +9642,9 @@ async function ejecutarDedupeCobranza() {
 
 // v1.3.3: BORRAR TODA la cobranza (operación de último recurso, triple confirmación)
 async function ejecutarBorrarTodoCobranza() {
+  mostrarToast('Por regla del sistema no se borran datos; se marcan como cancelados'); return; // v1.9.12
   // Validación de permiso de Rafa/master
-  const cod = (sesionActual?.codigo || '').toUpperCase();
-  const esRafaMaster = cod === 'MASTER-NUN-2026' || cod.startsWith('RAFA');
+  const esRafaMaster = nunEsRafaMaster(); // v1.9.12
   if (!esRafaMaster) {
     alert('Solo Rafa o el código master pueden hacer esta operación.');
     return;
@@ -9764,9 +9711,9 @@ async function ejecutarBorrarTodoCobranza() {
 // v1.3.9: BORRAR TODO INGRESOS (Rafa/master únicamente)
 // ============================================================
 async function ejecutarBorrarTodoIngresos() {
+  mostrarToast('Por regla del sistema no se borran datos; se marcan como cancelados'); return; // v1.9.12
   // Validación de permiso de Rafa/master
-  const cod = (sesionActual?.codigo || '').toUpperCase();
-  const esRafaMaster = cod === 'MASTER-NUN-2026' || cod.startsWith('RAFA');
+  const esRafaMaster = nunEsRafaMaster(); // v1.9.12
   if (!esRafaMaster) {
     alert('Solo Rafa o el código master pueden hacer esta operación.');
     return;
@@ -9892,16 +9839,16 @@ function renderClientes() {
       return c;
     };
     tbody.innerHTML = paginado.map(c => {
-      const aliases = String(c.aliases || '').trim() || '<span style="color:var(--mute);font-style:italic">(solo este nombre)</span>';
+      const aliases = esc(String(c.aliases || '').trim()) || '<span style="color:var(--mute);font-style:italic">(solo este nombre)</span>';
       const ven = String(c.vendedor || '').toUpperCase();
       const inactivo = c.activo === 'no' || c.activo === false;
       const rowStyle = inactivo ? ' style="opacity:0.45"' : '';
       return `<tr${rowStyle}>
-        <td class="date">${c.id || ''}</td>
-        <td class="title">${c.nombre || ''}</td>
-        <td><span class="tag" style="font-size:10px;color:${colorVend(ven)};font-weight:600">${ven}</span></td>
+        <td class="date">${esc(c.id || '')}</td>
+        <td class="title">${esc(c.nombre || '')}</td>
+        <td><span class="tag" style="font-size:10px;color:${colorVend(ven)};font-weight:600">${esc(ven)}</span></td>
         <td style="font-size:12px;color:var(--mute)">${aliases}</td>
-        <td style="text-align:right"><button class="btn-mini" onclick="abrirEditorCliente('${c.id}')">Editar</button></td>
+        <td style="text-align:right"><button class="btn-mini" onclick="abrirEditorCliente(${jsq(c.id)})">Editar</button></td>
       </tr>`;
     }).join('');
     
@@ -9909,10 +9856,10 @@ function renderClientes() {
       cards.innerHTML = paginado.map(c => {
         const aliases = String(c.aliases || '').trim();
         const ven = String(c.vendedor || '').toUpperCase();
-        return `<div class="card" onclick="abrirEditorCliente('${c.id}')">
-          <div class="card-head"><div class="card-title">${c.nombre || ''}</div><div class="card-amount" style="color:${colorVend(ven)};font-size:13px">${ven}</div></div>
-          <div class="card-sub">${aliases || '(solo este nombre)'}</div>
-          <div class="card-tags"><span class="tag" style="font-size:10px">${c.id || ''}</span></div>
+        return `<div class="card" onclick="abrirEditorCliente(${jsq(c.id)})">
+          <div class="card-head"><div class="card-title">${esc(c.nombre || '')}</div><div class="card-amount" style="color:${colorVend(ven)};font-size:13px">${esc(ven)}</div></div>
+          <div class="card-sub">${esc(aliases || '(solo este nombre)')}</div>
+          <div class="card-tags"><span class="tag" style="font-size:10px">${esc(c.id || '')}</span></div>
         </div>`;
       }).join('');
     }
@@ -10017,7 +9964,7 @@ async function guardarCliente() {
     } else {
       clientesCatalogo.push(cliente);
     }
-    localStorage.setItem(KEY_CACHE_CLI, JSON.stringify(clientesCatalogo));
+    nunLSset(KEY_CACHE_CLI, JSON.stringify(clientesCatalogo));
     cerrarEditorCliente();
     updateBadges();
     renderClientes();
@@ -10027,12 +9974,15 @@ async function guardarCliente() {
 async function eliminarCliente() {
   const id = document.getElementById('cliEditId').value.trim();
   if (!id) return;
-  if (!confirm('¿Eliminar este cliente del catálogo? Los ingresos y cobranza que lo referencian no se borrarán.')) return;
-  
-  const ok = await enviarAccion('clientes', 'eliminar', {id: id});
+  // v1.9.12 — no se borra: se marca Inactivo (activo = 'no')
+  if (!confirm('¿Dar de baja este cliente del catálogo? No se borra: queda como Inactivo.')) return;
+  const actual = clientesCatalogo.find(c => c.id === id);
+  if (!actual) { alert('No encontré el cliente'); return; }
+  const item = Object.assign({}, actual, { activo: 'no' });
+  const ok = await enviarAccion('clientes', 'actualizar', {id: id, item: item});
   if (ok) {
-    clientesCatalogo = clientesCatalogo.filter(c => c.id !== id);
-    localStorage.setItem(KEY_CACHE_CLI, JSON.stringify(clientesCatalogo));
+    clientesCatalogo = clientesCatalogo.map(c => c.id === id ? item : c);
+    nunLSset(KEY_CACHE_CLI, JSON.stringify(clientesCatalogo));
     cerrarEditorCliente();
     updateBadges();
     renderClientes();
@@ -10296,7 +10246,7 @@ const erpToast = (m,t) => { try { mostrarToast(m, t||'ok'); } catch(e){ try { al
 
 function erpCodigo(){ try { return (sesionActual && (sesionActual.codigo || (sesionActual.usuario && sesionActual.usuario.codigo))) || ''; } catch(e){ return ''; } }
 function erpNombre(){ try { return (sesionActual && sesionActual.usuario && sesionActual.usuario.nombre) || ''; } catch(e){ return ''; } }
-function erpEsAdmin(){ try { const p = sesionActual && sesionActual.permisos; return !!(p && (p.ver_todos_clientes || p.eliminar_documentos)); } catch(e){ return false; } }
+function erpEsAdmin(){ try { const p = sesionActual && sesionActual.permisos; return !!(p && (nunBool(p.ver_todos_clientes) || nunBool(p.eliminar_documentos))); } catch(e){ return false; } } // v1.9.12 'false' ya no cuenta como sí
 
 async function erpApi(payload){
   const body = Object.assign({ codigo: erpCodigo() }, payload);
@@ -10321,7 +10271,7 @@ function erpFiltrarMios(rows){
   let yo = '';
   try { yo = (sesionActual.permisos && sesionActual.permisos.vendedor_asignado) || (sesionActual.usuario && sesionActual.usuario.vendedor_asignado) || ''; } catch(e){}
   yo = String(yo || erpNombre()).toUpperCase().trim();
-  if (!yo) return rows;
+  if (!yo) return []; // v1.9.12 — falla cerrado: sin vendedor no ve nada
   return rows.filter(r => {
     let v = String(r.vendedor||'').toUpperCase().trim();
     // documento sin vendedor → deducirlo del catálogo cliente→vendedor (misma regla que Cobranza)
@@ -10458,14 +10408,14 @@ async function renderERPPedidos(force){
           const docTag = m
             ? `<span title="${m.via==='≈' ? 'Cruzado por cliente + monto (histórico sin vínculo directo)' : 'Vinculado por pedido de origen'}" style="padding:2px 8px;border-radius:100px;background:rgba(46,125,79,0.12);font-size:11px;font-weight:600">✓ ${m.tipo} ${erpEsc(m.doc.folio||m.doc.numero||'')}${m.via==='≈' ? ' <span style=\'opacity:0.6\'>≈</span>' : ''}</span>`
             : `<span style="padding:2px 8px;border-radius:100px;background:rgba(224,82,82,0.14);color:#e05252;font-size:11px;font-weight:700">⚠ SIN DOCUMENTO</span>`;
-          return `<tr onclick="erpVerPedido('${erpEsc(p.id)}')" style="cursor:pointer">
+          return `<tr onclick="erpVerPedido(${jsq(p.id)})" style="cursor:pointer">
             <td style="${erpTdStyle};font-family:monospace">${erpEsc(p.folio||p.id)}</td>
             <td style="${erpTdStyle}">${erpEsc(String(p.fecha||'').substring(0,10))}</td>
             <td style="${erpTdStyle}">${erpEsc(p.cliente)}</td>
             <td style="${erpTdStyle}"><span style="padding:2px 8px;border-radius:100px;border:1px solid var(--line,#333);font-size:11px">${erpEsc(p.estatus||'—')}</span></td>
             <td style="${erpTdStyle}">${docTag}</td>
             <td style="${erpTdStyle};text-align:right;font-family:monospace">${erpFmt(p.total)}</td>
-            <td style="${erpTdStyle}">${m ? '' : `<button class="btn" style="font-size:11px;padding:4px 10px" onclick="event.stopPropagation();erpElegirConversion('${erpEsc(p.id)}','${erpEsc(p.folio||'')}')">→ Remisión / Factura</button>`}</td>
+            <td style="${erpTdStyle}">${m ? '' : `<button class="btn" style="font-size:11px;padding:4px 10px" onclick="event.stopPropagation();erpElegirConversion(${jsq(p.id)},${jsq(p.folio||'')})">→ Remisión / Factura</button>`}</td>
           </tr>`; }).join('') || '<tr><td colspan="7" style="padding:30px;text-align:center;color:var(--mute)">' + (filtro==='sindoc' ? '🎉 Todos tus pedidos tienen remisión o factura' : 'Aún no tienes pedidos') + '</td></tr>'}</tbody>
       </table></div>`;
     } else {
@@ -10475,9 +10425,9 @@ async function renderERPPedidos(force){
         <tbody>${docs.slice(0,300).map(d => {
           const realId = String(d.id||'').replace(/^bind_/,'');
           const pdfUrl = d.pdf_url || (realId && /^[0-9a-f-]{30,}$/i.test(realId) ? 'https://app.bind.com.mx/InvoicesAPI/ShowInvoiceDocument?InvoiceRemissionID=' + realId : '');
-          const xu = String(d.xml_url||''); const xmlCell = /^local:/.test(xu) ? '<a onclick="event.stopPropagation();erpXmlLocal(\''+xu.replace('local:','')+'\')" style="color:inherit;font-weight:600;cursor:pointer">XML</a>' : (xu ? '<a href="'+xu+'" target="_blank" style="color:inherit;font-weight:600">XML</a>' : '');
+          const xu = String(d.xml_url||''); const xmlCell = /^local:/.test(xu) ? '<a onclick="event.stopPropagation();erpXmlLocal('+jsq(xu.replace('local:',''))+')" style="color:inherit;font-weight:600;cursor:pointer">XML</a>' : (nunUrlSegura(xu) ? '<a href="'+esc(nunUrlSegura(xu))+'" target="_blank" rel="noopener" style="color:inherit;font-weight:600">XML</a>' : ''); // v1.9.12 solo http(s)
           const links = erpBotonesDoc(filtro, d, true); // v1.9.8 PDF propio (ya no Bind)
-          return `<tr onclick="erpVerDoc('${filtro}','${erpEsc(d.id)}')" style="cursor:pointer">
+          return `<tr onclick="erpVerDoc('${filtro}',${jsq(d.id)})" style="cursor:pointer">
             <td style="${erpTdStyle};font-family:monospace">${erpEsc(d.folio||d.numero||d.id)}</td>
             <td style="${erpTdStyle}">${erpEsc(String(d.fecha||'').substring(0,10))}</td>
             <td style="${erpTdStyle}">${erpEsc(d.cliente)}</td>
@@ -10521,9 +10471,9 @@ function erpModalBase(contenido){
   m.innerHTML = `<div style="background:var(--bg,#fff);color:inherit;border-radius:16px;max-width:720px;width:100%;max-height:90vh;overflow:auto;padding:22px;box-shadow:0 24px 64px rgba(0,0,0,0.35)">${contenido}</div>`;
   document.body.appendChild(m);
 }
-function erpTablaItems(items){
+function erpTablaItems(items, sinIva){
   if (!items.length) return '<div style="padding:14px;color:var(--mute);font-size:12.5px;text-align:center;border:1px dashed var(--line,#333);border-radius:10px">Sin detalle de productos en este documento</div>';
-  const sub = items.reduce((s,it)=>s+(+it.cantidad||0)*(+it.precio_unitario||0)*(1-(+it.descuento_pct||0)/100),0);
+  const t = nunCalcDoc(items, sinIva); // v1.9.12 — redondeo por renglón (SAT); sin IVA → IVA 0
   return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
     <thead><tr><th style="${erpThStyle}">SKU</th><th style="${erpThStyle}">Descripción</th><th style="${erpThStyle};text-align:right">Cant</th><th style="${erpThStyle};text-align:right">P. Unit</th><th style="${erpThStyle};text-align:right">Importe</th></tr></thead>
     <tbody>${items.map(it => `<tr>
@@ -10531,9 +10481,9 @@ function erpTablaItems(items){
       <td style="${erpTdStyle}">${erpEsc(it.descripcion||'')}</td>
       <td style="${erpTdStyle};text-align:right">${+it.cantidad||0}</td>
       <td style="${erpTdStyle};text-align:right;font-family:monospace">${erpFmt(it.precio_unitario)}</td>
-      <td style="${erpTdStyle};text-align:right;font-family:monospace">${erpFmt((+it.cantidad||0)*(+it.precio_unitario||0)*(1-(+it.descuento_pct||0)/100))}</td>
+      <td style="${erpTdStyle};text-align:right;font-family:monospace">${erpFmt(nunCalcLinea(it, sinIva).base)}</td>
     </tr>`).join('')}</tbody></table></div>
-    <div style="text-align:right;margin-top:10px;font-size:13px">Subtotal: <strong>${erpFmt(sub)}</strong> · IVA: <strong>${erpFmt(sub*0.16)}</strong> · Total: <strong style="font-size:15px">${erpFmt(sub*1.16)}</strong></div>`;
+    <div style="text-align:right;margin-top:10px;font-size:13px">Subtotal: <strong>${erpFmt(t.subtotal)}</strong> · IVA${sinIva ? ' (sin IVA)' : ''}: <strong>${erpFmt(t.iva)}</strong> · Total: <strong style="font-size:15px">${erpFmt(t.total)}</strong></div>`;
 }
 function erpInfoGrid(pares){
   return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0;padding:12px;background:rgba(127,127,127,0.06);border-radius:10px">
@@ -10554,8 +10504,8 @@ window.erpVerPedido = function(id){
     </div>
     ${erpInfoGrid([['Fecha', String(p.fecha||'').substring(0,10)], ['Cliente', p.cliente], ['Vendedor', p.vendedor], ['Estatus', p.estatus], ['Total', erpFmt(p.total)], ['Notas', p.notas]])}
     <div style="font-size:12px;color:var(--mute);margin:14px 0 6px;text-transform:uppercase;letter-spacing:0.06em">Productos</div>
-    ${erpTablaItems(erpItemsDe(p))}
-    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap"><button class="btn" onclick="erpImprimirDoc('pedidos','${erpEsc(p.id)}')">📄 PDF del pedido</button><button class="btn primary" onclick="erpWhatsAppPedido('${erpEsc(p.id)}')">📲 WhatsApp</button></div>
+    ${erpTablaItems(erpItemsDe(p), nunEsSinIva(p))}
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap"><button class="btn" onclick="erpImprimirDoc('pedidos',${jsq(p.id)})">📄 PDF del pedido</button><button class="btn primary" onclick="erpWhatsAppPedido(${jsq(p.id)})">📲 WhatsApp</button></div>
     <div style="font-size:12px;color:var(--mute);margin:18px 0 6px;text-transform:uppercase;letter-spacing:0.06em">Documento derivado</div>
     ${m ? `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:12px;border:1px solid var(--line,#333);border-radius:10px">
@@ -10566,7 +10516,7 @@ window.erpVerPedido = function(id){
       </div>`
     : `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border:1px solid rgba(224,82,82,0.4);border-radius:10px">
         <span style="color:#e05252;font-weight:600">⚠ Este pedido no tiene remisión ni factura</span>
-        <button class="btn primary" style="font-size:12px" onclick="document.getElementById('erpModalDetalle').remove();erpElegirConversion('${erpEsc(p.id)}','${erpEsc(p.folio||'')}')">→ Convertir a remisión / factura</button>
+        <button class="btn primary" style="font-size:12px" onclick="document.getElementById('erpModalDetalle').remove();erpElegirConversion(${jsq(p.id)},${jsq(p.folio||'')})">→ Convertir a remisión / factura</button>
       </div>`}
   `);
 };
@@ -10584,7 +10534,7 @@ window.erpVerDoc = function(tabla, id){
     </div>
     ${erpInfoGrid([['Fecha', String(d.fecha||'').substring(0,10)], ['Cliente', d.cliente], ['Vendedor', d.vendedor], ['Estatus', d.estatus], ['Total', erpFmt(d.total)], ['UUID SAT', d.uuid_sat||d.folio_fiscal||''], ['Pedido origen', d.pedido_origen||'']])}
     <div style="font-size:12px;color:var(--mute);margin:14px 0 6px;text-transform:uppercase;letter-spacing:0.06em">Productos</div>
-    ${erpTablaItems(erpItemsDe(d))}
+    ${erpTablaItems(erpItemsDe(d), nunEsSinIva(d))}
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap">
       ${erpBotonesDoc(tabla, d)}
     </div>
@@ -10599,27 +10549,43 @@ window.erpGenerarNC = async function(tabla, id){
   if (motivo === null) return;
   let monto = prompt('Monto de la nota (deja el total para NC completa):', String(+d.total||0));
   if (monto === null) return;
-  monto = parseFloat(String(monto).replace(/[$,\s]/g,'')) || 0;
+  monto = nunR2(parseFloat(String(monto).replace(/[$,\s]/g,'')) || 0);
   if (monto <= 0 || monto > (+d.total||0) + 0.01) { erpToast('Monto inválido (máximo ' + erpFmt(d.total) + ')', 'error'); return; }
   try {
+    // v1.9.12 — misma serie que el sistema NUN (año) · sin IVA respetado · cliente · parcial = un solo concepto
     let folio = '';
-    try { const f = await erpApi({ accion:'siguiente_folio', tipo_documento:'notacredito' }); folio = (f && (f.folio || f.siguiente)) || ''; } catch(e){}
-    if (!folio) folio = 'NC-' + new Date().toISOString().substring(2,10).replace(/-/g,'') + '-' + Math.random().toString(36).substring(2,5).toUpperCase();
-    const sub = +(monto/1.16).toFixed(2);
+    try { const f = await erpApi({ accion:'siguiente_folio', tipo_documento:'notacredito', serie: new Date().getFullYear() }); folio = (f && (f.folio || f.siguiente)) || ''; } catch(e){}
+    if (!folio) folio = 'NC-' + nunHoyLocal().substring(2).replace(/-/g,'') + '-' + Math.random().toString(36).substring(2,5).toUpperCase();
+    const sinIva = nunEsSinIva(d);
+    const origen = d.folio || d.numero || d.id;
+    let items = null, t = null;
+    const completa = Math.abs(monto - nunR2(+d.total||0)) < 0.01;
+    if (completa && erpItemsDe(d).length) {
+      const t0 = nunCalcDoc(erpItemsDe(d), sinIva);
+      if (Math.abs(t0.total - monto) < 0.02) { items = erpItemsDe(d); t = t0; }
+    }
+    if (!items) {
+      // Un solo concepto por el monto de la nota (base e IVA redondeados como el SAT)
+      let base = sinIva ? monto : nunR2(monto / 1.16);
+      if (!sinIva) { for (const b of [base, nunR2(base - 0.01), nunR2(base + 0.01)]) { if (nunR2(b + nunR2(b * 0.16)) === monto) { base = b; break; } } }
+      items = [{ sku:'NC', descripcion: 'Nota de crédito · ' + motivo + ' · ' + origen, cantidad:1, precio_unitario: base, descuento_pct:0, iva_pct: sinIva ? 0 : 16 }];
+      t = nunCalcDoc(items, sinIva);
+    }
     const item = {
       id: 'crm_nc_' + Date.now() + '_' + Math.random().toString(36).substring(2,6),
-      folio, fecha: new Date().toISOString().substring(0,10),
-      tipo: 'cliente', contraparte: d.cliente,
-      documento_origen: d.folio || d.numero || d.id,
-      subtotal: sub, iva: +(monto - sub).toFixed(2), total: monto,
+      folio, fecha: nunHoyLocal(),
+      tipo: 'cliente', cliente: d.cliente, contraparte: d.cliente,
+      documento_origen: origen,
+      subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: sinIva,
       motivo, estatus: 'borrador',
-      items_json: JSON.stringify(erpItemsDe(d)),
+      items_json: JSON.stringify(items),
+      vendedor: String(d.vendedor || '').toUpperCase().trim(),
       notas: 'Generada desde CRM por ' + erpNombre(),
       creado_por: erpCodigo()
     };
     const r = await erpApi({ accion:'erp_crear', tabla:'notascredito', item });
     if (r && r.ok) {
-      erpToast('✓ Nota de crédito ' + folio + ' creada en el ERP (borrador, ' + erpFmt(monto) + ')', 'ok');
+      erpToast('✓ Nota de crédito ' + folio + ' creada en el ERP (borrador, ' + erpFmt(t.total) + ')', 'ok');
       const md = document.getElementById('erpModalDetalle'); if (md) md.remove();
     } else throw new Error((r && r.error) || 'el ERP la rechazó');
   } catch(e){ erpToast('✗ NC no creada: ' + e.message, 'error'); }
@@ -10667,6 +10633,9 @@ window.erpAgregarLinea = function(){ erpLineas.push({ sku:'', cantidad:1, precio
 window.erpQuitarLinea = function(i){ erpLineas.splice(i,1); if(!erpLineas.length) erpLineas.push({sku:'',cantidad:1,precio:0}); erpRenderLineas(); };
 window.erpLineaCambio = function(i, campo, valor){
   erpLineas[i][campo] = campo==='sku' ? valor : (parseFloat(valor)||0);
+  // v1.9.12 — precio y cantidad deben ser mayores a 0
+  if (campo === 'precio' && !(erpLineas[i].precio > 0)) erpToast('El precio debe ser mayor a $0', 'error');
+  if (campo === 'cantidad' && !(erpLineas[i].cantidad > 0)) erpToast('La cantidad debe ser mayor a 0', 'error');
   if (campo === 'sku') {
     const p = erpData.productos.find(x => String(x.sku).toUpperCase() === String(valor).toUpperCase());
     if (p) { erpLineas[i].precio = +p.precio||0; erpLineas[i].descripcion = p.descripcion; erpRenderLineas(); return; }
@@ -10694,17 +10663,21 @@ function erpActualizarTotales(){
   if (!t) return;
   const chk = document.getElementById('erpPedConIVA');
   const conIVA = !chk || chk.checked; // v1.9: IVA opcional
-  const sub = erpLineas.reduce((s,l)=>s+(l.cantidad||0)*(l.precio||0),0);
-  const iva = conIVA ? sub*0.16 : 0;
-  t.innerHTML = `Subtotal: <strong>${erpFmt(sub)}</strong> · IVA ${conIVA?'16%':'<span style="color:#e0a052">0% (sin IVA)</span>'}: <strong>${erpFmt(iva)}</strong> · Total: <strong style="font-size:16px">${erpFmt(sub+iva)}</strong>`;
+  const c = nunCalcDoc(erpLineas.map(l => ({ cantidad:l.cantidad, precio_unitario:l.precio, descuento_pct:0, iva_pct: conIVA ? 16 : 0 })), !conIVA); // v1.9.12 redondeo SAT
+  t.innerHTML = `Subtotal: <strong>${erpFmt(c.subtotal)}</strong> · IVA ${conIVA?'16%':'<span style="color:#e0a052">0% (sin IVA)</span>'}: <strong>${erpFmt(c.iva)}</strong> · Total: <strong style="font-size:16px">${erpFmt(c.total)}</strong>`;
 }
 
 window.erpGuardarPedido = async function(){
   if (window._erpGuardandoPedido) return; // v1.9.9 — nunca dos al mismo tiempo
   const cliente = (document.getElementById('erpPedCliente')?.value||'').trim();
-  const lineas = erpLineas.filter(l => l.sku && (l.cantidad||0) > 0);
+  const lineas = erpLineas.filter(l => l.sku);
   if (!cliente) { erpToast('Falta el cliente', 'error'); return; }
   if (!lineas.length) { erpToast('Agrega al menos un producto', 'error'); return; }
+  // v1.9.12 — nada de precios o cantidades en cero o negativos
+  const malaCant = lineas.find(l => !((+l.cantidad||0) > 0));
+  if (malaCant) { erpToast('La cantidad de ' + malaCant.sku + ' debe ser mayor a 0', 'error'); return; }
+  const malPrecio = lineas.find(l => !((+l.precio||0) > 0));
+  if (malPrecio) { erpToast('El precio de ' + malPrecio.sku + ' debe ser mayor a $0 (no se aceptan precios en cero o negativos)', 'error'); return; }
   const btn = document.getElementById('erpPedGuardarBtn');
   window._erpGuardandoPedido = true;
   if (btn) { btn.disabled = true; btn.textContent = 'Subiendo...'; }
@@ -10719,7 +10692,10 @@ window.erpGuardarPedido = async function(){
     const ya = existentes.find(x => String(x.id) === id);
     if (ya) { item = ya; }
     else {
-      const folio = (modal && modal.dataset.folio) || await erpFolioNUN('pedidos');
+      // v1.9.12 — en un reintento, si el folio ya lo tomó otro pedido, se calcula uno nuevo
+      let folio = (modal && modal.dataset.folio) || '';
+      if (folio && existentes.some(x => String(x.folio||'').trim() === folio && String(x.id) !== id)) folio = '';
+      if (!folio) folio = await erpFolioNUN('pedidos');
       if (modal) modal.dataset.folio = folio;
       const chkIVA = document.getElementById('erpPedConIVA');
       const conIVA = !chkIVA || chkIVA.checked;
@@ -10727,12 +10703,11 @@ window.erpGuardarPedido = async function(){
         const p = erpData.productos.find(x => String(x.sku).toUpperCase() === String(l.sku).toUpperCase());
         return { sku: l.sku, descripcion: (p && p.descripcion) || l.sku, cantidad: l.cantidad, precio_unitario: l.precio, descuento_pct: 0, iva_pct: conIVA ? 16 : 0 };
       });
-      const subtotal = items.reduce((s,it)=>s+it.cantidad*it.precio_unitario,0);
-      const ivaMonto = conIVA ? subtotal*0.16 : 0;
+      const tot = nunCalcDoc(items, !conIVA); // v1.9.12 redondeo por renglón (SAT)
       item = {
-        id, folio, fecha: new Date().toISOString().substring(0,10),
+        id, folio, fecha: nunHoyLocal(),
         cliente, vendedor: erpVendedorUsuario(),
-        subtotal: +subtotal.toFixed(2), iva: +ivaMonto.toFixed(2), total: +(subtotal+ivaMonto).toFixed(2),
+        subtotal: tot.subtotal, iva: tot.iva, total: tot.total,
         sin_iva: !conIVA,
         estatus: 'borrador', items_json: JSON.stringify(items), sin_entregar: true,
         notas: (document.getElementById('erpPedNotas')?.value||'') + (conIVA ? '' : ' · SIN IVA') + ' · Capturado desde CRM',
@@ -10747,7 +10722,18 @@ window.erpGuardarPedido = async function(){
         if (!chk.some(x => String(x.id) === id)) throw new Error((r && r.error) || 'el servidor no confirmó');
       }
     }
+    // v1.9.12 — ¿otro pedido quedó con el mismo folio al mismo tiempo? se renombra el nuestro
+    let avisoFolio = '';
+    try {
+      const todos = await erpCargarTabla('pedidos', true);
+      if (todos.some(x => String(x.id) !== id && String(x.folio||'').trim() === String(item.folio||'').trim())) {
+        const nuevoFolio = await erpFolioNUN('pedidos');
+        const w = await erpApi({ accion:'erp_upsert_batch', tabla:'pedidos', items:[{ id, folio: nuevoFolio }] });
+        if (w && w.ok) { avisoFolio = item.folio; item.folio = nuevoFolio; if (modal) modal.dataset.folio = nuevoFolio; }
+      }
+    } catch(e){}
     erpOcupado('');
+    if (avisoFolio) erpToast('⚠ El folio ' + avisoFolio + ' ya lo tenía otro pedido: el tuyo quedó como ' + item.folio, 'error');
     erpToast('✓ Pedido ' + item.folio + ' subido', 'ok');
     const mm = document.getElementById('erpModalPedido'); if (mm) mm.remove();
     erpCargado['pedidos'] = false;
@@ -10772,8 +10758,8 @@ window.erpElegirConversion = function(id, folio){
     <div style="background:var(--bg,#fff);color:inherit;border-radius:16px;max-width:440px;width:100%;padding:22px;box-shadow:0 24px 64px rgba(0,0,0,0.35)">
       <h3 style="margin:0 0 6px">Convertir pedido <span style="font-family:monospace">${erpEsc(folio||id)}</span></h3>
       <div style="font-size:13px;color:var(--mute);margin-bottom:16px">Elige qué se genera. El pedido queda ligado al documento nuevo.</div>
-      <button class="btn primary" style="width:100%;padding:13px;font-weight:700;margin-bottom:8px;text-align:left" onclick="document.getElementById('erpModalConvertir').remove();erpConvertirPedido('${erpEsc(id)}','${erpEsc(folio||'')}','remisiones')">📦 Remisión — sale de almacén (descuenta inventario)</button>
-      <button class="btn primary" style="width:100%;padding:13px;font-weight:700;margin-bottom:8px;text-align:left" onclick="document.getElementById('erpModalConvertir').remove();erpConvertirPedido('${erpEsc(id)}','${erpEsc(folio||'')}','facturas')">🧾 Factura — borrador para timbrar (entra a Cobranza)</button>
+      <button class="btn primary" style="width:100%;padding:13px;font-weight:700;margin-bottom:8px;text-align:left" onclick="document.getElementById('erpModalConvertir').remove();erpConvertirPedido(${jsq(id)},${jsq(folio||'')},'remisiones')">📦 Remisión — salida de almacén</button>
+      <button class="btn primary" style="width:100%;padding:13px;font-weight:700;margin-bottom:8px;text-align:left" onclick="document.getElementById('erpModalConvertir').remove();erpConvertirPedido(${jsq(id)},${jsq(folio||'')},'facturas')">🧾 Factura — borrador para timbrar (entra a Cobranza)</button>
       <button class="btn" style="width:100%;padding:10px" onclick="document.getElementById('erpModalConvertir').remove()">Cancelar</button>
     </div>`;
   document.body.appendChild(m);
@@ -10796,22 +10782,49 @@ window.erpConvertirPedido = async function(id, folio, destino){
     const antes = new Set((destino === 'remisiones' ? rems : facts).map(d => String(d.id)));
     const r = await erpApi({ accion:'convertir_documento', tabla_origen:'pedidos', id_origen:id, tabla_destino:destino, usuario: erpCodigo() });
     if (!(r && r.ok)) throw new Error((r && r.error) || 'el servidor no pudo convertirlo');
-    // Documento nuevo → folio NUN (R0001 / FT0001), vendedor del pedido y alta en Cobranza
+    // v1.9.12 — igual que el sistema NUN (v3.78/v3.79): el servidor crea el documento SIN productos y con su propio
+    // folio; aquí se copian los productos del pedido, se recalculan totales (SAT), folio NUN y se renombra el cobro.
     const lista = await erpCargarTabla(destino, true);
     let nuevo = (r.item && r.item.id) ? lista.find(d => String(d.id) === String(r.item.id)) : null;
     if (!nuevo) nuevo = lista.filter(d => !antes.has(String(d.id)) && claves.includes(String(d.pedido_origen||''))).pop();
-    let folioNuevo = nuevo ? nuevo.folio : '';
-    if (nuevo) {
-      if (!erpEsFolioNUN(destino, nuevo.folio)) folioNuevo = await erpFolioNUN(destino);
-      const cambios = { id: nuevo.id, folio: folioNuevo, pedido_origen: ped.folio || ped.id };
-      if (!nuevo.vendedor && ped.vendedor) cambios.vendedor = ped.vendedor;
-      await erpApi({ accion:'erp_upsert_batch', tabla: destino, items:[cambios] });
-      Object.assign(nuevo, cambios);
-      try { await erpAltaCobranza(destino, nuevo); } catch(e){}
+    if (!nuevo) throw new Error('el servidor dijo que sí, pero no encuentro la ' + nombre + ' nueva. Revisa la lista antes de reintentar');
+    const folioNuevo = erpEsFolioNUN(destino, nuevo.folio) ? nuevo.folio : await erpFolioNUN(destino);
+    const cambios = { id: nuevo.id, folio: folioNuevo, pedido_origen: ped.folio || ped.id };
+    const sinIva = nunEsSinIva(ped);
+    const itsNuevo = erpItemsDe(nuevo), itsPed = erpItemsDe(ped);
+    if (!itsNuevo.length && itsPed.length) {
+      const t = nunCalcDoc(itsPed, sinIva);
+      cambios.items_json = JSON.stringify(itsPed); cambios.subtotal = t.subtotal; cambios.iva = t.iva; cambios.total = t.total;
+    }
+    if (sinIva && !nunEsSinIva(nuevo)) cambios.sin_iva = true;
+    const vend = String(nuevo.vendedor || ped.vendedor || '').toUpperCase().trim();
+    if (vend && vend !== String(nuevo.vendedor || '')) cambios.vendedor = vend;
+    const w = await erpApi({ accion:'erp_upsert_batch', tabla: destino, items:[cambios] });
+    if (!(w && w.ok)) throw new Error('se creó la ' + nombre + ' ' + (nuevo.folio||'') + ' pero no pude copiarle productos y folio (' + ((w && w.error) || 'sin respuesta') + '). Avísale al admin, NO la vuelvas a generar');
+    Object.assign(nuevo, cambios);
+    // Cobro que creó el servidor (factura_origen = id del documento nuevo) → folio NUN, total y saldo correctos
+    const rc = await erpApi({ accion:'erp_listar', tabla:'cobranza' });
+    if (!(rc && rc.ok)) throw new Error('la ' + nombre + ' ' + folioNuevo + ' quedó bien, pero no pude leer Cobranza para ligar el cobro. Avísale al admin');
+    const cobs = (rc.items || []).filter(c => String(c.factura_origen || '') === String(nuevo.id));
+    let avisoCobro = '';
+    if (cobs.length) {
+      const tot = nunR2(+nuevo.total || 0);
+      const upd = cobs.map(c => {
+        const x = { id: c.id, numero: folioNuevo, descripcion: (destino === 'facturas' ? 'Factura ' : 'Remisión ') + folioNuevo + ' · pedido ' + cambios.pedido_origen,
+          total: tot, pendiente: nunR2(Math.max(0, tot - nunR2(+c.cobrado || 0))) };
+        if (vend) x.vendedor = vend;
+        return x;
+      });
+      const wc = await erpApi({ accion:'erp_upsert_batch', tabla:'cobranza', items: upd });
+      if (!(wc && wc.ok)) throw new Error('la ' + nombre + ' ' + folioNuevo + ' quedó bien, pero el cobro no se actualizó (' + ((wc && wc.error) || 'sin respuesta') + '). Avísale al admin');
+    } else {
+      let ok = false; try { ok = await erpAltaCobranza(destino, nuevo); } catch(e){}
+      if (!ok) avisoCobro = ' · ⚠ revisa que esté en Cobranza';
     }
     erpOcupado('');
-    const extra = destino === 'remisiones' ? ' · inventario descontado' : '';
-    erpToast('✓ Pedido ' + (folio||id) + ' → ' + nombre + ' ' + folioNuevo + extra + ' · ya está en Cobranza', 'ok');
+    // Solo decimos "inventario descontado" si el servidor lo confirma
+    const extra = (destino === 'remisiones' && r.inventario_descontado) ? ' · inventario descontado' : '';
+    erpToast('✓ Pedido ' + (folio||id) + ' → ' + nombre + ' ' + folioNuevo + extra + (avisoCobro || ' · ya está en Cobranza'), avisoCobro ? 'error' : 'ok');
     erpCargado['pedidos'] = false; erpCargado[destino] = false;
     renderERPTab(tabActiva, true);
   } catch(e){ erpOcupado(''); erpToast('✗ ' + e.message, 'error'); }
@@ -10823,6 +10836,7 @@ window.erpFacturarPedido = function(id, folio){ erpElegirConversion(id, folio); 
 /* ============ ESPEJO INGRESOS/GASTOS CRM ↔ ERP ============ */
 let _espejoCorriendo = false;
 window.erpEspejoSync = async function(manual){
+  return; // v1.9.12 — espejo APAGADO: ERP y CRM comparten una sola base (duplicaba pagos)
   if (_espejoCorriendo || !erpCodigo()) return;
   _espejoCorriendo = true;
   if (manual) erpToast('⇄ Sincronizando espejo con el ERP...', 'ok');
@@ -10977,10 +10991,13 @@ window.erpImprimirDoc = async function(tabla, id){
     const cli = clientes.find(c => String(c.razon_social||'').trim().toUpperCase() === String(doc.cliente||'').trim().toUpperCase()) || {};
     const items = erpItemsDe(doc);
     const lbl = { facturas:'FACTURA', remisiones:'REMISIÓN', pedidos:'PEDIDO' }[tabla] || 'DOCUMENTO';
-    const sinIva = doc.sin_iva === true || doc.sin_iva === 'true';
-    const subtotal = +doc.subtotal || items.reduce((s,it)=>s+(+it.cantidad||0)*(+it.precio_unitario||0)*(1-(+it.descuento_pct||0)/100),0);
-    const iva = sinIva ? 0 : (+doc.iva || items.reduce((s,it)=>{const sub=(+it.cantidad||0)*(+it.precio_unitario||0)*(1-(+it.descuento_pct||0)/100);return s+sub*(+it.iva_pct||0)/100;},0));
-    const total = sinIva ? subtotal : (+doc.total || subtotal + iva);
+    const sinIva = nunEsSinIva(doc);
+    // v1.9.12 — redondeo por renglón (SAT). Factura timbrada con totales guardados: se respetan los del CFDI
+    const calc = nunCalcDoc(items, sinIva);
+    const usarGuardado = !items.length || (tabla === 'facturas' && (doc.uuid_sat || doc.folio_fiscal) && +doc.total);
+    const subtotal = usarGuardado ? nunR2(+doc.subtotal || 0) : calc.subtotal;
+    const iva = sinIva ? 0 : (usarGuardado ? nunR2(+doc.iva || 0) : calc.iva);
+    const total = usarGuardado ? (sinIva ? subtotal : nunR2(+doc.total || subtotal + iva)) : calc.total;
     let timbre = '';
     if (tabla === 'facturas' && (doc.uuid_sat || doc.folio_fiscal)) {
       const uuid = doc.uuid_sat || doc.folio_fiscal;
@@ -10988,8 +11005,8 @@ window.erpImprimirDoc = async function(tabla, id){
       timbre = erpTimbreHTML(xml ? erpTimbreDeXml(xml) : null, uuid, total);
     }
     const f = n => erpFmt(n);
-    const filas = items.length ? items.map(it => { const c=+it.cantidad||0, pu=+it.precio_unitario||0, de=+it.descuento_pct||0, sub=c*pu*(1-de/100), iv=sub*(+it.iva_pct||0)/100;
-      return '<tr><td class="sku">'+erpEsc(it.sku||'—')+'</td><td>'+erpEsc(it.descripcion||'')+'</td><td class="r">'+c+'</td><td class="r" style="font-size:9.5px;color:#666">'+erpEsc(it.unidad||'pieza')+'</td><td class="r">'+f(pu)+'</td><td class="r">'+(de>0?de.toFixed(0)+'%':'—')+'</td><td class="r" style="font-weight:600">'+f(sub+iv)+'</td></tr>'; }).join('')
+    const filas = items.length ? items.map(it => { const c=+it.cantidad||0, pu=+it.precio_unitario||0, de=+it.descuento_pct||0, ln=nunCalcLinea(it, sinIva); // v1.9.12 Importe = base sin IVA (cuadra con Subtotal)
+      return '<tr><td class="sku">'+erpEsc(it.sku||'—')+'</td><td>'+erpEsc(it.descripcion||'')+'</td><td class="r">'+erpEsc(c)+'</td><td class="r" style="font-size:9.5px;color:#666">'+erpEsc(it.unidad||'pieza')+'</td><td class="r">'+f(pu)+'</td><td class="r">'+(de>0?de.toFixed(0)+'%':'—')+'</td><td class="r" style="font-weight:600">'+f(ln.base)+'</td></tr>'; }).join('')
       : '<tr><td colspan="7" style="padding:24px;text-align:center;color:#aaa;font-style:italic">Sin productos en el documento</td></tr>';
     const est = tabla === 'facturas' ? (/cancel/i.test(doc.estatus||'') ? '<span class="stamp red">CANCELADA</span>' : (/timbr|pagad/i.test(doc.estatus||'') ? '<span class="stamp green">'+erpEsc(String(doc.estatus).toUpperCase())+'</span>' : '')) : '';
     const notas = doc.notas && !/importad[ao] desde bind/i.test(doc.notas) && !/capturado desde crm/i.test(doc.notas) ? '<div class="notas"><strong>Notas:</strong> '+erpEsc(doc.notas)+'</div>' : '';
@@ -11034,8 +11051,8 @@ function erpBotonesDoc(tabla, d, chico){
   const st = chico ? 'font-size:11px;padding:4px 10px' : '';
   const esFact = tabla === 'facturas';
   const tieneXml = esFact && (d.uuid_sat || d.folio_fiscal || /^local:/.test(String(d.xml_url||'')));
-  return `<button class="btn" style="${st}" onclick="event.stopPropagation();erpImprimirDoc('${tabla}','${erpEsc(d.id)}')">📄 PDF</button>`
-    + (tieneXml ? ` <button class="btn" style="${st}" onclick="event.stopPropagation();erpDescargarXml('${tabla}','${erpEsc(d.id)}')">⬇ XML</button>` : '');
+  return `<button class="btn" style="${st}" onclick="event.stopPropagation();erpImprimirDoc('${tabla}',${jsq(d.id)})">📄 PDF</button>`
+    + (tieneXml ? ` <button class="btn" style="${st}" onclick="event.stopPropagation();erpDescargarXml('${tabla}',${jsq(d.id)})">⬇ XML</button>` : '');
 }
 
 /* ---- Imagen del pedido + WhatsApp ---- */
@@ -11060,7 +11077,7 @@ function erpPedidoImagen(p){
   x.fillStyle = '#555'; x.font = '700 19px Helvetica, Arial, sans-serif'; x.fillText('PRODUCTO', pad, y-8); x.textAlign='right'; x.fillText('CANT.', W-pad-260, y-8); x.fillText('P. UNIT.', W-pad-130, y-8); x.fillText('IMPORTE', W-pad, y-8); x.textAlign='left';
   y += 20;
   items.forEach(it => {
-    const cant = +it.cantidad||0, pu = +it.precio_unitario||0, imp = cant*pu*(1-(+it.descuento_pct||0)/100);
+    const cant = +it.cantidad||0, pu = +it.precio_unitario||0, imp = nunCalcLinea(it, true).base; // v1.9.12 base por renglón
     x.fillStyle = '#0a0c0f'; x.font = '700 22px Courier New, monospace'; x.fillText(String(it.sku||''), pad, y+24);
     x.fillStyle = '#555'; x.font = '400 18px Helvetica, Arial, sans-serif'; x.fillText(recorta(it.descripcion, W-2*pad-420), pad+170, y+24);
     x.textAlign='right'; x.fillStyle = '#0a0c0f'; x.font = '700 22px Helvetica, Arial, sans-serif'; x.fillText(String(cant), W-pad-260, y+24);
@@ -11096,7 +11113,7 @@ function erpPedidoListo(item){
       <div style="font-size:40px">✅</div>
       <h3 style="margin:8px 0 4px">Pedido ${erpEsc(item.folio)} dado de alta</h3>
       <div style="color:var(--mute);font-size:13px;margin-bottom:18px">${erpEsc(item.cliente)} · ${erpFmt(item.total)}</div>
-      <button class="btn primary" style="width:100%;padding:13px;font-weight:700;margin-bottom:8px" onclick="erpWhatsAppPedido('${erpEsc(item.id)}')">📲 Enviar por WhatsApp (con imagen)</button>
+      <button class="btn primary" style="width:100%;padding:13px;font-weight:700;margin-bottom:8px" onclick="erpWhatsAppPedido(${jsq(item.id)})">📲 Enviar por WhatsApp (con imagen)</button>
       <button class="btn" style="width:100%;padding:10px" onclick="document.getElementById('erpModalDetalle').remove()">Listo</button>
     </div>`);
 }
@@ -11131,10 +11148,10 @@ async function erpAltaCobranza(tabla, doc){
   const ya = ((r && r.items) || []).some(c => c.factura_origen === doc.id || c.id === 'cob_' + doc.id);
   if (ya) return false;
   let credito = 0; try { const cli = (erpData.clientes||[]).find(c => String(c.razon_social||'').trim().toUpperCase() === String(doc.cliente||'').trim().toUpperCase()); credito = +(cli && cli.credito_dias) || 0; } catch(e){}
-  const f = String(doc.fecha || new Date().toISOString()).substring(0,10);
+  const f = String(doc.fecha || nunHoyLocal()).substring(0,10); // v1.9.12 fecha local
   const venc = new Date(f + 'T12:00:00'); venc.setDate(venc.getDate() + credito);
   const total = +(+doc.total||0).toFixed(2);
-  const item = { id:'cob_' + doc.id, fecha_emision:f, fecha_entrega:f, fecha_vencimiento: venc.toISOString().substring(0,10), cliente:doc.cliente,
+  const item = { id:'cob_' + doc.id, fecha_emision:f, fecha_entrega:f, fecha_vencimiento: nunHoyLocal(venc), cliente:doc.cliente,
     tipo: tabla === 'facturas' ? 'Factura' : 'Remisión', numero: doc.folio, estatus:'', vendedor: String(doc.vendedor||'').toUpperCase(),
     descripcion: 'Alta automática desde ' + (tabla === 'facturas' ? 'factura ' : 'remisión ') + doc.folio + (doc.pedido_origen ? ' · pedido ' + doc.pedido_origen : ''),
     credito: credito ? String(credito) : '', total, cobrado:0, pendiente: total, dias_vencido:0, sin_entregar:false, folio_fiscal: doc.uuid_sat || '', factura_origen: doc.id };

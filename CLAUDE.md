@@ -14,7 +14,7 @@ Este repo puede ser público: no escribas aquí datos de clientes, montos, RFC n
 - Rafa escribe sus contraseñas e inicios de sesión; tú no.
 - Si algo no cuadra, di cuál está mal (sistema, Bind o su Excel) y por qué.
 - No decidas por él ni rellenes datos que no dio: si falta un dato, márcalo como faltante.
-- Todo lo que esté a nombre de RAFAEL LANIADO CATTAN es de prueba.
+- Todo lo que esté a nombre de RAFAEL LANIADO CATTAN es de prueba (Yazmín practica ahí para aprender la plataforma): no cuenta para decisiones del negocio.
 
 ## Estado de operación (actualizado 30 sep 2026)
 - **Bind ya NO se usa desde el 29 sep 2026** (`NUN_BIND_APAGADO` en index.html). Todo se captura en NUN; lo que vino de Bind

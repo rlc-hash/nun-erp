@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.14</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.15</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.14</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.15</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -10627,6 +10627,8 @@ window.erpAbrirNuevoPedido = async function(){
       </div>
       <label style="font-size:12px;color:var(--mute)">Cliente</label>
       <input list="erpClientesList" id="erpPedCliente" placeholder="Escribe o elige cliente..." style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--line,#333);background:transparent;color:inherit;margin:4px 0 14px;box-sizing:border-box">
+      ${!NUN_VEND_VALIDOS.includes(erpVendedorUsuario()) ? `<label style="font-size:12px;color:var(--mute)">Vendedor (quien hizo la venta; cuenta para la comisión)</label>
+      <select id="erpPedVendedor" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--line,#333);background:transparent;color:inherit;margin:4px 0 14px;box-sizing:border-box"><option value="">— Elige —</option>${NUN_VEND_VALIDOS.map(v => `<option value="${v}">${v}</option>`).join('')}</select>` : ''}
       <datalist id="erpClientesList">${erpData.clientes.map(c=>`<option value="${erpEsc(c.razon_social||c.nombre)}">`).join('')}</datalist>
       <datalist id="erpSkusList">${erpData.productos.map(p=>`<option value="${erpEsc(p.sku)}">${erpEsc(String(p.descripcion||'').substring(0,60))}</option>`).join('')}</datalist>
       <div style="font-size:12px;color:var(--mute);margin-bottom:6px">Productos</div>
@@ -10717,6 +10719,7 @@ window.erpGuardarPedido = async function(){
   if (malaCant) { erpToast('La cantidad de ' + malaCant.sku + ' debe ser mayor a 0', 'error'); return; }
   const malPrecio = lineas.find(l => !((+l.precio||0) > 0));
   if (malPrecio) { erpToast('El precio de ' + malPrecio.sku + ' debe ser mayor a $0 (no se aceptan precios en cero o negativos)', 'error'); return; }
+  if (!erpVendedorDelPedido(cliente)) { erpToast('Elige el vendedor que hizo la venta (cuenta para la comisión)', 'error'); const s2 = document.getElementById('erpPedVendedor'); if (s2) s2.focus(); return; } // v1.9.15
   const btn = document.getElementById('erpPedGuardarBtn');
   window._erpGuardandoPedido = true;
   if (btn) { btn.disabled = true; btn.textContent = 'Subiendo...'; }
@@ -10745,7 +10748,7 @@ window.erpGuardarPedido = async function(){
       const tot = nunCalcDoc(items, !conIVA); // v1.9.12 redondeo por renglón (SAT)
       item = {
         id, folio, fecha: nunHoyLocal(),
-        cliente, vendedor: erpVendedorUsuario(),
+        cliente, vendedor: erpVendedorDelPedido(cliente), // v1.9.15
         subtotal: tot.subtotal, iva: tot.iva, total: tot.total,
         sin_iva: !conIVA,
         estatus: 'borrador', items_json: JSON.stringify(items), sin_entregar: true,
@@ -10825,7 +10828,8 @@ window.erpConvertirPedido = async function(id, folio, destino){
     // v1.9.12 — igual que el sistema NUN (v3.78/v3.79): el servidor crea el documento SIN productos y con su propio
     // folio; aquí se copian los productos del pedido, se recalculan totales (SAT), folio NUN y se renombra el cobro.
     const lista = await erpCargarTabla(destino, true);
-    let nuevo = (r.item && r.item.id) ? lista.find(d => String(d.id) === String(r.item.id)) : null;
+    const idNuevo = (r.item && r.item.id) || r.nuevoId; // v1.9.15 — el servidor manda nuevoId
+    let nuevo = idNuevo ? lista.find(d => String(d.id) === String(idNuevo)) : null;
     if (!nuevo) nuevo = lista.filter(d => !antes.has(String(d.id)) && claves.includes(String(d.pedido_origen||''))).pop();
     if (!nuevo) throw new Error('el servidor dijo que sí, pero no encuentro la ' + nombre + ' nueva. Revisa la lista antes de reintentar');
     const folioNuevo = erpEsFolioNUN(destino, nuevo.folio) ? nuevo.folio : await erpFolioNUN(destino);
@@ -11169,6 +11173,14 @@ async function erpFolioNUN(tabla){
   let max = 0; const re = new RegExp('^' + pref + '(\\d{4,})$');
   rows.forEach(r => { const m = String(r.folio||'').trim().match(re); if (m) max = Math.max(max, parseInt(m[1],10)); });
   return pref + String(max + 1).padStart(4,'0');
+}
+// v1.9.15 — solo estos son vendedores. Si quien captura no es vendedor (p. ej. Yazmín), el vendedor se elige (o se toma del cliente)
+const NUN_VEND_VALIDOS = ['EDGAR','LUIS','ESTEBAN','YADAH','RAFA','CASA'];
+function erpVendedorDelPedido(cliente){
+  const u = erpVendedorUsuario(); if (NUN_VEND_VALIDOS.includes(u)) return u;
+  const sel = document.getElementById('erpPedVendedor'); if (sel && sel.value) return sel.value;
+  let v = ''; try { if (typeof vendedorDeCliente === 'function') v = String(vendedorDeCliente(cliente)||'').toUpperCase().trim(); } catch(e){}
+  return NUN_VEND_VALIDOS.includes(v) ? v : '';
 }
 function erpVendedorUsuario(){
   let v = '';

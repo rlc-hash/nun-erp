@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.84 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.85 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -5065,6 +5065,12 @@ async function convertirDocConItems(origen, idOrigen, destino) {
   try { // v3.69
   const _orig = (await nunListarFresco(origen)).find(d => String(d.id) === String(idOrigen)) || {};
   const _claves = [String(_orig.folio||''), String(idOrigen)].filter(Boolean);
+  // v3.85 — un pedido que vino de Bind o que ya está entregado/facturado casi seguro ya tiene su remisión o factura:
+  // convertirlo otra vez duplica la venta (así salieron remisiones REM-2026 repetidas)
+  if (origen === 'pedidos' && (/^bind_/.test(String(idOrigen)) || /entregad|facturad/i.test(_orig.estatus||''))) {
+    const _ok2 = await confirmDialog({ title:'⚠ Este pedido ' + (/^bind_/.test(String(idOrigen)) ? 'viene de Bind' : 'ya está ' + (_orig.estatus||'')), message:'Casi seguro ya tiene su remisión o factura (en Bind se llamaban V01… o A…). Si lo conviertes se DUPLICA la venta en Cobranza. ¿De verdad es una venta nueva?', ok:'Sí, es nueva', danger:true });
+    if (!_ok2) return;
+  }
   if (origen === 'pedidos' && (destino === 'remisiones' || destino === 'facturas')) {
     const [_rs, _fs] = await Promise.all([nunListarFresco('remisiones'), nunListarFresco('facturas')]);
     const _previo = _rs.concat(_fs).find(d => !/cancel/i.test(d.estatus||'') && _claves.includes(String(d.pedido_origen||'')));
@@ -5077,7 +5083,8 @@ async function convertirDocConItems(origen, idOrigen, destino) {
     if (data.ok) {
       if (NUN_PREF_FOLIO[destino]) { // v3.69 — folio NUN, vendedor y alta en Cobranza
         const _lista = await nunListarFresco(destino);
-        let _nuevo = (data.item && data.item.id) ? _lista.find(d => String(d.id) === String(data.item.id)) : null;
+        const _idNuevo = (data.item && data.item.id) || data.nuevoId; // v3.85 — el servidor manda nuevoId
+        let _nuevo = _idNuevo ? _lista.find(d => String(d.id) === String(_idNuevo)) : null;
         if (!_nuevo) _nuevo = _lista.filter(d => !_antes.has(String(d.id)) && _claves.includes(String(d.pedido_origen||''))).pop();
         if (_nuevo) {
           const _cam = { id:_nuevo.id, folio: nunEsFolioNUN(destino, _nuevo.folio) ? _nuevo.folio : nunFolioNUNde(destino, _lista), pedido_origen: _orig.folio || idOrigen };
@@ -6159,6 +6166,7 @@ function renderComisiones() {
     <div class="page-title">
       <div><h1>Comisiones</h1><div class="sub">Sobre lo cobrado · Rafa 4% global · Yadah 4% global · Edgar 6% + 3% Yadah + 1% Luis + 1% Esteban · Luis 5% · Esteban 5% · Yazmin $15K/mes</div></div>
       <div class="actions">
+        <button class="btn btn-sm" onclick="nunVendedoresACorregir()" title="Documentos con vendedor que no es vendedor (p. ej. YASMIN de Bind)">🔎 Vendedores a corregir</button>
         <button class="btn btn-sm" onclick="nunReporteCasaOtroVendedor()" title="Documentos a nombre de CASA o RAFA cuyo cliente tiene otro vendedor en el catálogo">🔎 CASA con vendedor</button>
         <select onchange="comCambiarAnio(this.value)" style="padding:7px 28px 7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
           <option value="todos" ${_comFiltroAnio==='todos'?'selected':''}>Todos los años</option>
@@ -6774,6 +6782,7 @@ function renderDocOperativo(tabla) {
         <div class="sub">${rows.length} documentos · ${fmt(total)} total vigente · ${fmt(saldo)} por cobrar${tabla === 'remisiones' ? ' · ' + rows.filter(r => r.estatus === 'facturada').length + ' ya facturadas (no suman)' : ''}</div>
       </div>
       <div class="actions">
+        ${(tabla === 'remisiones' || tabla === 'facturas') && nunEsAdmin() && nunFoliosServidor(tabla).length ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunRevisarFoliosServidor('${tabla}')">🧹 Folios REM/FAC (${nunFoliosServidor(tabla).length})</button>` : ''}
         <button class="btn btn-secondary" onclick="exportarTabla('${tabla}')">Exportar</button>
         <button class="btn btn-primary" onclick="abrirDoc('${tabla}')">+ Nueva ${escapeHTML(def.singular)}</button>
       </div>
@@ -9743,6 +9752,98 @@ function reiniciarSyncTimer() {
 // v3.59 — CUADRE CON BIND + VENDEDORES DESDE EL CATÁLOGO DEL CRM
 // ============================================================
 let _catClientes = [];
+// ============================================================
+// v3.85 — VENDEDORES A CORREGIR: documentos cuyo vendedor no es vendedor (YASMIN de Bind era quien capturaba el pedido).
+// El vendedor correcto es el del cliente (Clientes o la lista de la app). Solo se cambia lo que Rafa marque.
+// ============================================================
+function nunVendedoresACorregirCalcular(){
+  const valido = v => NUN_VENDEDORES_VALIDOS.includes(String(v||'').toUpperCase().trim());
+  const cliIdx = new Map((State.data.clientes||[]).map(c => [String(c.razon_social||'').trim().toUpperCase(), c]));
+  const out = [];
+  ['cobranza','pedidos','remisiones','facturas'].forEach(t => (t === 'cobranza' ? (State.data.cobranzaTodos || State.data.cobranza || []) : (State.data[t]||[])).forEach(d => {
+    if (/cancel/i.test(d.estatus||'')) return;
+    const v = String(d.vendedor||'').toUpperCase().trim(); if (valido(v) || !v) return;
+    const c = cliIdx.get(String(d.cliente||'').trim().toUpperCase());
+    let prop = c && valido(c.vendedor) ? String(c.vendedor).toUpperCase().trim() : '';
+    if (!prop && typeof vendedorDeClienteCat === 'function' && _catClientes.length) { const x = String(vendedorDeClienteCat(d.cliente, d.fecha_emision || d.fecha)||'').toUpperCase().trim(); if (valido(x)) prop = x; }
+    out.push({ t, d, v, prop });
+  }));
+  return out;
+}
+async function nunVendedoresACorregir(){
+  nunOcupado('Revisando documentos…');
+  try { if (!_catClientes.length) await cargarCatalogoVendedores(); await Promise.all(['cobranza','pedidos','remisiones','facturas','clientes'].map(t => cargarTabla(t))); } catch(e){} finally { nunOcupado(''); }
+  const L = nunVendedoresACorregirCalcular(); window._nunVAC = L;
+  const et = { cobranza:'Cobro', pedidos:'Pedido', remisiones:'Remisión', facturas:'Factura' };
+  let m = document.getElementById('modalVAC'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalVAC';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:960px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><div><h3 style="margin:0">Vendedores a corregir</h3>
+      <div style="font-size:12px;color:var(--ink-3)">${L.length} documento(s) con vendedor que no es vendedor · con propuesta: ${L.filter(x => x.prop).length}. El vendedor propuesto es el del cliente. Cambia a quién se le cuenta la comisión.</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalVAC').remove()">✕</button></div>
+    <div style="overflow:auto;padding:0 20px;flex:1">${L.length ? `<table class="dt" style="font-size:12px"><thead><tr><th><input type="checkbox" checked onchange="document.querySelectorAll('#modalVAC .vacChk:not([disabled])').forEach(x=>x.checked=this.checked)"></th><th>Tipo</th><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Dice</th><th>Poner</th><th class="right">Total</th></tr></thead><tbody>
+      ${L.map((x, i) => `<tr><td><input type="checkbox" class="vacChk" data-i="${i}" ${x.prop ? 'checked' : 'disabled'}></td><td>${et[x.t]}</td><td class="mono">${escapeHTML(String(x.d.folio || x.d.numero || ''))}</td><td>${fmtFecha(x.d.fecha || x.d.fecha_entrega || x.d.fecha_emision)}</td>
+        <td>${escapeHTML(x.d.cliente||'')}</td><td>${escapeHTML(x.v)}</td><td><b>${escapeHTML(x.prop || '— el cliente no tiene vendedor —')}</b></td><td class="right mono">${fmtFull(x.d.total)}</td></tr>`).join('')}</tbody></table>` : '<div style="padding:24px;text-align:center;color:var(--mute)">Todo tiene un vendedor válido 👍</div>'}</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)"><button class="btn" onclick="document.getElementById('modalVAC').remove()">Cerrar</button>
+      ${L.length ? '<button class="btn btn-primary" id="vacBoton" onclick="nunVendedoresACorregirGuardar()">Cambiar lo marcado</button>' : ''}</div></div>`;
+  document.body.appendChild(m);
+}
+async function nunVendedoresACorregirGuardar(){
+  const L = window._nunVAC || []; const sel = [...document.querySelectorAll('#modalVAC .vacChk:checked')].map(x => L[+x.dataset.i]).filter(x => x && x.prop);
+  if (!sel.length) { toast('No marcaste nada', { type:'error' }); return; }
+  const ok = await confirmDialog({ title:'¿Cambiar el vendedor de ' + sel.length + ' documento(s)?', message:'Se pone el vendedor del cliente. No se borra nada.', ok:'Cambiar' });
+  if (!ok) return;
+  const btn = document.getElementById('vacBoton'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  let mal = 0; const porTabla = {};
+  sel.forEach(x => { (porTabla[x.t] = porTabla[x.t] || []).push({ id: x.d.id, vendedor: x.prop }); });
+  for (const t of Object.keys(porTabla)) for (let i = 0; i < porTabla[t].length; i += 40) { try { const r = await api({ accion:'erp_upsert_batch', tabla:t, items: porTabla[t].slice(i, i+40) }); if (!(r && r.ok)) mal++; } catch(e){ mal++; } }
+  document.getElementById('modalVAC').remove();
+  await Promise.all(Object.keys(porTabla).map(t => cargarTabla(t))); renderCurrent();
+  toast(mal ? '⚠ Algunos no se guardaron; vuelve a intentar' : '✓ ' + sel.length + ' documento(s) con su vendedor correcto', { type: mal ? 'error' : 'success', duration:7000 });
+}
+// ============================================================
+// v3.85 — FOLIOS DEL SERVIDOR (REM-2026-…, FAC-2026-…): documentos cuya conversión no terminó. Se revisan uno por uno:
+// si es venta real se le pone folio NUN (y a su cobro); si es duplicado se cancela (no se borra).
+// ============================================================
+function nunFoliosServidor(tabla){ return (State.data[tabla]||[]).filter(d => !/cancel/i.test(d.estatus||'') && /^(REM|FAC|PED)-\d{4}-\d+$/i.test(String(d.folio||'').trim())); }
+function nunPosiblesDuplicados(tabla, d){
+  const t = +d.total||0, cli = String(d.cliente||'').trim().toUpperCase();
+  return ['remisiones','facturas'].flatMap(tt => (State.data[tt]||[]).filter(x => x.id !== d.id && !/cancel/i.test(x.estatus||'') && String(x.cliente||'').trim().toUpperCase() === cli && Math.abs((+x.total||0) - t) < 1).map(x => (tt === 'remisiones' ? 'Remisión ' : 'Factura ') + (x.folio||'') + ' (' + fmtFecha(x.fecha) + ')'));
+}
+function nunRevisarFoliosServidor(tabla){
+  const L = nunFoliosServidor(tabla); const idx = nunIdxCobranza ? nunIdxCobranza() : null;
+  let m = document.getElementById('modalFS'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalFS';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:960px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><div><h3 style="margin:0">${tabla === 'remisiones' ? 'Remisiones' : 'Facturas'} con folio del servidor</h3>
+      <div style="font-size:12px;color:var(--ink-3)">Son conversiones que no terminaron (o pedidos viejos que se convirtieron otra vez). Revisa cada una: si es venta real ponle folio NUN; si ya existía, cancélala.</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalFS').remove()">✕</button></div>
+    <div style="padding:10px 20px"><table class="dt" style="font-size:12px"><thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th>Pedido</th><th class="right">Total</th><th>Parecidas (mismo cliente y total)</th><th></th></tr></thead><tbody>
+      ${L.map(d => { const dup = nunPosiblesDuplicados(tabla, d); const idJ = escapeHTML(JSON.stringify(String(d.id)));
+        return `<tr><td class="mono">${escapeHTML(d.folio||'')}</td><td>${fmtFecha(d.fecha)}</td><td>${escapeHTML(d.cliente||'')}</td><td class="mono">${escapeHTML(String(d.pedido_origen||'—'))}</td><td class="right mono">${fmtFull(d.total)}</td>
+        <td style="color:${dup.length ? 'var(--red)' : 'var(--mute)'}">${dup.length ? escapeHTML(dup.join(' · ')) : '—'}</td>
+        <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="nunFolioServidorRenombrar('${tabla}',${idJ})">Poner folio ${NUN_PREF_FOLIO[tabla]}</button>
+        <button class="btn btn-sm btn-danger" onclick="document.getElementById('modalFS').remove();eliminarDoc('${tabla}',${idJ})">Cancelar (duplicada)</button></td></tr>`; }).join('')}
+    </tbody></table></div></div>`;
+  document.body.appendChild(m);
+}
+async function nunFolioServidorRenombrar(tabla, id){
+  const d = (State.data[tabla]||[]).find(x => String(x.id) === String(id)); if (!d) return;
+  const lst = await nunListarFresco(tabla); const nuevo = nunFolioNUNde(tabla, lst);
+  const ok = await confirmDialog({ title:'¿Poner folio ' + nuevo + '?', message:(d.folio||'') + ' de ' + (d.cliente||'') + ' por ' + fmtFull(d.total) + ' pasa a ' + nuevo + ' (y su cobro en Cobranza).', ok:'Poner folio' });
+  if (!ok) return;
+  const cam = { id: d.id, folio: nuevo }; if (tabla === 'remisiones' && /borrador/i.test(d.estatus||'')) cam.estatus = 'entregada';
+  if (!(await nunGuardarSeguro(tabla, cam))) { toast('✗ No se guardó', { type:'error' }); return; }
+  try { const cob = await nunListarFresco('cobranza'); const c = nunCobranzaDeDoc(d, cob) || cob.find(x => String(x.numero||'').trim() === String(d.folio||'').trim());
+    if (c) await nunGuardarSeguro('cobranza', { id: c.id, numero: nuevo, descripcion: (tabla === 'facturas' ? 'Factura ' : 'Remisión ') + nuevo });
+    else if (await nunAltaCobranza(tabla, Object.assign({}, d, { folio: nuevo })) === false) toast('⚠ No se creó su cobro en Cobranza', { type:'error' }); } catch(e){}
+  await Promise.all([cargarTabla(tabla), cargarTabla('cobranza')]); document.getElementById('modalFS')?.remove(); renderCurrent();
+  toast('✓ Ahora es ' + nuevo, { duration:5000 });
+}
+window.nunVendedoresACorregir = nunVendedoresACorregir; window.nunVendedoresACorregirGuardar = nunVendedoresACorregirGuardar;
+window.nunRevisarFoliosServidor = nunRevisarFoliosServidor; window.nunFolioServidorRenombrar = nunFolioServidorRenombrar;
 // ============================================================
 // v3.83 — CATÁLOGO ÚNICO: el vendedor de cada cliente pasa de la lista de la app (ClientesCatalogo) a Clientes.
 // Primero se muestra la lista para revisar; solo se guarda lo que Rafa marque. No se borra nada (la lista de la app queda de respaldo).

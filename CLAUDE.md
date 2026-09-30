@@ -59,7 +59,12 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   Cobranza `numero` = folio (remisiones de Bind "V01"+folio); `factura_origen` = id del documento.
   Notas de crédito: `documento_origen` = folio de factura o "V01"+remisión.
 - Complementos de pago en `notas` de la factura: `REP CP0001 uuid=… monto=… fecha=AAAA-MM-DD parc=N`.
-- Vendedor siempre en MAYÚSCULAS (EDGAR, LUIS, ESTEBAN, YADAH, RAFA, CASA). RAFA y CASA = 0% de comisión.
+- Vendedor siempre en MAYÚSCULAS (EDGAR, LUIS, ESTEBAN, YADAH, RAFA, CASA). RAFA y CASA = 0% de comisión COMO VENDEDOR;
+  aparte, RAFA y YADAH cobran 4% de socio sobre TODO lo cobrado (confirmado por Rafa, 30 sep 2026).
+- Documento a nombre de CASA cuyo cliente tiene vendedor en el catálogo: la comisión de lo cobrado es del vendedor del catálogo
+  (confirmado por Rafa). No debería haber casos así: el botón "🔎 CASA con vendedor" en Comisiones los lista para corregirlos.
+- Dueños (Gastos, borrar pagos, etc.) se reconocen por cómo EMPIEZA el código de acceso: `RAFA-`, `YADAH-`, `MASTER-NUN-`.
+  Nunca escribir códigos de acceso completos en el código ni en este repo.
 - Ingresos con tipo CANCELADO_BIND o DUPLICADO_BIND no cuentan.
 
 ## Funciones clave (index.html)

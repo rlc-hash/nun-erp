@@ -1,6 +1,6 @@
 const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
 const errs=[];const vc=new VirtualConsole();vc.on('jsdomError',e=>errs.push(String(e.message).slice(0,300)));
-const DB={remisiones:[{id:'bind_rem_302',folio:302,cliente:'RICARDO',fecha:'2026-09-07T06:00:00.000Z',total:11590,estatus:'pendiente',items_json:'[]'},{id:'r2',folio:'R0001',cliente:'OTRO',fecha:'2026-09-29',total:5,items_json:'[]'}],cobranza:[{id:'bind_cob_302',numero:'V01302',total:11590,pendiente:11590}],ingresos:[{id:'i1',fecha:'2026-09-07T06:00:00.000Z',cliente:'X',monto:1}],usuarios:[]};
+const DB={remisiones:[{id:'bind_rem_302',folio:302,cliente:'CLIENTE UNO',fecha:'2026-09-07T06:00:00.000Z',total:11590,estatus:'pendiente',items_json:'[]'},{id:'r2',folio:'R0001',cliente:'OTRO',fecha:'2026-09-29',total:5,items_json:'[]'}],cobranza:[{id:'bind_cob_302',numero:'V01302',total:11590,pendiente:11590}],ingresos:[{id:'i1',fecha:'2026-09-07T06:00:00.000Z',cliente:'X',monto:1}],usuarios:[]};
 const sent=[];
 const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),{runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,url:'https://rlc-hash.github.io/nun-erp/#/remisiones',
  beforeParse(w){ w.localStorage.setItem('nun_sesion_v2',JSON.stringify({codigo:'ADMIN-PRUEBA',usuario:{codigo:'ADMIN-PRUEBA',nombre:'Admin',rol:'admin'},permisos:{},ts:1}));

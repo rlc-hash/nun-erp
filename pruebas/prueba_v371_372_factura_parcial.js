@@ -2,7 +2,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
 const errs=[];const vc=new VirtualConsole();vc.on('jsdomError',e=>errs.push(String(e.message).slice(0,300)));
 const skus=['RL0083P','RL0083RD','RL0083N','RL0083L','RL0083A','RL0083R','RL0083GO','RL0083M','RL0083BE'];
 const remItems=skus.map(s=>({sku:s,descripcion:s+' Sets de Maleta PP',cantidad:3,precio_unitario:1650,iva_pct:16}));
-const DB={remisiones:[{id:'bind_rem_321',folio:321,cliente:'RICARDO RAUL OCAÑAS GOMEZ',total:44550,subtotal:44550,iva:0,estatus:'pendiente',vendedor:'EDGAR',items_json:JSON.stringify(remItems)}],
+const DB={remisiones:[{id:'bind_rem_321',folio:321,cliente:'CLIENTE UNO DE PRUEBA',total:44550,subtotal:44550,iva:0,estatus:'pendiente',vendedor:'EDGAR',items_json:JSON.stringify(remItems)}],
  facturas:[{id:'f_old',folio:1178,cliente:'X',total:1}],cobranza:[{id:'cob_x',numero:321,total:44550}],clientes:[],productos:[],pedidos:[],usuarios:[],movinventario:[]};
 const llamadas=[];
 const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),{runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,url:'https://rlc-hash.github.io/nun-erp/',

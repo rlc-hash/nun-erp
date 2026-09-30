@@ -1,10 +1,10 @@
 const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
 const errs=[];const vc=new VirtualConsole();vc.on('jsdomError',e=>errs.push(String(e.message).slice(0,300)));
-const DB={facturas:[{id:'f1',folio:'FT0001',cliente:'RICARDO RAUL OCAÑAS GOMEZ',subtotal:15948.26,iva:2551.72,total:18499.98,pedido_origen:'REM 322',estatus:'timbrada',uuid_sat:'05348b09-55d4-4d71-a02f-88b07b8949cc',metodo_pago:'PPD',forma_pago:'99',notas:'Factura de la remisión 322 · Facturama ID: L-e',items_json:JSON.stringify([{sku:'A',cantidad:1,precio_unitario:15948.26,iva_pct:16}])},
+const DB={facturas:[{id:'f1',folio:'FT0001',cliente:'CLIENTE UNO DE PRUEBA',subtotal:15948.26,iva:2551.72,total:18499.98,pedido_origen:'REM 322',estatus:'timbrada',uuid_sat:'11111111-2222-4333-8444-5555555555aa',metodo_pago:'PPD',forma_pago:'99',notas:'Factura de la remisión 322 · Facturama ID: L-e',items_json:JSON.stringify([{sku:'A',cantidad:1,precio_unitario:15948.26,iva_pct:16}])},
    {id:'f2',folio:'FT0002',cliente:'X',total:100,uuid_sat:'u2',metodo_pago:'PUE',items_json:'[]'}],
- remisiones:[{id:'bind_rem_322',folio:322,cliente:'RICARDO RAUL OCAÑAS GOMEZ',total:18499.98,estatus:'facturada',items_json:'[]'}],
- cobranza:[{id:'bind_cob_322',numero:'V01322',cliente:'RICARDO RAUL OCAÑAS GOMEZ',total:18499.98,pendiente:18499.98,cobrado:0}],
- clientes:[{id:'c1',razon_social:'RICARDO RAUL OCAÑAS GOMEZ',rfc:'OAGR680618PPA',cp:66068,regimen_fiscal:626,uso_cfdi:'G01'}],
+ remisiones:[{id:'bind_rem_322',folio:322,cliente:'CLIENTE UNO DE PRUEBA',total:18499.98,estatus:'facturada',items_json:'[]'}],
+ cobranza:[{id:'bind_cob_322',numero:'V01322',cliente:'CLIENTE UNO DE PRUEBA',total:18499.98,pendiente:18499.98,cobrado:0}],
+ clientes:[{id:'c1',razon_social:'CLIENTE UNO DE PRUEBA',rfc:'CACX7605101P8',cp:64000,regimen_fiscal:626,uso_cfdi:'G01'}],
  cuentas:[{nombre:'BBVA 1234'}],ingresos:[],pagosclientes:[],usuarios:[]};
 const ll=[];let fallarTimbre=1;
 const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),{runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,url:'https://rlc-hash.github.io/nun-erp/',
@@ -20,7 +20,7 @@ const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),
 const w=dom.window,d=w.document;const sleep=t=>new Promise(z=>setTimeout(z,t));
 setTimeout(async()=>{const r={};try{
  for (const t of ['facturas','remisiones','cobranza','clientes','cuentas']) await w.eval(`cargarTabla('${t}')`);
- w.eval("State.data.empresa={rfc:'CCA250120SX3',cp:52786}");
+ w.eval("State.data.empresa={rfc:'EKU9003173C9',cp:11000}");
  w.eval("abrirDoc('facturas','f1')"); await sleep(100); r.boton=/Pago \+ complemento/.test(d.body.innerHTML);
  w.eval("abrirDoc('facturas','f2')"); await sleep(100); r.botonPUE=d.body.innerHTML.includes("nunAbrirComplementoPago('f2')")?'MAL':(d.body.innerHTML.includes("nunPagoDesdeDoc('facturas','f2')")?'ok: Registrar pago':'?');
  await w.eval("nunAbrirComplementoPago('f1')"); await sleep(100);

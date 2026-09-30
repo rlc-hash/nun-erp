@@ -9,7 +9,7 @@ const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),
  beforeParse(w){ w.localStorage.setItem('nun_sesion_v2',JSON.stringify({codigo:'ADMIN-PRUEBA',usuario:{codigo:'ADMIN-PRUEBA',nombre:'Admin',rol:'admin'},permisos:{},ts:1}));
   w.fetch=async(u,o)=>{ const b=o&&o.body?JSON.parse(o.body):{}; llamadas.push(b); await new Promise(z=>setTimeout(z,80)); const J=x=>({json:async()=>JSON.parse(JSON.stringify(x))});
    if(b.accion==='erp_listar') return J({ok:true,items:DB[b.tabla]||[]});
-   if(b.accion==='obtener_empresa') return J({ok:true,config:{rfc:'CCA250120SX3',cp:52786,razon_social:'COMERCIALIZADORA CASRAF',regimen_fiscal:601}});
+   if(b.accion==='obtener_empresa') return J({ok:true,config:{rfc:'EKU9003173C9',cp:11000,razon_social:'COMERCIALIZADORA CASRAF',regimen_fiscal:601}});
    if(b.accion==='erp_upsert_batch'){ for(const it of b.items){ const x=DB[b.tabla].find(r=>r.id===it.id); if(x) Object.assign(x,it); else DB[b.tabla].push(it);} return J({ok:true}); }
    if(b.accion==='facturama_timbrar') return J({ok:true,uuid:'ABCDEF12-0000-0000-0000-000000000000',id:'FAC123xyz'});
    if(b.accion==='erp_actualizar'){ const x=DB[b.tabla].find(r=>r.id===b.item.id); Object.assign(x,b.item); return J({ok:true}); }
@@ -21,7 +21,7 @@ setTimeout(async()=>{ const r={};
  try{
   w.eval("confirm=()=>{throw new Error('no debe usar confirm')}");
   for (const t of ['facturas','clientes','productos']) await w.eval(`cargarTabla('${t}')`);
-  w.eval("State.data.empresa={rfc:'CCA250120SX3',cp:52786,razon_social:'COMERCIALIZADORA CASRAF',regimen_fiscal:601}");
+  w.eval("State.data.empresa={rfc:'EKU9003173C9',cp:11000,razon_social:'COMERCIALIZADORA CASRAF',regimen_fiscal:601}");
   r.folioSug=w.eval("siguienteFolioLocal('facturas')");
   // 1) Timbrar abre la ventana, no timbra directo
   await w.eval("facturaTimbrar('f_new')"); await sleep(50);

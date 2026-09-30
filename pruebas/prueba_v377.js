@@ -2,9 +2,9 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
 const errs=[];const vc=new VirtualConsole();vc.on('jsdomError',e=>errs.push(String(e.message).slice(0,300)));
 const DB={pedidos:[{id:'p1',folio:'P0001',fecha:'2026-09-29',cliente:'CLI',total:1160,estatus:'confirmado',items_json:'[]'}],
  remisiones:[{id:'r1',folio:'R0001',fecha:'2026-09-29',cliente:'CLI',total:1160,pedido_origen:'P0001',estatus:'facturada',items_json:'[]'},
-   {id:'bind_rem_322',folio:322,fecha:'2026-09-28T06:00:00.000Z',cliente:'RICARDO',total:18499.98,estatus:'facturada',items_json:'[]'}],
+   {id:'bind_rem_322',folio:322,fecha:'2026-09-28T06:00:00.000Z',cliente:'CLIENTE UNO',total:18499.98,estatus:'facturada',items_json:'[]'}],
  facturas:[{id:'f1',folio:'FT0002',fecha:'2026-09-29',cliente:'CLI',total:1160,pedido_origen:'R0001',estatus:'timbrada',uuid_sat:'u1',metodo_pago:'PPD',notas:'REP CP0002 uuid=aa monto=500.00 fecha=2026-09-29 parc=1',items_json:'[]'},
-   {id:'f322',folio:'FT0001',fecha:'2026-09-29',cliente:'RICARDO',total:18499.98,pedido_origen:'REM 322',estatus:'timbrada',uuid_sat:'u2',metodo_pago:'PPD',notas:'REP CP0001 uuid=bb monto=18499.98 fecha=2026-09-28 parc=1',items_json:'[]'},
+   {id:'f322',folio:'FT0001',fecha:'2026-09-29',cliente:'CLIENTE UNO',total:18499.98,pedido_origen:'REM 322',estatus:'timbrada',uuid_sat:'u2',metodo_pago:'PPD',notas:'REP CP0001 uuid=bb monto=18499.98 fecha=2026-09-28 parc=1',items_json:'[]'},
    {id:'bind_fac_1092',folio:1092,fecha:'2026-03-01T06:00:00.000Z',cliente:'X',total:5000,pedido_origen:'',estatus:'timbrada',uuid_sat:'u3',items_json:'[]'}],
  notascredito:[{id:'nc1',folio:1005,fecha:'2026-03-05T06:00:00.000Z',documento_origen:'1092',total:1000,estatus:'timbrada',motivo:'devolución'}],
  cobranza:[{id:'cob_r1',numero:'R0001',factura_origen:'r1',total:1160,cobrado:500,pendiente:660},{id:'bind_cob_322',numero:'V01322',total:18499.98,cobrado:18499.98,pendiente:0},{id:'bind_cob_1092',numero:'1092',total:5000,cobrado:4000,pendiente:0}],

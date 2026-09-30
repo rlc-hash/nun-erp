@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.91 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.92 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -6812,7 +6812,7 @@ function renderDocOperativo(tabla) {
   // KPIs rápidos — v3.72: sin canceladas ni remisiones ya facturadas (la venta no se cuenta dos veces)
   const _vig = rows.filter(r => !/cancel/i.test(r.estatus||'') && !(tabla === 'remisiones' && r.estatus === 'facturada'));
   const total = _vig.reduce((s,r)=>s+(+r.total||0), 0);
-  const saldo = nunSaldoGrupo(_vig, tabla); // v3.80 — varias facturas de una misma remisión: el saldo se cuenta una vez
+  const saldo = tabla === 'pedidos' ? _vig.reduce((a, r) => a + (nunSaldoPedido(r) || 0), 0) : nunSaldoGrupo(_vig, tabla); // v3.92 pedidos: solo anticipos con cobro // v3.80 — varias facturas de una misma remisión: el saldo se cuenta una vez
   const timbradas = rows.filter(r => r.estatus === 'timbrada').length;
   const canceladas = rows.filter(r => r.estatus === 'cancelada').length;
   const pendientes = rows.filter(r => r.estatus === 'pendiente').length;
@@ -6927,16 +6927,18 @@ function afterDocOperativo(tabla) {
       { key:'total', label:'Total', right:true, render:r=>`<span class="mono">${fmt(r.total||0)}</span>` },
       { key:'saldo', label:'Saldo', right:true, render:r=>{
         // v3.10.1 — Cross-ref: si no hay saldo, calcular vía cobranza por folio/serie
-        const s = nunSaldoDoc(r, tabla); // v3.77
-        if (r.estatus === 'cancelada' || (tabla === 'remisiones' && r.estatus === 'facturada')) return `<span class="mono" style="color:var(--mute)">—</span>`;
+        if (/cancel/i.test(r.estatus||'') || (tabla === 'remisiones' && r.estatus === 'facturada')) return `<span class="mono" style="color:var(--mute)">—</span>`; // v3.92 cancelado/cancelada
+        const s = tabla === 'pedidos' ? nunSaldoPedido(r) : nunSaldoDoc(r, tabla); // v3.77
+        if (s == null) return `<span class="mono" style="color:var(--mute)" title="El pedido no se cobra: se cobra su remisión o factura">—</span>`; // v3.92
         if (s <= 0) return `<span class="mono" style="color:var(--green)">$0</span>`;
         return `<span class="mono" style="color:var(--red);font-weight:500">${fmt(s)}</span>`;
       } },
       ...((tabla === 'pedidos' || tabla === 'remisiones') ? [{ key:'_situacion', label:'Situación', render:r => nunSituacionHTML(tabla, r) }] : []), // v3.90
       { key:'estatus', label:'Estatus', render:r=>{
         // v3.55 — Cancelada se respeta; para las vigentes, ACTIVA vs PAGADA según el saldo real (de cobranza)
-        if (r.estatus === 'cancelada') return `<span class="tag red">cancelada</span>`;
+        if (/cancel/i.test(r.estatus||'')) return `<span class="tag red">${tabla === 'pedidos' ? 'cancelado' : 'cancelada'}</span>`; // v3.92 los pedidos dicen "cancelado"
         if (r.estatus === 'borrador')  return `<span class="tag">borrador</span>`;
+        if (tabla === 'pedidos') { const sp = nunSaldoPedido(r); return sp == null ? `<span class="tag">${escapeHTML(String(r.estatus||'—').replace(/_/g,' '))}</span>` : (sp <= 0.01 ? `<span class="tag green">anticipo pagado</span>` : `<span class="tag amber">anticipo pendiente</span>`); } // v3.92
         if (tabla === 'remisiones' && r.estatus === 'facturada') return `<span class="tag blue">facturada</span>`; // v3.72
         const s = nunSaldoDoc(r, tabla); // v3.77
         return (s <= 0.01) ? `<span class="tag green">pagada</span>` : `<span class="tag amber">activa</span>`;
@@ -7370,6 +7372,7 @@ function abrirDoc(tabla, id) {
     if (tabla === 'facturas' && !doc.uuid_sat) acciones += `<button class="btn btn-primary" onclick="facturaTimbrar('${id}')">⚡ Timbrar SAT</button>`;
     // v3.56 — Cancelar ante el SAT (solo facturas timbradas que no estén ya canceladas)
     if (tabla === 'facturas' && doc.uuid_sat && doc.estatus !== 'cancelada') acciones += `<button class="btn btn-danger" onclick="facturaCancelar('${id}')">🚫 Cancelar ante SAT</button>`;
+    if (tabla === 'notascredito' && doc.uuid_sat && doc.estatus !== 'cancelada') acciones += `<button class="btn btn-danger" onclick="facturaCancelar('${id}','notascredito')">🚫 Cancelar nota ante SAT</button>`; // v3.92
   }
   abrirDrawer({
     wide: true, // v3.44 — editor de documentos más ancho
@@ -7377,9 +7380,9 @@ function abrirDoc(tabla, id) {
     sub: id ? doc.folio || 'ID '+(doc.id||'').substring(0,8) : '',
     tabs:[{ key:'datos', label:'Datos', body: (id ? nunPanelDoc(tabla, doc, acciones) : '') + fields }].concat(id && ['pedidos','remisiones','facturas'].includes(tabla) ? [{ key:'rel', label:'Relacionados', body:`<div id="nunRelMount" data-id="${escapeHTML(String(id))}">${nunRelacionadosHTML(tabla, doc)}</div>` }, { key:'arch', label:'📎 Archivos', body:`<div id="nunArchMount" data-id="${escapeHTML(String(id))}">${nunArchivosHTML(tabla, doc)}</div>` }] : []), // v3.77 · v3.78 Archivos
     footer: `
-      ${id && !(tabla === 'facturas' && doc.uuid_sat) ? `<button class="btn btn-danger" onclick="eliminarDoc('${tabla}','${id}')">Eliminar</button>` : ''}
+      ${id && !doc.uuid_sat && !/cancel/i.test(doc.estatus||'') ? `<button class="btn btn-danger" onclick="eliminarDoc('${tabla}','${id}')">🚫 Cancelar ${escapeHTML(def.singular)}</button>` : ''}
       <div style="flex:1"></div>
-      <button class="btn btn-secondary" onclick="cerrarDrawer()">Cancelar</button>
+      <button class="btn btn-secondary" onclick="cerrarDrawer()">Cerrar</button>
       <button class="btn btn-secondary" onclick="guardarDoc('${tabla}','${id||''}')">Guardar borrador</button>
       ${(tabla==='facturas' && !doc.uuid_sat) ? `<button class="btn btn-primary" onclick="guardarDoc('${tabla}','${id||''}',{luegoTimbrar:true})">⚡ Guardar y Facturar</button>` : `<button class="btn btn-primary" onclick="guardarDoc('${tabla}','${id||''}')">Guardar</button>`}
     `
@@ -8042,6 +8045,12 @@ function nunRelDoc(tabla, doc){
   return out;
 }
 function nunFechaCorta(f){ return fmtFecha(f); }
+// v3.92 — un pago dentro de la remisión/factura/pedido, con su botón para cancelarlo ahí mismo (pide motivo y confirmación)
+function nunPagoRenglonHTML(i, vivo){
+  const btn = vivo && (nunEsAdmin() || esSesionDueno()) ? `<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:11px" onclick="event.stopPropagation();nunCancelarIngreso('${escapeHTML(String(i.id)).replace(/'/g,'')}')">Cancelar pago</button>` : '';
+  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 9px;border:1px solid var(--line);border-radius:7px;margin-bottom:5px;${vivo ? '' : 'opacity:.55;'}">
+    <span>${nunFechaCorta(i.fecha)} · ${escapeHTML(i.cuenta||'')} <b class="mono">${fmtFull(i.monto)}</b>${vivo ? '' : ' <span class="tag red" style="font-size:10px">cancelado</span>'}<br><span style="color:var(--ink-3)">${escapeHTML(String(i.comentarios||'').slice(0,60))}</span></span>${btn}</div>`;
+}
 function nunChipDoc(t, d, activo){
   const et = { pedidos:'Pedido', remisiones:'Remisión', facturas:'Factura' }[t];
   const st = String(d.estatus||'');
@@ -8056,16 +8065,19 @@ function nunPanelDoc(tabla, doc, acciones){
   R.remisiones.forEach(r => cadena.push(nunChipDoc('remisiones', r, tabla === 'remisiones' && r.id === doc.id)));
   R.facturas.forEach(f => cadena.push(nunChipDoc('facturas', f, tabla === 'facturas' && f.id === doc.id)));
   const saldo = (tabla === 'pedidos') ? (R.cobro ? Math.max(0, +R.cobro.pendiente||0) : null) : nunSaldoDoc(doc, tabla);
-  const cobrado = R.pagos.reduce((s, i) => s + (+i.monto||0), 0);
+  const pagoVivo = i => !/CANCELADO|DUPLICADO/i.test(String(i.tipo||'')); // v3.92 los cancelados no cuentan
+  const vivos = R.pagos.filter(pagoVivo);
+  const cobrado = vivos.reduce((s, i) => s + (+i.monto||0), 0);
   const info = [
     saldo != null ? `Saldo <b style="color:${saldo > 0.01 ? 'var(--red)' : 'var(--green)'}">${fmtFull(saldo)}</b>` : '',
-    R.pagos.length ? `${R.pagos.length} pago(s) ${fmtFull(cobrado)}` : 'Sin pagos',
+    vivos.length ? `${vivos.length} pago(s) ${fmtFull(cobrado)}` : 'Sin pagos',
     R.reps.length ? `${R.reps.length} complemento(s)` : '',
     R.ncs.length ? `<span style="color:var(--amber,#b45309)">${R.ncs.length} nota(s) de crédito ${fmtFull(R.ncs.filter(n => !/cancel/i.test(n.estatus||'')).reduce((s,n)=>s+(+n.total||0),0))}</span>` : '' /* v3.80 sin canceladas */
   ].filter(Boolean).join(' · ');
   return `<div style="border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px;background:var(--bg-2,#fafafa)">
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${cadena.join('<span style="color:var(--ink-4)">→</span>') || '<span style="font-size:12px;color:var(--ink-3)">Sin documentos ligados</span>'}</div>
     <div style="font-size:12.5px;margin-top:8px;color:var(--ink-2)">${info} <a onclick="drawerCambiarTab('rel')" style="cursor:pointer;text-decoration:underline;margin-left:6px">ver detalle</a> · <a onclick="drawerCambiarTab('arch')" style="cursor:pointer;text-decoration:underline">📎 archivos</a></div>
+    ${R.pagos.length ? `<div style="margin-top:8px;font-size:12px">${R.pagos.map(i => nunPagoRenglonHTML(i, pagoVivo(i))).join('')}</div>` : ''}
     ${acciones ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">${acciones}</div>` : ''}
   </div>`;
 }
@@ -8082,7 +8094,7 @@ function nunRelacionadosHTML(tabla, doc){
     ${col('Facturas', docItems('facturas', R.facturas), 'Sin factura')}
     ${col('Complementos de pago', R.reps.map(r => fila(`<b class="mono">${escapeHTML(r.folio)}</b> · ${escapeHTML(r.fecha)} · fact. ${escapeHTML(String(r.factura))} · parc. ${r.parc}`, fmtFull(r.monto), `nunDescargarREP('${r.uuid}')`)), 'Sin complementos')}
     ${col('Notas de crédito', R.ncs.map(n => fila(`<b class="mono">${escapeHTML(nunFolioStr(n))}</b> · ${nunFechaCorta(n.fecha)} ${tag(n.estatus)}<br><span style="color:var(--ink-3)">${escapeHTML(n.motivo||n.notas||'')}</span>`, fmtFull(n.total))), 'Sin notas de crédito')}
-    ${col('Pagos recibidos', R.pagos.map(i => fila(`${nunFechaCorta(i.fecha)} · ${escapeHTML(i.cuenta||'')}<br><span style="color:var(--ink-3)">${escapeHTML(String(i.comentarios||'').slice(0,60))}</span>`, fmtFull(i.monto))), R.cobro ? 'Sin pagos' : 'Sin renglón en Cobranza')}
+    ${col('Pagos recibidos', R.pagos.map(i => nunPagoRenglonHTML(i, !/CANCELADO|DUPLICADO/i.test(String(i.tipo||''))) ), R.cobro ? 'Sin pagos' : 'Sin renglón en Cobranza')}
   </div>
   ${R.cobro ? `<div style="font-size:12px;color:var(--ink-3);margin-top:10px">Cobranza ${escapeHTML(String(R.cobro.numero||''))}: total ${fmtFull(R.cobro.total)} · cobrado ${fmtFull(R.cobro.cobrado)} · saldo ${fmtFull(Math.max(0, +R.cobro.pendiente||0))}</div>` : ''}`;
 }
@@ -8121,6 +8133,8 @@ function nunNCsDelDoc(r, tabla){
   return (State.data.notascredito||[]).filter(n => o.has(String(n.documento_origen||'').trim()) && !/cancel/i.test(n.estatus||'') && !/^bind_/.test(String(n.id||'')) && (n.uuid_sat || /aplicad/i.test(n.estatus||''))); // v3.81 solo notas aplicadas o timbradas (no borradores)
 }
 function nunMontoNCs(r, tabla){ return nunR2(nunNCsDelDoc(r, tabla).reduce((s, n) => s + (+n.total||0), 0)); }
+// v3.92 — un pedido no es una deuda: se cobra su remisión o factura. Solo tiene saldo si tiene su propio cobro (anticipo).
+function nunSaldoPedido(r){ const c = nunCobranzaDeDoc(r, State.data.cobranza||[]); return (c && !/^cancelad/i.test(c.estatus||'')) ? Math.max(0, +c.pendiente||0) : null; }
 function nunSaldoDoc(r, tabla){ const s0 = nunSaldoDocBase(r, tabla); const nc = nunMontoNCs(r, tabla); return nc ? Math.max(0, nunR2(s0 - nc)) : s0; } // v3.80
 function nunSaldoDocBase(r, tabla){
   if (tabla === 'facturas' || (!tabla && r.uuid_sat)) { // v3.77
@@ -12747,6 +12761,7 @@ function renderCuadreModule(){
       <div class="actions">
         <button class="btn btn-secondary" onclick="abrirCargaExcelCobranza()">📁 Subir otro Excel</button>
         <button class="btn btn-secondary" onclick="cuadreExportarCSV()">Exportar diferencias</button>
+        ${nunEsAdmin() ? '<button class="btn btn-primary" onclick="cuadreVendedoresDeExcel()">👤 Vendedores como mi Excel</button>' : ''}
       </div>
     </div>
     <div class="kpi-grid">
@@ -12857,6 +12872,66 @@ function cuadreExportarCSV(){
   toast(`✓ Exportados ${lines.length - 1} renglones a CSV`, 'success');
 }
 window.cuadreExportarCSV = cuadreExportarCSV;
+// v3.92 — VENDEDORES DESDE TU EXCEL (tu Excel es la matriz). Por cliente: el catálogo toma el vendedor más reciente de tu Excel,
+// y cada documento (pedido, remisión, factura, cobro) toma el vendedor que tu Excel tenía en la fecha del documento.
+// Nada se borra; se marca qué cambiar. YASMIN y vendedores que no existen siempre se proponen.
+function cuadreVendEnFecha(hist, fecha){
+  const h = hist.filter(x => NUN_VENDEDORES_VALIDOS.includes(x.v)); if (!h.length) return '';
+  const f = String(fecha||'').substring(0,10); if (!f) return h[h.length-1].v; // sin fecha: el vendedor actual
+  let v = h[0].v;
+  h.forEach(x => { if (x.f && f && String(x.f).substring(0,10) <= f) v = x.v; });
+  return v;
+}
+function cuadreVendedoresCalcular(){
+  const grupos = cuadrePorCliente().filter(o => o.nombreSis && o.hist.some(x => NUN_VENDEDORES_VALIDOS.includes(x.v)));
+  const out = [];
+  grupos.forEach(o => {
+    const ultimo = cuadreVendEnFecha(o.hist, '9999-12-31');
+    const cli = (State.data.clientes||[]).find(c => c.id === o.clienteId);
+    if (cli && String(cli.vendedor||'').toUpperCase().trim() !== ultimo) out.push({ t:'clientes', d:cli, v:String(cli.vendedor||'').toUpperCase().trim(), prop:ultimo, cliente:o.nombreSis, tipo:'Catálogo' });
+    const k = cuadreNormTexto(o.nombreSis);
+    ['pedidos','remisiones','facturas','cobranza'].forEach(t => (State.data[t]||[]).forEach(d => {
+      if (/cancel|duplic/i.test(String(d.estatus||'')) || cuadreNormTexto(d.cliente) !== k) return;
+      const v = String(d.vendedor||'').toUpperCase().trim(), prop = cuadreVendEnFecha(o.hist, d.fecha || d.fecha_entrega || d.fecha_emision);
+      if (prop && v !== prop) out.push({ t, d, v, prop, cliente:o.nombreSis, tipo:{ pedidos:'Pedido', remisiones:'Remisión', facturas:'Factura', cobranza:'Cobro' }[t], invalido: !NUN_VENDEDORES_VALIDOS.includes(v) });
+    }));
+  });
+  return out;
+}
+async function cuadreVendedoresDeExcel(){
+  if (!nunEsAdmin()) { toast('Solo un administrador puede cambiar vendedores', { type:'error' }); return; }
+  nunOcupado('Revisando vendedores…');
+  try { await Promise.all(['clientes','pedidos','remisiones','facturas','cobranza'].map(t => cargarTabla(t))); } catch(e){} finally { nunOcupado(''); }
+  const L = cuadreVendedoresCalcular(); window._nunCVE = L;
+  let m = document.getElementById('modalCVE'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalCVE';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:1000px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><div><h3 style="margin:0">Vendedores según tu Excel</h3>
+      <div style="font-size:12px;color:var(--ink-3)">${L.length} cambio(s) · ${L.filter(x => x.invalido).length} con YASMIN u otro que no es vendedor · ${L.filter(x => x.t === 'clientes').length} en el catálogo de clientes. Cambia a quién se le cuenta la comisión.</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalCVE').remove()">✕</button></div>
+    <div style="overflow:auto;padding:0 20px;flex:1">${L.length ? `<table class="dt" style="font-size:12px"><thead><tr><th><input type="checkbox" checked onchange="document.querySelectorAll('#modalCVE .cveChk').forEach(x=>x.checked=this.checked)"></th><th>Cliente</th><th>Qué</th><th>Folio</th><th>Fecha</th><th>Dice</th><th>Poner (tu Excel)</th><th class="right">Total</th></tr></thead><tbody>
+      ${L.map((x, i) => `<tr><td><input type="checkbox" class="cveChk" data-i="${i}" checked></td><td>${escapeHTML(x.cliente)}</td><td>${x.tipo}</td><td class="mono">${escapeHTML(String(x.d.folio || x.d.numero || ''))}</td>
+        <td>${x.t === 'clientes' ? '' : fmtFecha(x.d.fecha || x.d.fecha_entrega || x.d.fecha_emision)}</td><td>${escapeHTML(x.v || '—')}</td><td><b>${escapeHTML(x.prop)}</b></td><td class="right mono">${x.t === 'clientes' ? '' : fmtFull(x.d.total)}</td></tr>`).join('')}</tbody></table>` : '<div style="padding:24px;text-align:center;color:var(--mute)">Los vendedores ya cuadran con tu Excel 👍</div>'}</div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)"><button class="btn" onclick="document.getElementById('modalCVE').remove()">Cerrar</button>
+      ${L.length ? '<button class="btn btn-primary" id="cveBoton" onclick="cuadreVendedoresGuardar()">Cambiar lo marcado</button>' : ''}</div></div>`;
+  document.body.appendChild(m);
+}
+async function cuadreVendedoresGuardar(){
+  const L = window._nunCVE || []; const sel = [...document.querySelectorAll('#modalCVE .cveChk:checked')].map(x => L[+x.dataset.i]).filter(Boolean);
+  if (!sel.length) { toast('No marcaste nada', { type:'error' }); return; }
+  const ok = await confirmDialog({ title:'¿Cambiar ' + sel.length + ' vendedor(es)?', message:'Se pone el vendedor de tu Excel. Cambia a quién se le cuentan las comisiones. No se borra nada.', ok:'Cambiar' });
+  if (!ok) return;
+  const btn = document.getElementById('cveBoton'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  let mal = 0; const porTabla = {};
+  sel.forEach(x => { (porTabla[x.t] = porTabla[x.t] || []).push({ id: x.d.id, vendedor: x.prop }); });
+  for (const t of Object.keys(porTabla)) for (let i = 0; i < porTabla[t].length; i += 40) { try { const r = await api({ accion:'erp_upsert_batch', tabla:t, items: porTabla[t].slice(i, i+40) }); if (!(r && r.ok)) mal++; } catch(e){ mal++; } }
+  document.getElementById('modalCVE').remove();
+  await Promise.all(Object.keys(porTabla).map(t => cargarTabla(t))); renderCurrent();
+  toast(mal ? '⚠ Algunos no se guardaron; vuelve a intentar' : '✓ ' + sel.length + ' vendedor(es) como en tu Excel', { type: mal ? 'error' : 'success', duration:7000 });
+}
+window.cuadreVendedoresDeExcel = cuadreVendedoresDeExcel; window.cuadreVendedoresGuardar = cuadreVendedoresGuardar;
+
 
 /* ============================================================
    v3.31 — IMPORTADOR CFDI: lee XMLs timbrados (SAT) y los cruza
@@ -14226,8 +14301,9 @@ window.facturaTimbradoConfirmar = facturaTimbradoConfirmar;
 
 
 // v3.56 — Cancelar una factura ante el SAT (o marcar cancelada si se timbró con otro PAC)
-async function facturaCancelar(idFactura){
-  const doc = (State.data.facturas||[]).find(f => f.id===idFactura);
+async function facturaCancelar(idFactura, tabla){
+  tabla = tabla || 'facturas'; // v3.92 — también notas de crédito timbradas
+  const doc = (State.data[tabla]||[]).find(f => f.id===idFactura);
   if (!doc) return;
   if (!doc.uuid_sat){ toast('Esta factura no está timbrada', { type:'error' }); return; }
   if (doc.estatus === 'cancelada'){ toast('Esta factura ya está cancelada', { type:'info' }); return; }
@@ -14246,7 +14322,7 @@ async function facturaCancelar(idFactura){
   // Caso A: se timbró desde ESTE ERP con Facturama → cancelar de verdad ante el SAT
   if (!doc.facturama_id) { const _m = String(doc.notas||'').match(/Facturama ID: ?([\w-]+)/); if (_m) doc.facturama_id = _m[1]; } // v3.70
   if (doc.facturama_id){
-    if (!confirm('¿Cancelar ante el SAT la factura '+(doc.folio||'')+' de '+(doc.cliente||'')+' por '+fmt(doc.total)+'?\n\nMotivo '+m+'. Esta acción es fiscal y no se puede deshacer.')) return;
+    if (!confirm('¿Cancelar ante el SAT ' + (tabla === 'notascredito' ? 'la nota de crédito ' : 'la factura ')+(doc.folio||'')+' de '+(doc.cliente||'')+' por '+fmt(doc.total)+'?\n\nMotivo '+m+'. Esta acción es fiscal y no se puede deshacer.')) return;
     toast('⏳ Cancelando ante el SAT...', { type:'info' });
     try {
       const r = await api({ accion:'facturama_cancelar', id: doc.facturama_id, motivo: m });
@@ -14254,12 +14330,12 @@ async function facturaCancelar(idFactura){
         // v3.80 — solo se guardan estatus y notas (antes se mandaba la fila completa y sin revisar si se guardó)
         doc.estatus='cancelada';
         doc.notas = String(doc.notas||'') + ' · Cancelada ante el SAT ' + nunHoy() + ' motivo ' + m;
-        const _ok = await nunGuardarSeguro('facturas', { id:doc.id, estatus:'cancelada', notas:doc.notas });
+        const _ok = await nunGuardarSeguro(tabla, { id:doc.id, estatus:'cancelada', notas:doc.notas });
         if (!_ok) {
           try { localStorage.setItem('nun_cancelada_sat_' + doc.id, nunHoy()); } catch(e){}
           toast('⚠ La factura SÍ se canceló ante el SAT, pero el sistema no la pudo marcar como cancelada. Márcala a mano: ' + (doc.folio||''), { type:'error', duration:15000 });
         } else toast('✓ Factura cancelada ante el SAT', { type:'success', duration:6000 });
-        await nunCancelarCobranzaDoc('facturas', doc);
+        await nunCancelarCobranzaDoc(tabla, doc);
         cerrarDrawer(); renderCurrent();
       } else { toast('✗ '+((r&&r.error)||'El SAT/Facturama rechazó la cancelación'), { type:'error', duration:8000 }); }
     } catch(e){ toast('✗ Error: '+e.message, { type:'error', duration:7000 }); }
@@ -14269,10 +14345,10 @@ async function facturaCancelar(idFactura){
   // Caso B: importada (timbrada con otro PAC, ej. Bind) → no se puede cancelar por este Facturama
   if (!confirm('Esta factura se timbró con OTRO proveedor (no con tu Facturama), así que la cancelación fiscal debe hacerse en Bind o en el portal del SAT.\n\n¿Quieres marcarla como CANCELADA aquí en el ERP (solo para tu control), asumiendo que ya la cancelaste en el SAT?')) return;
   // v3.80 — solo estatus (antes fila completa sin revisar) y también se cancela su cobro
-  const _ok = await nunGuardarSeguro('facturas', { id:doc.id, estatus:'cancelada' });
+  const _ok = await nunGuardarSeguro(tabla, { id:doc.id, estatus:'cancelada' });
   if (!_ok) { toast('✗ No se pudo marcar como cancelada. Inténtalo de nuevo.', { type:'error', duration:8000 }); return; }
   doc.estatus='cancelada';
-  await nunCancelarCobranzaDoc('facturas', doc);
+  await nunCancelarCobranzaDoc(tabla, doc);
   toast('✓ Marcada cancelada en el ERP (recuerda cancelarla también en el SAT/Bind)', { type:'success', duration:7000 }); cerrarDrawer(); renderCurrent();
 }
 window.facturaCancelar = facturaCancelar;

@@ -1,4 +1,4 @@
-// Prueba del servidor (backend/Codigo.gs v0.9.9) con una hoja de Google SIMULADA en memoria (sin red, datos inventados).
+// Prueba del servidor (backend/Codigo.gs v0.9.9+; v0.9.10: el usuario de Rafa protegido) con una hoja de Google SIMULADA en memoria (sin red, datos inventados).
 const fs=require('fs'),path=require('path'),vm=require('vm');
 const code=fs.readFileSync(path.join(__dirname,'..','backend','Codigo.gs'),'utf8');
 function hojaMock(nombre){ const h={_n:nombre,rows:[],
@@ -67,6 +67,15 @@ r.inventario.trasPedido2=prod(); post({accion:'pedido_liberar',id:'ped2',codigo:
 r.usuarios={desactivarVend:post({accion:'eliminar_usuario',codigo:'VEND-PRUEBA2',codigo_admin:C}).ok, vendSigue:U.rows.some(x=>x[0]==='VEND-PRUEBA2'),
   reactivar:post({accion:'actualizar_usuario',codigo:'VEND-PRUEBA2',cambios:{activo:true},codigo_admin:C}).ok,
   ultimoAdmin:post({accion:'actualizar_usuario',codigo:C,cambios:{activo:false},codigo_admin:C}).error||'permitido'};
+// v0.9.10 — el usuario de Rafa solo lo ve y lo cambia Rafa
+U.appendRow(['RAFA-PRUEBA4','Rafa','admin','{}','','[]',2,true,'','']);
+const lu=c=>(post({accion:'listar_usuarios',codigo_admin:c}).usuarios||[]).map(u=>u.codigo);
+r.rafa={otroAdminLoVe:lu('DUENO-PRUEBA1').includes('RAFA-PRUEBA4'),rafaLoVe:lu('RAFA-PRUEBA4').includes('RAFA-PRUEBA4'),
+  otroAdminLoDesactiva:post({accion:'actualizar_usuario',codigo:'RAFA-PRUEBA4',cambios:{activo:false},codigo_admin:'DUENO-PRUEBA1'}).ok,
+  otroAdminCreaRafa:post({accion:'crear_usuario',datos:{codigo:'RAFA-FALSO9',nombre:'x',rol:'admin'},codigo_admin:'DUENO-PRUEBA1'}).ok,
+  otroAdminCreaYadah:post({accion:'crear_usuario',datos:{codigo:'YADAH-FALSO9',nombre:'x',rol:'admin'},codigo_admin:'DUENO-PRUEBA1'}).ok,
+  rafaCreaNuevo:post({accion:'crear_usuario',datos:{codigo:'RAFA-NUEVO77',nombre:'Rafa',rol:'admin'},codigo_admin:'RAFA-PRUEBA4'}).ok,
+  rafaDesactivaViejo:post({accion:'actualizar_usuario',codigo:'RAFA-PRUEBA4',cambios:{activo:false},codigo_admin:'RAFA-NUEVO77'}).ok};
 r.borradosHoja=Object.values(hojas).reduce((s,h)=>s+(h.borrados||0),0);
 const f=[]; if(r.login.ok!==true||r.login.inactivo!==false||r.login.maestroSinPropiedad!==false||r.login.maestroConPropiedad!==true) f.push('login');
 if(r.get.sinCodigo!==false||r.get.usuarios!==false||r.get.cobranza!==true) f.push('get');
@@ -77,4 +86,5 @@ if(r.eliminar.sigue!==1||r.eliminar.estatus!=='cancelado'||r.borrarTodo||r.dedup
 if(r.inventario.trasPedido!=='10/3'||r.inventario.trasRemision!=='7/0'||r.inventario.trasPedido2!=='7/2'||r.inventario.trasCancelar!=='7/0') f.push('inventario');
 if(!r.usuarios.desactivarVend||!r.usuarios.vendSigue||!r.usuarios.reactivar||!/único administrador/.test(r.usuarios.ultimoAdmin)) f.push('usuarios');
 if(r.borradosHoja!==0) f.push('seBorraronRenglones');
+if(r.rafa.otroAdminLoVe||!r.rafa.rafaLoVe||r.rafa.otroAdminLoDesactiva||r.rafa.otroAdminCreaRafa||r.rafa.otroAdminCreaYadah||!r.rafa.rafaCreaNuevo||!r.rafa.rafaDesactivaViejo) f.push('rafaProtegido');
 r.fallas=f; console.log(JSON.stringify(r,null,1));

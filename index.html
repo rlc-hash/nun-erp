@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.82 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.83 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3662,6 +3662,7 @@ function renderModuloGenerico(modKey) {
       </div>
       <div class="actions">
         ${puedeImportar ? `<button class="btn btn-secondary" onclick="abrirImportadorCSV('${schema.tabla}')">📥 Importar CSV</button>` : ''}
+        ${schema.tabla === 'clientes' && nunEsDueno() ? `<button class="btn btn-secondary" onclick="nunUnificarCatalogo()" title="Junta el vendedor de la lista de la app con Clientes">🔗 Unificar catálogo</button>` : ''}
         ${schema.tabla === 'productos' ? `<button class="btn btn-secondary" onclick="cargarCostosNUN()">💲 Cargar costos</button><button class="btn btn-secondary" onclick="cargarPreciosNUN()">🏷️ Cargar precios</button>` : ''}
         <button class="btn btn-secondary" onclick="exportarTabla('${schema.tabla}')">Exportar CSV</button>
         <button class="btn btn-primary" onclick="abrirFormGenerico('${modKey}')">+ Nuevo ${schema.singular.toLowerCase()}</button>
@@ -9666,6 +9667,105 @@ function reiniciarSyncTimer() {
 // v3.59 — CUADRE CON BIND + VENDEDORES DESDE EL CATÁLOGO DEL CRM
 // ============================================================
 let _catClientes = [];
+// ============================================================
+// v3.83 — CATÁLOGO ÚNICO: el vendedor de cada cliente pasa de la lista de la app (ClientesCatalogo) a Clientes.
+// Primero se muestra la lista para revisar; solo se guarda lo que Rafa marque. No se borra nada (la lista de la app queda de respaldo).
+// ============================================================
+const _ucStop = { DE:1, LA:1, EL:1, LOS:1, LAS:1, Y:1, DEL:1, MTY:1, SLP:1, SA:1, CV:1, SAPI:1, RL:1 };
+function _ucNorm(x){ return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim(); }
+function _ucToks(x){ return _ucNorm(x).split(' ').filter(t => t.length > 2 && !_ucStop[t]); }
+function nunUnificarCalcular(clientes, cat){
+  const fis = (clientes||[]).filter(c => c.activo !== false && c.activo !== 'false');
+  const idxExacto = new Map(); fis.forEach(c => [c.razon_social, c.nombre_comercial].forEach(n => { const k = _ucNorm(n); if (k && !idxExacto.has(k)) idxExacto.set(k, c); }));
+  const filas = []; const usados = new Set();
+  (cat||[]).filter(k => k.activo !== 'no' && k.activo !== false).forEach(k => {
+    const vend = String(k.vendedor||'').toUpperCase().trim();
+    const nombres = [k.nombre, k.nombre_normalizado].concat(String(k.aliases||'').split('|')).filter(Boolean);
+    let cli = null, como = '';
+    for (const n of nombres) { const c = idxExacto.get(_ucNorm(n)); if (c) { cli = c; como = 'mismo nombre'; break; } }
+    if (!cli) { // todas las palabras del catálogo están en el nombre fiscal (mínimo 2), gana el más específico
+      let mejor = null, mejorN = 1, empate = false;
+      nombres.forEach(n => { const t = _ucToks(n); if (t.length < 2) return;
+        fis.forEach(c => { const dt = new Set(_ucToks(c.razon_social).concat(_ucToks(c.nombre_comercial)));
+          if (t.every(x => dt.has(x))) { if (t.length > mejorN) { mejor = c; mejorN = t.length; empate = false; } else if (t.length === mejorN && mejor && mejor.id !== c.id) empate = true; } }); });
+      if (mejor && !empate) { cli = mejor; como = 'parecido'; }
+    }
+    const vFis = cli ? String(cli.vendedor||'').toUpperCase().trim() : '';
+    const antes = (String(k.notas||'').match(/vendedor\s+antes\s*:[^·\n]*/i)||[''])[0];
+    let tipo;
+    if (!cli) tipo = 'sin_cliente'; else if (!vend) tipo = 'sin_vendedor_cat'; else if (!vFis) tipo = 'llenar'; else if (vFis === vend) tipo = 'cuadra'; else tipo = 'distinto';
+    if (cli) usados.add(cli.id);
+    filas.push({ cat:k, cli, como, vend, vFis, antes, tipo });
+  });
+  const sinVendedor = fis.filter(c => !usados.has(c.id) && !String(c.vendedor||'').trim());
+  return { filas, sinVendedor };
+}
+async function nunUnificarCatalogo(){
+  if (!nunEsDueno()) { toast('Solo Rafa puede unificar el catálogo', { type:'error' }); return; }
+  nunOcupado('Leyendo Clientes y la lista de la app…');
+  let clientes = [], cat = [];
+  try { [clientes, cat] = await Promise.all([nunListarFresco('clientes'), nunListarFresco('clientescat')]); } catch(e) {} finally { nunOcupado(''); }
+  if (!clientes.length) { toast('No pude leer Clientes', { type:'error' }); return; }
+  const R = nunUnificarCalcular(clientes, cat); window._nunUC = R;
+  const cuenta = t => R.filas.filter(f => f.tipo === t).length;
+  const fila = (f, i) => {
+    const chk = (f.tipo === 'llenar') ? 'checked' : '';
+    const puede = f.tipo === 'llenar' || f.tipo === 'distinto' || f.tipo === 'sin_cliente';
+    const que = { llenar:'Poner vendedor', distinto:'Cambiar vendedor', sin_cliente:'Dar de alta como cliente', cuadra:'Ya está igual', sin_vendedor_cat:'La app no tiene vendedor' }[f.tipo];
+    return `<tr><td>${puede ? `<input type="checkbox" class="ucChk" data-i="${i}" ${chk}>` : ''}</td>
+      <td>${escapeHTML(f.cat.nombre || f.cat.nombre_normalizado || '')}</td>
+      <td>${f.cli ? escapeHTML(f.cli.razon_social||'') + (f.como === 'parecido' ? ' <span class="tag amber">parecido</span>' : '') : '<span style="color:var(--mute)">— no está en Clientes —</span>'}</td>
+      <td>${escapeHTML(f.vFis||'—')}</td><td><b>${escapeHTML(f.vend||'—')}</b>${f.antes ? '<br><span style="font-size:11px;color:var(--mute)">' + escapeHTML(f.antes) + '</span>' : ''}</td>
+      <td>${que}</td></tr>`;
+  };
+  const orden = { distinto:0, llenar:1, sin_cliente:2, sin_vendedor_cat:3, cuadra:4 };
+  const lista = R.filas.map((f, i) => ({ f, i })).sort((a, b) => orden[a.f.tipo] - orden[b.f.tipo]);
+  let m = document.getElementById('modalUC'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalUC';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:1000px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)">
+      <div><h3 style="margin:0">Unificar catálogo de clientes</h3>
+      <div style="font-size:12px;color:var(--ink-3)">Lista de la app: ${R.filas.length} · ya iguales ${cuenta('cuadra')} · poner vendedor ${cuenta('llenar')} · <b>vendedor distinto ${cuenta('distinto')}</b> · no están en Clientes ${cuenta('sin_cliente')} · Clientes sin vendedor ni match: ${R.sinVendedor.length}</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalUC').remove()">✕</button></div>
+    <div style="padding:10px 20px;font-size:12.5px;background:rgba(245,158,11,0.08)">Revisa y marca lo que quieres guardar. Solo se cambia el <b>vendedor</b> en Clientes (y se da de alta lo que marques). La lista de la app se queda igual, como respaldo. Nada se borra.</div>
+    <div style="overflow:auto;padding:0 20px;flex:1"><table class="dt" style="font-size:12px"><thead><tr><th></th><th>En la app</th><th>En Clientes</th><th>Vendedor en Clientes</th><th>Vendedor en la app</th><th>Qué haría</th></tr></thead>
+      <tbody>${lista.map(x => fila(x.f, x.i)).join('')}</tbody></table>
+      ${R.sinVendedor.length ? `<div style="margin:14px 0 6px;font-weight:600">Clientes sin vendedor y que no están en la lista de la app (${R.sinVendedor.length})</div><div style="font-size:12px;color:var(--ink-3)">${R.sinVendedor.slice(0,200).map(c => escapeHTML(c.razon_social||'')).join(' · ')}</div>` : ''}</div>
+    <div style="display:flex;justify-content:space-between;gap:8px;padding:14px 20px;border-top:1px solid var(--line)">
+      <button class="btn" onclick="nunUnificarExportar()">⬇ Descargar lista (Excel)</button>
+      <div style="display:flex;gap:8px"><button class="btn" onclick="document.getElementById('modalUC').remove()">Cerrar</button>
+      <button class="btn btn-primary" id="ucBoton" onclick="nunUnificarGuardar()">Guardar lo marcado</button></div></div></div>`;
+  document.body.appendChild(m);
+}
+function nunUnificarExportar(){
+  const R = window._nunUC; if (!R) return;
+  const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const que = { llenar:'Poner vendedor', distinto:'Vendedor distinto', sin_cliente:'No está en Clientes', cuadra:'Ya igual', sin_vendedor_cat:'App sin vendedor' };
+  const lineas = [['En la app','En Clientes','Cómo se encontró','Vendedor en Clientes','Vendedor en la app','Nota de cambio de vendedor','Qué haría'].map(q).join(',')]
+    .concat(R.filas.map(f => [f.cat.nombre || f.cat.nombre_normalizado, f.cli ? f.cli.razon_social : '', f.como, f.vFis, f.vend, f.antes, que[f.tipo]].map(q).join(',')))
+    .concat(R.sinVendedor.map(c => ['', c.razon_social, '', '', '', '', 'Cliente sin vendedor'].map(q).join(',')));
+  const blob = new Blob(['\ufeff' + lineas.join('\n')], { type:'text/csv;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'unificar_catalogo_' + nunHoy() + '.csv'; a.click();
+}
+async function nunUnificarGuardar(){
+  const R = window._nunUC; if (!R) return;
+  const marcadas = [...document.querySelectorAll('#modalUC .ucChk:checked')].map(x => R.filas[+x.dataset.i]);
+  if (!marcadas.length) { toast('No marcaste nada', { type:'error' }); return; }
+  const upd = marcadas.filter(f => f.cli).map(f => { const it = { id: f.cli.id, vendedor: f.vend };
+    if (f.antes && String(f.cli.notas||'').indexOf(f.antes) < 0) it.notas = (f.cli.notas ? f.cli.notas + ' · ' : '') + f.antes; return it; });
+  const nuevos = marcadas.filter(f => !f.cli);
+  const ok = await confirmDialog({ title:'¿Guardar?', message: upd.length + ' cliente(s) con vendedor y ' + nuevos.length + ' alta(s) nuevas. No se borra nada.', ok:'Guardar' });
+  if (!ok) return;
+  const btn = document.getElementById('ucBoton'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  let bien = 0, mal = 0;
+  for (let i = 0; i < upd.length; i += 40) { try { const r = await api({ accion:'erp_upsert_batch', tabla:'clientes', items: upd.slice(i, i+40) }); if (r && r.ok) bien += Math.min(40, upd.length - i); else mal += Math.min(40, upd.length - i); } catch(e){ mal += Math.min(40, upd.length - i); } }
+  for (const f of nuevos) { try { const r = await api({ accion:'erp_crear', tabla:'clientes', item:{ razon_social: f.cat.nombre || f.cat.nombre_normalizado, vendedor: f.vend, notas: 'Alta desde la lista de la app' + (f.antes ? ' · ' + f.antes : ''), activo: true } }); if (r && r.ok) bien++; else mal++; } catch(e){ mal++; } }
+  document.getElementById('modalUC').remove();
+  await cargarTabla('clientes'); renderCurrent();
+  toast('✓ Guardado: ' + bien + (mal ? ' · ⚠ ' + mal + ' no se guardaron' : ''), { type: mal ? 'error' : 'success', duration:8000 });
+}
+window.nunUnificarCatalogo = nunUnificarCatalogo; window.nunUnificarExportar = nunUnificarExportar; window.nunUnificarGuardar = nunUnificarGuardar;
 // v3.80 — Documentos a nombre de CASA (o RAFA) cuyo cliente, en el catálogo, tiene otro vendedor.
 // La comisión de esos cobros se le paga al vendedor del catálogo (así está bien, confirmado por Rafa); esta lista sirve para corregirlos.
 async function nunReporteCasaOtroVendedor(){

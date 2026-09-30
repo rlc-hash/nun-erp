@@ -16,9 +16,12 @@
 //    (al cancelar un pedido); el pedido de origen se encuentra por folio o por id.
 //  · Bind apagado (ya no se usa desde el 29-sep-2026): sincronización y proxy desactivados; el
 //    activador automático se borra solo si llega a correr.
+//
+// v0.9.10 (30-sep-2026) — el usuario de Rafa (código RAFA-…) solo lo ve y lo cambia Rafa (o el código maestro).
+//  Nadie más puede crear códigos de dueño (RAFA-, YADAH-, MASTER-NUN-), porque esos dan permisos de dueño.
 // ============================================================
 
-const VERSION_ERP = 'v0.9.9';
+const VERSION_ERP = 'v0.9.10';
 
 // v0.9.2 — Mapeo de tablas que el CRM pide por nombre "corto" a la hoja real del ERP.
 // El CRM usa 'clientes' para su catálogo de vendedores (NO el catálogo fiscal 'clientes' del ERP).
@@ -31,6 +34,14 @@ function _codigoMaestro() {
   try { return String(PropertiesService.getScriptProperties().getProperty('codigo_maestro') || '').toUpperCase().trim(); } catch(e) { return ''; }
 }
 function _esMaestro(c) { const m = _codigoMaestro(); return !!m && String(c || '').toUpperCase().trim() === m; }
+// v0.9.10 — el usuario de Rafa y los códigos de dueño solo los maneja Rafa (RAFA-…) o el código maestro
+function _esRafa(c) { const x = String(c || '').toUpperCase().trim(); return _esMaestro(x) || (x.indexOf('RAFA-') === 0 && x.length > 5); }
+function _esCodigoDueno(c) { const x = String(c || '').toUpperCase().trim(); return ['RAFA-','YADAH-','MASTER-NUN-'].some(p => x.indexOf(p) === 0); }
+function _protegido(codigoTarget, codigoAdmin) {
+  const t = String(codigoTarget || '').toUpperCase().trim();
+  if (t.indexOf('RAFA-') === 0 && !_esRafa(codigoAdmin)) return 'Ese usuario solo lo puede cambiar Rafa';
+  return '';
+}
 // v0.9.9 — tablas que nunca se entregan por las lecturas genéricas
 const TABLAS_PRIVADAS = { usuarios:true };
 // v0.9.9 — Bind ya no se usa
@@ -350,6 +361,7 @@ function validarCodigo(codigo, deviceId, deviceName) {
 
 function liberarDispositivo(codigoUsuario, deviceId, codigoAdmin) {
   if (!validarAdmin(codigoAdmin)) return { ok:false, error:'No autorizado' };
+  const prot = _protegido(codigoUsuario, codigoAdmin); if (prot) return { ok:false, error: prot }; // v0.9.10
   const hoja = asegurarHoja('usuarios');
   const datos = hoja.getDataRange().getValues();
   const headers = datos[0];
@@ -392,6 +404,7 @@ function crearUsuario(datosNuevo, codigoAdmin) {
   const hoja = asegurarHoja('usuarios');
   const codigo = String(datosNuevo.codigo || '').toUpperCase().trim();
   if (!codigo) return { ok:false, error:'Código requerido' };
+  if (_esCodigoDueno(codigo) && !_esRafa(codigoAdmin)) return { ok:false, error:'Solo Rafa puede crear códigos que empiezan con RAFA-, YADAH- o MASTER-NUN-' }; // v0.9.10
   // Verificar duplicado
   const datos = hoja.getDataRange().getValues();
   for (let i = 1; i < datos.length; i++) {
@@ -421,9 +434,11 @@ function listarUsuarios(codigoAdmin) {
   if (datos.length < 2) return { ok:true, usuarios: [] };
   const headers = datos[0];
   const usuarios = [];
+  const verRafa = _esRafa(codigoAdmin); // v0.9.10 — el usuario de Rafa no le aparece a nadie más
   for (let i = 1; i < datos.length; i++) {
     const o = {};
     headers.forEach((h,j) => { o[h] = datos[i][j]; });
+    if (!verRafa && String(o.codigo || '').toUpperCase().trim().indexOf('RAFA-') === 0) continue;
     try { o.dispositivos = JSON.parse(o.dispositivos || '[]'); } catch(e) { o.dispositivos = []; }
     usuarios.push(o);
   }
@@ -1104,6 +1119,7 @@ function listarBitacora(filtros, codigoAdmin) {
 // ============================================================
 function actualizarUsuario(codigoTarget, cambios, codigoAdmin) {
   if (!validarAdmin(codigoAdmin)) return { ok:false, error:'No autorizado' };
+  const prot = _protegido(codigoTarget, codigoAdmin); if (prot) return { ok:false, error: prot }; // v0.9.10
   const hoja = asegurarHoja('usuarios');
   const datos = hoja.getDataRange().getValues();
   const headers = datos[0];

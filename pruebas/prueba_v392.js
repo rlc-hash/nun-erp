@@ -54,7 +54,7 @@ setTimeout(async()=>{const r={};try{
  await w.eval("cuadreVendedoresGuardar()"); await sleep(300);
  r.vendGuardado=[DB.clientes[0].vendedor,DB.remisiones[0].vendedor,DB.facturas[0].vendedor,DB.cobranza[0].vendedor].join(',');
  r.fallas=[];
- if(r.version!=='v3.92 · Sistema NUN') r.fallas.push('version');
+ if(!/^v3\.(9[2-9]|\d{3,}) · Sistema NUN$/.test(r.version)) r.fallas.push('version');
  if(r.pedidos.join(' / ')!=='$800,000|—|cancelado|cancelado / $5,000|—|de Bind (sin liga)|confirmado'||r.porCobrar!=='$0') r.fallas.push('pedidos');
  if(r.remision.cancelarPago!==2||!r.remision.cancelarDoc||!r.remision.cerrar||r.remision.eliminar||!r.remision.resumen) r.fallas.push('remision');
  if(r.pago.tipo!=='CANCELADO'||r.pago.cobrado!==0||r.pago.pendiente!==1000) r.fallas.push('pago');

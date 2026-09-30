@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.92 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.93 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7665,6 +7665,10 @@ async function nunAbrirComplementoPago(idFactura){
   const esBind = /^bind_/.test(String(f.id||'')) && !reps.length;
   if (esBind && c) saldo = Math.max(0, nunR2(+c.pendiente||0));
   const cuentas = State.data.cuentas || [];
+  // v3.93 — lo que se debe en Cobranza (o el total si la factura no tiene renglón) vs lo que dicen los complementos:
+  // si un complemento ya se timbró pero su pago no quedó en Ingresos, se registra solo el pago (sin timbrar otro)
+  const debeCobro = c ? Math.max(0, nunR2(+c.pendiente||0)) : Math.max(0, nunR2((+f.total||0) - _nc));
+  const sinIngreso = reps.length && !esBind ? Math.max(0, nunR2(debeCobro - saldo)) : 0;
   const opt = (arr, sel) => arr.map(([k,v]) => `<option value="${k}" ${String(sel)===k?'selected':''}>${k} · ${escapeHTML(v)}</option>`).join('');
   let m = document.getElementById('modalREP'); if (m) m.remove();
   m = document.createElement('div'); m.id = 'modalREP';
@@ -7676,26 +7680,28 @@ async function nunAbrirComplementoPago(idFactura){
       <button class="icon-btn" onclick="document.getElementById('modalREP').remove()">✕</button></div>
     <div style="padding:16px 20px">
       ${reps.length ? `<div style="font-size:12px;margin-bottom:10px;color:var(--ink-3)">Complementos anteriores: ${reps.map(r => escapeHTML(r.folio) + ' ' + fmtFull(r.monto) + ' (' + r.fecha + ')').join(' · ')}</div>` : ''}
+      ${sinIngreso > 0.5 ? `<div style="font-size:12px;margin-bottom:10px;padding:10px;border-radius:8px;background:rgba(179,59,48,0.08)">⚠ Hay <b>${fmtFull(sinIngreso)}</b> con complemento ya timbrado que <b>no está registrado como pago</b> (no aparece en Cobranza ni en Ingresos). Ya te dejé el monto y quité "Timbrar": solo elige la cuenta y la fecha real del pago, y dale Registrar pago.</div>` : ''}
       ${esBind ? `<div style="font-size:12px;margin-bottom:10px;padding:10px;border-radius:8px;background:rgba(245,158,11,0.10)">Factura timbrada en <b>Bind</b>. Revisa en Bind cuántos complementos de pago ya tiene y cuál era su saldo. El saldo que ves viene de Cobranza.</div>
       <div class="form-grid" style="margin-bottom:8px">
         <div class="field"><label>Saldo anterior (antes de este pago) *</label><input type="number" id="repSaldoAnt" step="0.01" min="0.01" value="${saldo > 0 ? saldo : ''}"></div>
         <div class="field"><label>Número de parcialidad * <span style="color:var(--ink-4);font-weight:400">(1 si es el primer pago)</span></label><input type="number" id="repParc" step="1" min="1" value=""></div>
       </div>` : ''}
       <div class="form-grid">
-        <div class="field"><label>Monto pagado *</label><input type="number" id="repMonto" step="0.01" min="0.01" max="${saldo}" value="${saldo > 0 ? saldo : ''}"></div>
+        <div class="field"><label>Monto pagado *</label><input type="number" id="repMonto" step="0.01" min="0.01" value="${sinIngreso > 0.5 ? sinIngreso : (saldo > 0 ? saldo : '')}"></div>
         <div class="field"><label>Fecha del pago *</label><input type="date" id="repFecha" value="${nunHoy()}"></div>
         <div class="field"><label>Forma de pago *</label><select id="repForma"><option value="">— Elige —</option>${opt(SAT_FORMA_PAGO.filter(([k]) => k !== '99'), '')}</select></div>
         <div class="field"><label>Núm. de operación <span style="color:var(--ink-4);font-weight:400">(opcional)</span></label><input type="text" id="repOperacion" maxlength="40"></div>
         <div class="field full"><label>Cuenta donde entró * ${nunEsAdmin() ? '<a style="cursor:pointer;font-weight:400;margin-left:8px;text-decoration:underline" onclick="nunAdminCuentas()">⚙ Cuentas</a>' : ''}</label><select id="repCuenta"><option value="">— Selecciona —</option>${cuentas.map(x => `<option value="${escapeHTML(x.nombre)}">${escapeHTML(x.nombre)}</option>`).join('')}</select></div>
       </div>
-      <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:10px"><input type="checkbox" id="repCobranza" ${c ? 'checked' : 'disabled'}> Registrar también el pago en Cobranza ${c ? '(' + escapeHTML(String(c.numero||'')) + ', saldo ' + fmtFull(c.pendiente) + ') → baja solo a Ingresos' : '<span style="color:var(--red)">(no encontré su renglón de Cobranza)</span>'}</label>
-      <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:6px"><input type="checkbox" id="repTimbrar" checked> Timbrar el complemento de pago ante el SAT (serie CP, folio ${nunSiguienteFolioREP()})</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:10px"><input type="checkbox" id="repCobranza" checked> Registrar también el pago en Cobranza ${c ? '(' + escapeHTML(String(c.numero||'')) + ', saldo ' + fmtFull(c.pendiente) + ') → baja solo a Ingresos' : '<span style="color:var(--amber,#b45309)">(la factura no tenía renglón en Cobranza: se crea ' + escapeHTML(String(f.folio||'')) + ' por ' + fmtFull(f.total) + ') → y baja a Ingresos</span>'}</label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:6px"><input type="checkbox" id="repTimbrar" ${sinIngreso > 0.5 ? '' : 'checked'}> Timbrar el complemento de pago ante el SAT (serie CP, folio ${nunSiguienteFolioREP()})</label>
       <div id="repError" style="color:var(--red);font-size:12.5px;margin-top:10px;white-space:pre-line"></div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)">
       <button class="btn" onclick="document.getElementById('modalREP').remove()">Cancelar</button>
       <button class="btn btn-primary" id="repBoton" onclick="nunConfirmarComplementoPago('${escapeHTML(idFactura)}')">Registrar pago</button></div></div>`;
-  m._f = f; m._c = c; m._saldo = saldo; m._parc = reps.length ? Math.max(...reps.map(r => r.parc)) + 1 : 1; m._repsNun = reps.length; m._esBind = esBind; // v3.81
+  m._f = f; m._c = c; m._saldo = saldo; m._debeCobro = debeCobro; // v3.93
+   m._parc = reps.length ? Math.max(...reps.map(r => r.parc)) + 1 : 1; m._repsNun = reps.length; m._esBind = esBind; // v3.81
   document.body.appendChild(m);
 }
 window.nunAbrirComplementoPago = nunAbrirComplementoPago;
@@ -7744,7 +7750,8 @@ async function nunConfirmarComplementoPago(idFactura){
     if (sa > (+f.total||0) + 0.005) e.push('El saldo anterior no puede ser mayor al total de la factura (' + fmtFull(f.total) + ')');
   }
   if (!(monto > 0)) e.push('Monto inválido');
-  if (monto > m._saldo + 0.005) e.push('El monto es mayor al saldo de la factura (' + fmtFull(m._saldo) + ')');
+  if (conTimbre && monto > m._saldo + 0.005) e.push('El monto es mayor al saldo de la factura (' + fmtFull(m._saldo) + ')'); // v3.93 solo el complemento
+  if (conCobro && !c && monto > (m._debeCobro||0) + 0.005) e.push('El monto es mayor a lo que se debe de la factura (' + fmtFull(m._debeCobro) + ')');
   if (!fecha) e.push('Falta la fecha del pago');
   if (conTimbre && !forma) e.push('Falta la forma de pago');
   if (conCobro && !cuenta) e.push('Falta la cuenta donde entró');
@@ -7781,9 +7788,19 @@ async function nunConfirmarComplementoPago(idFactura){
       else toast('⚠ El complemento ' + folioRep + ' SÍ se timbró (UUID ' + r.uuid + ') pero no se pudo guardar en la factura. No timbres otro: avísame para registrarlo.', { type:'error', duration:20000 });
       hecho.push('complemento ' + folioRep + ' timbrado (UUID ' + String(r.uuid).substring(0,8) + '…)');
     }
-    if (conCobro && c) {
+    if (conCobro && !c) { // v3.93 — la factura no tenía renglón en Cobranza (ej. su remisión no lo tenía): se crea para la factura
+      nunOcupado('Creando su renglón en Cobranza…');
+      const item = { id: 'cob_' + f.id, numero: String(f.folio||''), cliente: f.cliente, tipo: 'Factura', total: nunR2(+f.total||0), cobrado: 0, pendiente: nunR2(+f.total||0),
+        factura_origen: f.id, fecha_emision: String(f.fecha||nunHoy()).substring(0,10), fecha_entrega: String(f.fecha||nunHoy()).substring(0,10), vendedor: f.vendedor || '', estatus: 'pendiente',
+        descripcion: 'Creado al registrar un pago de la factura ' + (f.folio||'') + ' (no tenía renglón en Cobranza)' };
+      const cr = await api({ accion:'erp_crear', tabla:'cobranza', item });
+      if (!(cr && cr.ok)) throw new Error('No pude crear el renglón de Cobranza de ' + (f.folio||'') + ': ' + ((cr && cr.error) || '?') + (hecho.length ? ' (el ' + hecho.join(', ') + ' sí quedó)' : ''));
+      m._c = (cr.item && cr.item.id) ? cr.item : item;
+    }
+    const cc = m._c;
+    if (conCobro && cc) {
       nunOcupado('Registrando el pago…');
-      const d = await api({ accion:'capturar_pago_cliente', id_doc: c.id, monto, fecha, cuenta,
+      const d = await api({ accion:'capturar_pago_cliente', id_doc: cc.id, monto, fecha, cuenta,
         notas: 'Pago factura ' + f.folio + (operacion ? ' · op ' + operacion : '') + (conTimbre ? ' · con complemento' : ''),
         usuario: State.sesion.usuario.nombre, codigo_usuario: State.sesion.codigo });
       if (!(d && d.ok)) throw new Error('No se registró el pago en Cobranza: ' + ((d && d.error) || '?') + (hecho.length ? ' (el ' + hecho.join(', ') + ' sí quedó)' : ''));
@@ -8065,6 +8082,9 @@ function nunPanelDoc(tabla, doc, acciones){
   R.remisiones.forEach(r => cadena.push(nunChipDoc('remisiones', r, tabla === 'remisiones' && r.id === doc.id)));
   R.facturas.forEach(f => cadena.push(nunChipDoc('facturas', f, tabla === 'facturas' && f.id === doc.id)));
   const saldo = (tabla === 'pedidos') ? (R.cobro ? Math.max(0, +R.cobro.pendiente||0) : null) : nunSaldoDoc(doc, tabla);
+  // v3.93 — factura ligada a una remisión de otro monto: casi seguro no es la misma venta (ej. REM-2026-… de una conversión que no terminó)
+  const _remDif = tabla === 'facturas' && R.remisiones.find(r => Math.abs((+r.total||0) - (+doc.total||0)) > 1);
+  const avisoLiga = _remDif ? `<div style="font-size:12px;margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(245,158,11,0.10)">⚠ Esta factura (${fmtFull(doc.total)}) está ligada a la remisión ${escapeHTML(nunFolioStr(_remDif))} de ${fmtFull(_remDif.total)}: no parecen la misma venta. Su cobro va en la factura.</div>` : '';
   const pagoVivo = i => !/CANCELADO|DUPLICADO/i.test(String(i.tipo||'')); // v3.92 los cancelados no cuentan
   const vivos = R.pagos.filter(pagoVivo);
   const cobrado = vivos.reduce((s, i) => s + (+i.monto||0), 0);
@@ -8078,6 +8098,7 @@ function nunPanelDoc(tabla, doc, acciones){
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${cadena.join('<span style="color:var(--ink-4)">→</span>') || '<span style="font-size:12px;color:var(--ink-3)">Sin documentos ligados</span>'}</div>
     <div style="font-size:12.5px;margin-top:8px;color:var(--ink-2)">${info} <a onclick="drawerCambiarTab('rel')" style="cursor:pointer;text-decoration:underline;margin-left:6px">ver detalle</a> · <a onclick="drawerCambiarTab('arch')" style="cursor:pointer;text-decoration:underline">📎 archivos</a></div>
     ${R.pagos.length ? `<div style="margin-top:8px;font-size:12px">${R.pagos.map(i => nunPagoRenglonHTML(i, pagoVivo(i))).join('')}</div>` : ''}
+    ${avisoLiga}
     ${acciones ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">${acciones}</div>` : ''}
   </div>`;
 }

@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.85 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.86 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7194,8 +7194,8 @@ function abrirDoc(tabla, id) {
   let acciones = '';
   if (id) {
     if (tabla === 'cotizaciones') acciones += `<button class="btn btn-secondary" onclick="convertirDocConItems('cotizaciones','${id}','pedidos')">→ Pedido</button>`;
-    if (tabla === 'pedidos') { acciones += `<button class="btn btn-secondary" onclick="convertirDocConItems('pedidos','${id}','remisiones')">→ Remisión</button>`;
-      acciones += `<button class="btn btn-secondary" onclick="convertirDocConItems('pedidos','${id}','facturas')">→ Factura</button>`; }
+    if (tabla === 'pedidos') { acciones += `<button class="btn btn-secondary" onclick="nunDesdePedidos('${id}','remisiones')">→ Remisión</button>`; // v3.86 — completo, en partes o junto con otros pedidos
+      acciones += `<button class="btn btn-secondary" onclick="nunDesdePedidos('${id}','facturas')">→ Factura</button>`; }
     if (tabla === 'remisiones') acciones += `<button class="btn btn-secondary" onclick="nunFacturarRemisionDesdeDrawer('${id}')">→ Factura</button>`; // v3.72 guarda y luego factura
     if (tabla === 'ordenescompra') acciones += `<button class="btn btn-secondary" onclick="recibirOC('${id}')">Recibir mercancía</button>`;
     if (tabla === 'importaciones') acciones += `<button class="btn btn-secondary" onclick="cerrarImportacion('${id}')">Cerrar importación</button>`;
@@ -13654,6 +13654,146 @@ async function nunFacturarRemision(idRem){
   nunFacturarRemisionTotal();
 }
 window.nunFacturarRemision = nunFacturarRemision;
+// ============================================================
+// v3.86 — PEDIDOS → REMISIÓN o FACTURA: completo, en partes, o juntando varios pedidos del mismo cliente.
+// Cada renglón del documento guarda de qué pedido salió (campo "pedido"), así se sabe lo que falta de cada pedido.
+// Lo que ya salió de un pedido = sus renglones en remisiones y facturas vigentes (una factura hecha desde una remisión
+// no cuenta otra vez). El documento se crea directo con folio NUN (R… / FT…) y entra a Cobranza.
+// ============================================================
+function nunPedClaves(p){ return [String(p.folio||'').trim(), String(p.id||'').trim()].filter(Boolean); }
+function nunPedidoSurtido(ped, docs){
+  const ks = nunPedClaves(ped), out = {};
+  (docs||[]).forEach(d => {
+    if (/cancel/i.test(d.estatus||'')) return;
+    const origs = String(d.pedido_origen||'').split(/[,;]/).map(x => x.trim()).filter(Boolean);
+    let its = []; try { its = JSON.parse(d.items_json||'[]'); } catch(e){}
+    its.forEach(it => {
+      const dePed = it.pedido ? ks.includes(String(it.pedido).trim()) : (origs.length === 1 && ks.includes(origs[0]));
+      if (!dePed) return;
+      const k = String(it.sku||it.descripcion||'').toUpperCase(); out[k] = (out[k]||0) + (+it.cantidad||0);
+    });
+  });
+  return out;
+}
+async function nunDesdePedidos(idPedido, destino){
+  nunOcupado('Revisando pedidos…');
+  let peds, rems, facs;
+  try { [peds, rems, facs] = await Promise.all([nunListarFresco('pedidos'), nunListarFresco('remisiones'), nunListarFresco('facturas')]); }
+  catch(e) { nunOcupado(''); toast('No se pudo leer: ' + e.message, { type:'error' }); return; } finally { nunOcupado(''); }
+  const base = peds.find(p => String(p.id) === String(idPedido)); if (!base) { toast('No encontré el pedido', { type:'error' }); return; }
+  if (/cancel/i.test(base.estatus||'')) { toast('El pedido está cancelado', { type:'error' }); return; }
+  if (/^bind_/.test(String(base.id))) {
+    const ok = await confirmDialog({ title:'⚠ Este pedido viene de Bind', message:'Casi seguro ya tiene su remisión o factura en Bind (V01… o A…). Si sigues, se puede DUPLICAR la venta. ¿Es una venta nueva?', ok:'Sí, es nueva', danger:true });
+    if (!ok) return;
+  }
+  const docs = rems.concat(facs);
+  const cli = String(base.cliente||'').trim().toUpperCase();
+  const lista = [base].concat(peds.filter(p => p.id !== base.id && String(p.cliente||'').trim().toUpperCase() === cli && !/cancel/i.test(p.estatus||'') && !/^bind_/.test(String(p.id))))
+    .map(p => { let its = []; try { its = JSON.parse(p.items_json||'[]'); } catch(e){} const sur = nunPedidoSurtido(p, docs);
+      const lineas = its.map(it => { const k = String(it.sku||it.descripcion||'').toUpperCase(); return { it, ya: sur[k]||0, resta: Math.max(0, (+it.cantidad||0) - (sur[k]||0)) }; });
+      return { p, lineas, resta: lineas.reduce((s, l) => s + l.resta, 0) }; })
+    .filter((x, i) => i === 0 || x.resta > 0);
+  if (!lista[0].lineas.length) { toast('El pedido no tiene productos', { type:'error' }); return; }
+  let m = document.getElementById('modalDP'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalDP'; m._lista = lista; m._destino = destino;
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  const nom = destino === 'facturas' ? 'factura' : 'remisión';
+  const bloque = (x, pi) => `<div style="margin-top:12px;border:1px solid var(--line);border-radius:8px;overflow:hidden">
+      <div style="padding:8px 10px;background:var(--bg-2);font-size:12.5px;display:flex;justify-content:space-between"><b>Pedido ${escapeHTML(String(x.p.folio||x.p.id))}</b><span>${fmtFecha(x.p.fecha)} · ${fmtFull(x.p.total)}${nunEsVerdad(x.p.sin_iva) ? ' · sin IVA' : ''}${pi === 0 ? '' : ' · <span style="color:var(--ink-3)">otro pedido del cliente</span>'}</span></div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:var(--ink-3);text-align:left"><th style="padding:4px 8px">Producto</th><th style="text-align:right">Pedido</th><th style="text-align:right">Ya salió</th><th style="padding-left:8px">Ahora</th><th style="text-align:right;padding-right:8px">Precio</th></tr></thead><tbody>
+      ${x.lineas.map((l, li) => `<tr style="border-top:1px solid var(--line)"><td style="padding:5px 8px"><span class="mono">${escapeHTML(l.it.sku||'')}</span> <span style="color:var(--ink-3)">${escapeHTML(String(l.it.descripcion||'').substring(0,40))}</span></td>
+        <td style="text-align:right">${+l.it.cantidad||0}</td><td style="text-align:right;color:var(--ink-3)">${l.ya||'—'}</td>
+        <td style="padding-left:8px"><input type="number" class="dpCant" data-p="${pi}" data-l="${li}" min="0" max="${l.resta}" step="1" value="${pi === 0 ? l.resta : 0}" ${l.resta > 0 ? '' : 'disabled'} oninput="nunDesdePedidosTotal()" style="width:64px"></td>
+        <td style="text-align:right;padding-right:8px" class="mono">${fmtFull(+l.it.precio_unitario||0)}</td></tr>`).join('')}</tbody></table></div>`;
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:780px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)">
+      <div><h3 style="margin:0">${destino === 'facturas' ? 'Facturar' : 'Remisionar'} pedido(s) · ${escapeHTML(base.cliente||'')}</h3>
+      <div style="font-size:12px;color:var(--ink-3)">Pon cuántas piezas van en esta ${nom}. Puedes mandar solo una parte, y juntar otros pedidos abiertos del mismo cliente (abajo). Lo que falte se queda pendiente en cada pedido.</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalDP').remove()">✕</button></div>
+    <div style="padding:6px 20px 14px">${lista.map(bloque).join('')}
+      ${lista.length === 1 ? '<div style="font-size:12px;color:var(--ink-3);margin-top:10px">Este cliente no tiene otros pedidos abiertos.</div>' : ''}
+      ${destino === 'facturas' ? `<div class="field full" style="margin-top:14px"><label>El precio de los pedidos… *</label>
+        <select id="dpIva" onchange="nunDesdePedidosTotal()"><option value="">— Elige —</option>
+          <option value="mas" ${lista.every(x => !nunEsVerdad(x.p.sin_iva)) ? 'selected' : ''}>NO incluye IVA → la factura suma 16% de IVA</option>
+          <option value="incluye">YA incluye IVA → se desglosa (precio ÷ 1.16)</option>
+          <option value="sin">Sin IVA (tasa 0)</option></select></div>` : ''}
+      <div id="dpTotales" style="margin-top:12px;font-size:13px;text-align:right" class="mono"></div>
+      <div id="dpError" style="color:var(--red);font-size:12.5px;margin-top:8px;white-space:pre-line"></div>
+      <div style="font-size:11.5px;color:var(--ink-3);margin-top:8px">${destino === 'facturas' ? 'La factura se crea en borrador (FT…) para revisarla y timbrarla, y entra a Cobranza.' : 'La remisión se crea entregada (R…), entra a Cobranza y descuenta el inventario.'}</div></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)">
+      <button class="btn" onclick="document.getElementById('modalDP').remove()">Cancelar</button>
+      <button class="btn btn-primary" id="dpBoton" onclick="nunDesdePedidosCrear()">Crear ${nom}</button></div></div>`;
+  document.body.appendChild(m);
+  nunDesdePedidosTotal();
+}
+function nunDesdePedidosLineas(){
+  const m = document.getElementById('modalDP'); if (!m) return { lineas:[], errs:['sin ventana'], usados:[] };
+  const destino = m._destino, modo = destino === 'facturas' ? (document.getElementById('dpIva')||{}).value : '';
+  const errs = [], lineas = [], usados = new Set();
+  m.querySelectorAll('.dpCant').forEach(inp => {
+    const cant = Math.round(+inp.value||0); if (!(cant > 0)) return;
+    const x = m._lista[+inp.dataset.p], l = x.lineas[+inp.dataset.l];
+    if (cant > l.resta) { errs.push((l.it.sku||l.it.descripcion) + ' del pedido ' + (x.p.folio||'') + ': máximo ' + l.resta); return; }
+    usados.add(+inp.dataset.p);
+    const pu = +l.it.precio_unitario || 0;
+    const sinIvaPed = nunEsVerdad(x.p.sin_iva);
+    const ivaPct = destino === 'facturas' ? (modo === 'sin' ? 0 : 16) : (sinIvaPed ? 0 : (l.it.iva_pct != null ? (+l.it.iva_pct === 0 ? 0 : 16) : 16));
+    lineas.push({ sku: l.it.sku||'', descripcion: l.it.descripcion||'', cantidad: cant,
+      precio_unitario: modo === 'incluye' ? +(pu / 1.16).toFixed(6) : pu, descuento_pct: +l.it.descuento_pct || 0, iva_pct: ivaPct,
+      clave_sat: l.it.clave_sat || '', unidad: l.it.unidad || '', pedido: String(x.p.folio || x.p.id) });
+  });
+  const peds = [...usados].map(i => m._lista[i].p);
+  if (destino === 'remisiones' && peds.length > 1 && new Set(peds.map(p => nunEsVerdad(p.sin_iva))).size > 1) errs.push('No se pueden juntar en una remisión pedidos con IVA y sin IVA');
+  return { lineas, errs, modo, peds };
+}
+function nunDesdePedidosTotal(){
+  const el = document.getElementById('dpTotales'); if (!el) return;
+  const { lineas, modo, peds } = nunDesdePedidosLineas(); const m = document.getElementById('modalDP');
+  const sinIva = m._destino === 'remisiones' && peds.length && nunEsVerdad(peds[0].sin_iva);
+  const t = nunCalcDoc(lineas, sinIva);
+  el.innerHTML = lineas.length ? (lineas.reduce((s, l) => s + l.cantidad, 0) + ' pieza(s) de ' + peds.length + ' pedido(s) · Subtotal ' + fmtFull(t.subtotal) + ' · IVA ' + fmtFull(t.iva) + ' · <b>Total ' + fmtFull(t.total) + '</b>' + (m._destino === 'facturas' && !modo ? ' · <span style="color:var(--red)">elige lo del IVA</span>' : '')) : 'Nada seleccionado';
+}
+async function nunDesdePedidosCrear(){
+  const m = document.getElementById('modalDP'); if (!m) return;
+  const btn = document.getElementById('dpBoton'), err = document.getElementById('dpError'); if (btn.disabled) return;
+  const destino = m._destino; const { lineas, errs, modo, peds } = nunDesdePedidosLineas();
+  if (!lineas.length) errs.push('Pon al menos una pieza');
+  if (destino === 'facturas' && !modo) errs.push('Elige si el precio incluye IVA o no');
+  if (errs.length) { err.textContent = '⚠ ' + errs.join('\n⚠ '); return; }
+  btn.disabled = true; btn.textContent = 'Creando…'; nunOcupado('Creando ' + (destino === 'facturas' ? 'factura' : 'remisión') + '…');
+  try {
+    const sinIva = destino === 'remisiones' && nunEsVerdad(peds[0].sin_iva);
+    const t = nunCalcDoc(lineas, sinIva);
+    const lista = await nunListarFresco(destino);
+    const id = m.dataset.idNuevo || ((destino === 'facturas' ? 'fac_' : 'rem_') + Date.now() + '_' + Math.random().toString(36).substring(2,6));
+    m.dataset.idNuevo = id;
+    const vends = [...new Set(peds.map(p => String(p.vendedor||'').toUpperCase().trim()).filter(Boolean))];
+    let doc = lista.find(d => String(d.id) === id);
+    if (!doc) {
+      const item = { id, folio: nunFolioNUNde(destino, lista), fecha: nunHoy(), cliente: peds[0].cliente, vendedor: vends[0] || '',
+        pedido_origen: peds.map(p => String(p.folio || p.id)).join(', '), subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: sinIva || (destino === 'facturas' && modo === 'sin'),
+        estatus: destino === 'facturas' ? 'borrador' : 'entregada', items_json: JSON.stringify(lineas),
+        notas: (destino === 'facturas' ? 'Factura' : 'Remisión') + ' de pedido(s) ' + peds.map(p => p.folio||p.id).join(', ') + (vends.length > 1 ? ' · vendedores: ' + vends.join(', ') : '') + (modo === 'incluye' ? ' · precio con IVA incluido' : '') };
+      if (destino === 'remisiones') { item.fecha_entrega = nunHoy(); item.sin_entregar = false; }
+      const r = await api({ accion:'erp_crear', tabla: destino, item });
+      if (!(r && r.ok)) { const chk = await nunListarFresco(destino); doc = chk.find(d => String(d.id) === id); if (!doc) throw new Error((r && r.error) || 'el servidor no confirmó'); }
+      else doc = Object.assign({}, item, (r.item && r.item.folio) ? { folio: r.item.folio } : {});
+    }
+    if (await nunAltaCobranza(destino, doc) === false) toast('⚠ Se creó ' + doc.folio + ' pero NO su cobro en Cobranza. Revísalo.', { type:'error', duration:12000 });
+    // estatus de cada pedido: si ya salió todo, entregado/facturado
+    const docs2 = (await nunListarFresco('remisiones')).concat(await nunListarFresco('facturas'));
+    for (const p of peds) {
+      let its = []; try { its = JSON.parse(p.items_json||'[]'); } catch(e){}
+      const sur = nunPedidoSurtido(p, docs2);
+      const completo = its.every(it => (sur[String(it.sku||it.descripcion||'').toUpperCase()]||0) >= (+it.cantidad||0));
+      if (completo) { await nunGuardarSeguro('pedidos', { id: p.id, estatus: destino === 'facturas' ? 'facturado' : 'entregado' }); if (peds.length > 1 || destino === 'facturas') await nunLiberarApartado(p.id); }
+    }
+    nunOcupado(''); m.remove();
+    await Promise.all([cargarTabla(destino), cargarTabla('pedidos'), cargarTabla('cobranza')]); try { cerrarDrawer(); } catch(e){} renderCurrent();
+    toast('✓ ' + (destino === 'facturas' ? 'Factura ' : 'Remisión ') + doc.folio + ' creada · ' + fmtFull(doc.total), { type:'success', duration:7000 });
+  } catch(e) { nunOcupado(''); err.textContent = '✗ ' + e.message; btn.disabled = false; btn.textContent = 'Crear ' + (destino === 'facturas' ? 'factura' : 'remisión'); }
+}
+window.nunDesdePedidos = nunDesdePedidos; window.nunDesdePedidosTotal = nunDesdePedidosTotal; window.nunDesdePedidosCrear = nunDesdePedidosCrear;
 function nunFacturarRemisionLineas(){
   const m = document.getElementById('modalFactRem'); if (!m) return { lineas:[], errs:['sin ventana'] };
   const modo = document.getElementById('frIva').value; const errs = []; const lineas = [];

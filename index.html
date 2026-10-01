@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.97 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.98 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7847,6 +7847,9 @@ async function nunCobrarEnOtraVenta(idFac){
       const sug = pedCob.some(x => x.id === c.id) || peds.some(p => Math.abs((+p.total||0) - (+c.total||0)) < 1 && (+p.total||0) > (+f.total||0)); // v3.96 del pedido de la factura
       return { c, suma, n: pagos.length, mismo: String(c.cliente||'').trim().toUpperCase() === cli, sug, raro: Math.abs((+c.cobrado||0) - suma) > 0.5 }; })
     .sort((a, b) => (b.sug - a.sug) || (b.mismo - a.mismo) || (b.raro - a.raro) || String(b.c.fecha_entrega||b.c.fecha_emision||'').localeCompare(String(a.c.fecha_entrega||a.c.fecha_emision||'')));
+  // v3.98 — el pedido de la factura no tiene cobro (en Bind solo pasó el pedido): se ofrece crear su venta en Cobranza
+  if (!L.some(x => x.sug)) nunRelDoc('facturas', f).pedidos.filter(p => !/cancel/i.test(p.estatus||'') && (+p.total||0) > (+f.total||0) + 0.5 && !nunCobranzaDeDoc(p, State.data.cobranza||[])) // solo si no hay ya una venta de ese pedido
+    .forEach(p => L.unshift({ c: { id: '__nuevo', numero: 'PED ' + nunFolioStr(p), cliente: p.cliente, total: nunR2(+p.total||0), cobrado: 0, pendiente: nunR2(+p.total||0), fecha_entrega: String(p.fecha||'').substring(0,10), vendedor: p.vendedor || '' }, suma: 0, n: 0, mismo: true, sug: true, raro: false, nuevo: p }));
   window._nunCOV = { f, propio, propios, rem, L };
   const movidos = propios.flatMap(c => nunPagosDeCobro(c));
   let m = document.getElementById('modalCOV'); if (m) m.remove();
@@ -7859,7 +7862,7 @@ async function nunCobrarEnOtraVenta(idFac){
     <div style="padding:10px 20px;font-size:12.5px;background:rgba(245,158,11,0.08)">Elige la venta de la que es esta factura. Desde ahora el pago de la factura se aplica a esa venta y la factura no cuenta como deuda aparte. No se borra nada.</div>
     <div style="padding:10px 20px 0"><input type="text" id="covBuscar" placeholder="Buscar por folio, cliente o monto (ej. 95000)…" style="width:100%" oninput="nunCOVFiltrar(this.value)"></div>
     <div style="overflow:auto;padding:0 20px;flex:1">${L.length ? `<table class="dt" style="font-size:12px"><thead><tr><th></th><th>Venta (Cobranza)</th><th>Cliente</th><th>Fecha</th><th class="right">Total</th><th class="right">Dice cobrado</th><th class="right">Suman sus pagos</th><th class="right">Saldo</th></tr></thead><tbody>
-      ${L.map((x, i) => `<tr class="covFila" data-txt="${escapeHTML((String(x.c.numero||'') + ' ' + String(x.c.cliente||'') + ' ' + (+x.c.total||0) + ' ' + String(x.c.descripcion||'')).toUpperCase())}" ${x.mismo || x.sug ? '' : 'style="display:none"'}><td><input type="radio" name="covSel" value="${i}" ${x.sug && i === 0 ? 'checked' : ''}></td><td class="mono">${escapeHTML(String(x.c.numero||''))}${x.sug ? ' <span class="tag amber" style="font-size:10px">del pedido</span>' : ''}${x.raro ? ' <span class="tag red" style="font-size:10px">no cuadra</span>' : ''}</td><td style="font-size:11px">${escapeHTML(String(x.c.cliente||''))}</td><td>${fmtFecha(x.c.fecha_entrega||x.c.fecha_emision)}</td><td class="right mono">${fmtFull(x.c.total)}</td>
+      ${L.map((x, i) => `<tr class="covFila" data-txt="${escapeHTML((String(x.c.numero||'') + ' ' + String(x.c.cliente||'') + ' ' + (+x.c.total||0) + ' ' + String(x.c.descripcion||'')).toUpperCase())}" ${x.mismo || x.sug ? '' : 'style="display:none"'}><td><input type="radio" name="covSel" value="${i}" ${x.sug && i === 0 ? 'checked' : ''}></td><td class="mono">${escapeHTML(String(x.c.numero||''))}${x.nuevo ? ' <span class="tag green" style="font-size:10px">crear la venta del pedido</span>' : x.sug ? ' <span class="tag amber" style="font-size:10px">del pedido</span>' : ''}${x.raro ? ' <span class="tag red" style="font-size:10px">no cuadra</span>' : ''}</td><td style="font-size:11px">${escapeHTML(String(x.c.cliente||''))}</td><td>${fmtFecha(x.c.fecha_entrega||x.c.fecha_emision)}</td><td class="right mono">${fmtFull(x.c.total)}</td>
         <td class="right mono">${fmtFull(x.c.cobrado)}</td><td class="right mono" style="${Math.abs((+x.c.cobrado||0) - x.suma) > 0.5 ? 'color:var(--red);font-weight:600' : ''}">${fmtFull(x.suma)} <span style="color:var(--ink-4)">(${x.n})</span></td><td class="right mono">${fmtFull(x.c.pendiente)}</td></tr>`).join('')}</tbody></table>` : '<div style="padding:24px;text-align:center;color:var(--mute)">Este cliente no tiene otras ventas en Cobranza</div>'}
       <div style="font-size:11.5px;color:var(--ink-3);margin-top:6px">Se ven las ventas de ${escapeHTML(f.cliente||'')}. Si la venta quedó a otro nombre, búscala arriba (folio, nombre o monto).</div>
       <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin:12px 0 4px"><input type="checkbox" id="covAjustar" checked> Si "dice cobrado" no es igual a lo que suman sus pagos (en rojo), ajustarlo a lo que suman sus pagos</label>
@@ -7871,7 +7874,7 @@ async function nunCobrarEnOtraVenta(idFac){
 async function nunCobrarEnOtraVentaGuardar(){
   const S = window._nunCOV; if (!S) return;
   const sel = document.querySelector('#modalCOV input[name=covSel]:checked'); if (!sel) { toast('Elige la venta', { type:'error' }); return; }
-  const x = S.L[+sel.value], f = S.f, propio = S.propio, X = x.c;
+  const x = S.L[+sel.value], f = S.f, propio = S.propio; let X = x.c;
   const ajustar = document.getElementById('covAjustar').checked && Math.abs((+X.cobrado||0) - x.suma) > 0.5;
   const movidos = (S.propios || []).flatMap(c => nunPagosDeCobro(c)), sumMov = nunR2(movidos.reduce((a, i) => a + (+i.monto||0), 0));
   const cancRem = !!(S.rem && (document.getElementById('covCancRem')||{}).checked);
@@ -7882,6 +7885,13 @@ async function nunCobrarEnOtraVentaGuardar(){
   const btn = document.getElementById('covBoton'); if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
   const hoy = nunHoy(); let mal = 0;
   try {
+    if (x.nuevo) { // v3.98 — se crea la venta del pedido en Cobranza (su id liga con el pedido: cob_<id del pedido>)
+      const p = x.nuevo, item = { id: 'cob_' + p.id, numero: X.numero, cliente: p.cliente, tipo: 'Pedido', total: X.total, cobrado: 0, pendiente: X.total, factura_origen: p.id,
+        fecha_emision: X.fecha_entrega || hoy, fecha_entrega: X.fecha_entrega || hoy, vendedor: X.vendedor, estatus: 'pendiente', descripcion: 'Venta del pedido ' + nunFolioStr(p) + ' (creada ' + hoy + ' al ligar la factura ' + (f.folio||'') + ')' };
+      const cr = await api({ accion:'erp_crear', tabla:'cobranza', item });
+      if (!(cr && cr.ok)) throw new Error('no pude crear la venta del pedido en Cobranza: ' + ((cr && cr.error) || '?'));
+      X = (cr.item && cr.item.id) ? cr.item : item;
+    }
     if (movidos.length) { const r = await api({ accion:'erp_upsert_batch', tabla:'ingresos', items: movidos.map(i => ({ id: i.id, factura: String(X.numero||''), comentarios: '(pasado de ' + String(i.factura||'') + ' el ' + hoy + ') ' + String(i.comentarios||'') })) }); if (!(r && r.ok)) throw new Error('no se pasaron los pagos'); }
     if (!(await nunGuardarSeguro('cobranza', { id: X.id, cobrado, pendiente, descripcion: String(X.descripcion||'') + ' · ' + hoy + ': se le liga la factura ' + (f.folio||'') + (ajustar ? ' · cobrado ajustado ' + (+X.cobrado||0).toFixed(2) + '→' + x.suma.toFixed(2) + ' (lo que suman sus pagos)' : '') + (sumMov ? ' · +' + sumMov.toFixed(2) + ' pagos de ' + (propio.numero||'') : '') }))) mal++;
     for (const pc of (S.propios || [])) if (!(await nunGuardarSeguro('cobranza', { id: pc.id, estatus:'cancelado', cobrado:0, pendiente:0, descripcion: String(pc.descripcion||'') + ' · ' + hoy + ': se cobra en ' + (X.numero||'') }))) mal++;

@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.00 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.01 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -6386,6 +6386,7 @@ function abrirDetalleComision(vendedor) {
 function renderReportes() {
   return `
     <div class="page-title"><div><h1>Reportes</h1><div class="sub">Información agrupada de tu negocio</div></div></div>
+    <div id="nunTablero" style="margin-bottom:22px">${nunTableroHTML()}</div>
     <div class="dt-wrap" style="padding:16px 18px;margin-bottom:14px;cursor:pointer;border-left:4px solid var(--accent)" onclick="abrirReporte('ventas_detalle')">
       <div style="font-weight:700;font-size:15px">📊 Ventas detalladas</div>
       <div style="font-size:12.5px;color:var(--ink-3);margin-top:2px">Facturas y remisiones del mes (o las fechas que quieras) por <b>SKU, modelo, color, medida, cliente, vendedor</b> o documento · historial de un cliente · costo y utilidad · exportar a Excel</div>
@@ -6401,6 +6402,95 @@ function renderReportes() {
     <div id="reporteMount" style="margin-top:24px"></div>
   ` + (window._repAbierto ? (setTimeout(() => { try { const m = document.getElementById('reporteMount'); if (m && !m.children.length) abrirReporte(window._repAbierto); } catch(e){} }, 0), '') : ''); // v3.62
 }
+
+// ============================================================
+// v4.01 — TABLERO DEL MES (Reportes): ventas, cobrado, por cobrar y gráficas, con filtros de periodo y vendedor.
+// Ventas = remisiones + facturas vigentes, sin contar dos veces (la factura de una remisión, o la que se cobra en otra
+// venta, no suma: la venta ya está en la remisión/venta). Importes con IVA, igual que Cobranza. Cobrado = Ingresos vigentes.
+// ============================================================
+let _tab = null, _tabCargando = false;
+function _tabMes(d){ return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); }
+function _tabRango(mes){ const [y, m] = mes.split('-').map(Number); const fin = new Date(y, m, 0).getDate(); return [mes + '-01', mes + '-' + String(fin).padStart(2,'0')]; }
+function _tabMesAnt(mes){ const [y, m] = mes.split('-').map(Number); return _tabMes(new Date(y, m - 2, 1)); }
+const _tabMesTxt = m => ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][+m.slice(5,7)-1] + ' ' + m.slice(2,4);
+function nunTableroVentas(){
+  const out = [];
+  (State.data.remisiones||[]).forEach(d => { if (!/cancel/i.test(d.estatus||'')) out.push({ d, t:'R' }); });
+  (State.data.facturas||[]).forEach(d => { if (!/cancel/i.test(d.estatus||'') && !nunEsDeRemision(d) && !/Cobro en [^·(]*\(id /.test(String(d.notas||''))) out.push({ d, t:'F' }); });
+  return out.map(x => ({ fecha: String(x.d.fecha||'').substring(0,10), total: +x.d.total||0, cliente: String(x.d.cliente||'').trim(), vend: (typeof nunVendedorDeDoc === 'function' ? nunVendedorDeDoc(x.d) : String(x.d.vendedor||'').toUpperCase()) || '(sin vendedor)', t: x.t, d: x.d }));
+}
+function nunTableroCalc(desde, hasta, vend){
+  const enR = f => f >= desde && f <= hasta, okV = v => !vend || v === vend;
+  const ventas = nunTableroVentas().filter(x => enR(x.fecha) && okV(x.vend));
+  const cobVend = new Map((State.data.cobranza||[]).map(c => [String(c.numero||'').trim(), String(c.vendedor||'').toUpperCase().trim()]));
+  const ing = (State.data.ingresos||[]).filter(i => nunPagoCuenta(i) && enR(String(i.fecha||'').substring(0,10)) && (!vend || cobVend.get(String(i.factura||'').trim()) === vend));
+  const sum = (a, k) => nunR2(a.reduce((s2, x) => s2 + (+x[k]||0), 0));
+  return { ventas, ing, totV: sum(ventas, 'total'), totI: sum(ing, 'monto'), n: ventas.length };
+}
+function nunTableroHTML(){
+  const D = State.data;
+  if (!_tabCargando && ['remisiones','facturas','ingresos','cobranza'].some(t => !Array.isArray(D[t]) || !D[t].length)) {
+    _tabCargando = true;
+    Promise.all(['remisiones','facturas','ingresos','cobranza','productos'].map(t => cargarTabla(t).catch(()=>{}))).then(() => { const m = document.getElementById('nunTablero'); if (m) m.innerHTML = nunTableroHTML(); });
+  }
+  _tab = _tab || { mes: _tabMes(new Date()), vend: '' };
+  const [desde, hasta] = _tabRango(_tab.mes), mesAnt = _tabMesAnt(_tab.mes), [dA, hA] = _tabRango(mesAnt);
+  const A = nunTableroCalc(desde, hasta, _tab.vend), B = nunTableroCalc(dA, hA, _tab.vend);
+  const porCobrar = nunR2((D.cobranza||[]).filter(c => !/cancel|duplic/i.test(String(c.estatus||'')) && !c.sin_entregar && (!_tab.vend || String(c.vendedor||'').toUpperCase().trim() === _tab.vend)).reduce((s2, c) => s2 + Math.max(0, +c.pendiente||0), 0));
+  const delta = (a, b) => { if (!b) return '<span style="color:var(--mute)">sin dato del mes anterior</span>'; const p = Math.round((a - b) / b * 100); return `<span style="color:var(--${p >= 0 ? 'green' : 'red'});font-weight:600">${p >= 0 ? '▲' : '▼'} ${Math.abs(p)}%</span> <span style="color:var(--mute)">vs ${_tabMesTxt(mesAnt)} (${fmt(b)})</span>`; };
+  const ticket = A.n ? A.totV / A.n : 0;
+  const meses = []; for (let i = 0; i < 24; i++) { const d = new Date(); meses.push(_tabMes(new Date(d.getFullYear(), d.getMonth() - i, 1))); }
+  const vends = ['EDGAR','LUIS','ESTEBAN','YADAH','RAFA','CASA'];
+  const sel = 'padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)';
+  // agrupaciones
+  const agrupa = (arr, kf, vf) => { const m = new Map(); arr.forEach(x => { const k = kf(x); m.set(k, (m.get(k)||0) + vf(x)); }); return [...m.entries()].sort((a, b) => b[1] - a[1]); };
+  const porVend = agrupa(A.ventas, x => x.vend, x => x.total);
+  const porCli = agrupa(A.ventas, x => x.cliente || '(sin cliente)', x => x.total).slice(0, 10);
+  const porCta = agrupa(A.ing, x => String(x.cuenta||'(sin cuenta)'), x => +x.monto||0);
+  let prods = []; try { const P = nunPartidasVendidas().partidas.filter(x => x.fecha >= desde && x.fecha <= hasta && (!_tab.vend || x.vendedor === _tab.vend)); prods = agrupa(P, x => x.modelo !== '(sin modelo)' ? x.modelo : x.sku, x => x.cantidad).slice(0, 10); } catch(e){}
+  const diasMes = +hasta.slice(8), porDia = []; for (let i = 1; i <= diasMes; i++) { const f = _tab.mes + '-' + String(i).padStart(2,'0'); porDia.push([String(i), nunR2(A.ventas.filter(x => x.fecha === f).reduce((s2, x) => s2 + x.total, 0))]); }
+  const ult12 = meses.slice(0, 12).reverse().map(m => { const [a, b] = _tabRango(m), c = nunTableroCalc(a, b, _tab.vend); return [m, c.totV, c.totI]; });
+  const C1 = '#2a78d6', C2 = '#eb6834'; // validados (azul/naranja): CVD ΔE 24.7, contraste ≥ 3:1
+  // barras horizontales (una serie)
+  const hbars = (rows, fmtV, onclick) => { if (!rows.length) return '<div style="color:var(--mute);font-size:12px;padding:10px 0">Sin datos en el periodo</div>'; const mx = Math.max(...rows.map(r => r[1])) || 1;
+    return rows.map(([k, v]) => `<div class="tabFila" data-tip="${escapeHTML(k)}: ${escapeHTML(fmtV(v))}" ${onclick ? `style="cursor:pointer" onclick="${onclick(k)}"` : ''}><div style="display:flex;justify-content:space-between;font-size:12px;gap:8px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHTML(k)}</span><span class="mono" style="color:var(--ink-2)">${escapeHTML(fmtV(v))}</span></div>
+      <div style="height:8px;background:var(--bg-3,#eee);border-radius:4px;margin:3px 0 8px"><div style="height:8px;width:${Math.max(1, v / mx * 100).toFixed(1)}%;background:${C1};border-radius:4px"></div></div></div>`).join(''); };
+  // columnas (una o dos series, mismo eje)
+  const cols = (rows, series, etiquetaCada) => { const mx = Math.max(1, ...rows.flatMap(r => series.map((_, i) => r[i+1]))); const H = 130;
+    return `<div style="display:flex;align-items:flex-end;gap:2px;height:${H}px;border-bottom:1px solid var(--line);padding-top:4px">${rows.map(r => `<div class="tabFila" data-tip="${escapeHTML(r[0])}: ${series.map((sn, i) => sn + ' ' + fmt(r[i+1])).join(' · ')}" style="flex:1;display:flex;align-items:flex-end;justify-content:center;gap:2px;height:100%;min-width:0">${series.map((sn, i) => `<div style="flex:1;max-width:22px;height:${Math.max(r[i+1] > 0 ? 2 : 0, r[i+1] / mx * (H - 6)).toFixed(1)}px;background:${i ? C2 : C1};border-radius:4px 4px 0 0"></div>`).join('')}</div>`).join('')}</div>
+      <div style="display:flex;gap:2px;font-size:10px;color:var(--mute);margin-top:3px">${rows.map((r, i) => `<div style="flex:1;text-align:center;min-width:0;overflow:hidden;white-space:nowrap;font-size:9.5px">${(i % etiquetaCada === 0) ? escapeHTML(r[0]) : ''}</div>`).join('')}</div>`; };
+  const tarjeta = (t, cuerpo, extra) => `<div class="dt-wrap" style="padding:14px 16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div style="font-weight:700;font-size:13.5px">${t}</div>${extra||''}</div>${cuerpo}</div>`;
+  const leyenda = `<div style="display:flex;gap:12px;font-size:11.5px;color:var(--ink-2)"><span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${C1};vertical-align:-1px"></span> Ventas</span><span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${C2};vertical-align:-1px"></span> Cobrado</span></div>`;
+  const kpi = (lbl, val, sub) => `<div class="kpi"><div class="kpi-label">${lbl}</div><div class="kpi-value">${val}</div><div class="kpi-sub" style="font-size:11.5px">${sub}</div></div>`;
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <div><h3 style="margin:0;font-size:17px">📈 Tablero de ${_tabMesTxt(_tab.mes)}${_tab.vend ? ' · ' + escapeHTML(_tab.vend) : ''}</h3><div style="font-size:12px;color:var(--mute)">Ventas = remisiones + facturas vigentes, sin contar dos veces · con IVA · cobrado = Ingresos</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <label style="font-size:11px">Mes<br><select style="${sel}" onchange="_tab.mes=this.value; nunTableroPintar()">${meses.map(m => `<option value="${m}" ${m === _tab.mes ? 'selected' : ''}>${_tabMesTxt(m)}</option>`).join('')}</select></label>
+        <label style="font-size:11px">Vendedor<br><select style="${sel}" onchange="_tab.vend=this.value; nunTableroPintar()"><option value="">Todos</option>${vends.map(v => `<option ${v === _tab.vend ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      </div></div>
+    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin-bottom:12px">
+      ${kpi('Ventas del mes', fmt(A.totV), delta(A.totV, B.totV))}
+      ${kpi('Cobrado del mes', fmt(A.totI), delta(A.totI, B.totI))}
+      ${kpi('Documentos', A.n, 'ticket promedio ' + fmt(ticket))}
+      ${kpi('Por cobrar hoy', fmt(porCobrar), 'saldo de todo Cobranza' + (_tab.vend ? ' de ' + escapeHTML(_tab.vend) : ''))}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:12px">
+      ${tarjeta('Ventas y cobrado · últimos 12 meses', cols(ult12.map(r => [_tabMesTxt(r[0]), r[1], r[2]]), ['Ventas','Cobrado'], 1), leyenda)}
+      ${tarjeta('Ventas por día · ' + _tabMesTxt(_tab.mes), cols(porDia, ['Ventas'], 5))}
+      ${_tab.vend ? '' : tarjeta('Ventas por vendedor', hbars(porVend, fmt))}
+      ${tarjeta('Top 10 clientes', hbars(porCli, fmt, k => `nunTableroCliente(${escapeHTML(JSON.stringify(k))})`))}
+      ${tarjeta('Top 10 productos (piezas)', hbars(prods, v => v + ' pzas'))}
+      ${tarjeta('Cobrado por cuenta', hbars(porCta, fmt))}
+    </div>
+    <div id="tabTip" style="position:fixed;display:none;pointer-events:none;z-index:200;background:var(--ink,#111);color:var(--bg,#fff);font-size:12px;padding:6px 9px;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.2)"></div>`;
+}
+function nunTableroPintar(){ const m = document.getElementById('nunTablero'); if (m) m.innerHTML = nunTableroHTML(); }
+function nunTableroCliente(nom){ const c = (State.data.clientes||[]).find(x => String(x.razon_social||'').trim() === String(nom).trim()); if (c) { navegar('clientes'); setTimeout(() => abrirDetalleCliente(c.id), 150); } else toast('No encontré a ' + nom + ' en Clientes'); }
+// tooltip del tablero (un solo listener)
+document.addEventListener('mousemove', e => { const t = document.getElementById('tabTip'); if (!t) return; const el = e.target && e.target.closest ? e.target.closest('#nunTablero .tabFila') : null;
+  if (!el) { t.style.display = 'none'; return; } t.textContent = el.dataset.tip || ''; t.style.display = 'block'; t.style.left = Math.min(e.clientX + 12, window.innerWidth - t.offsetWidth - 8) + 'px'; t.style.top = (e.clientY + 14) + 'px'; });
+window.nunTableroPintar = nunTableroPintar; window.nunTableroCliente = nunTableroCliente;
 // ============================================================
 // v3.62 — REPORTE VENTAS DETALLADAS (SKU · modelo · color · medida · cliente · vendedor · documento)
 // ============================================================

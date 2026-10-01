@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v3.98 · Sistema NUN ✓</span>
+    <span class="rwd-version">v3.99 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7712,6 +7712,14 @@ async function nunAbrirComplementoPago(idFactura){
   document.body.appendChild(m);
 }
 window.nunAbrirComplementoPago = nunAbrirComplementoPago;
+// v3.99 — fecha y hora del pago para el complemento. Antes iba siempre a las 12:00: si se timbraba un pago de HOY antes del
+// mediodía, Facturama lo rechazaba ("La fecha del pago no debe ser una fecha futura"). Hoy = hora actual menos 10 minutos.
+function nunFechaPagoCfdi(fecha){
+  const f = String(fecha||'').substring(0,10), d = new Date(Date.now() - 10 * 60000), p2 = n => String(n).padStart(2,'0');
+  const hoyLocal = d.getFullYear() + '-' + p2(d.getMonth()+1) + '-' + p2(d.getDate());
+  if (f && f < hoyLocal) return f + 'T12:00:00';
+  return hoyLocal + 'T' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':00'; // hoy (o una fecha futura por error: se usa ahora)
+}
 function nunCfdiComplementoPago(f, pago){
   const emp = State.data.empresa || {};
   const cli = facturaClienteFiscal(f.cliente);
@@ -7734,7 +7742,7 @@ function nunCfdiComplementoPago(f, pago){
     PreviousBalanceAmount: saldoAnt, AmountPaid: pagado, ImpSaldoInsoluto: nunR2(saldoAnt - pagado), TaxObject:'02',
     Taxes: taxes }; // v3.80
   if (serieF) rel.Serie = serieF; if (folioF) rel.Folio = folioF;
-  const p = { Date: pago.fecha + 'T12:00:00', PaymentForm: pago.forma, Amount: pagado, RelatedDocuments: [rel] };
+  const p = { Date: nunFechaPagoCfdi(pago.fecha), PaymentForm: pago.forma, Amount: pagado, RelatedDocuments: [rel] }; // v3.99
   if (pago.operacion) p.OperationNumber = pago.operacion;
   return { NameId:'14', CfdiType:'P', Serie:'CP', Folio: String(pago.folioRep).replace(/\D/g,''), ExpeditionPlace: String(emp.cp||''),
     Receiver: { Rfc: cli.rfc, Name: cli.nombre, CfdiUse:'CP01', FiscalRegime: cli.regimen, TaxZipCode: cli.cp },
@@ -7760,6 +7768,7 @@ async function nunConfirmarComplementoPago(idFactura){
   if (conTimbre && monto > m._saldo + 0.005) e.push('El monto es mayor al saldo de la factura (' + fmtFull(m._saldo) + ')'); // v3.93 solo el complemento
   if (conCobro && !c && monto > (m._debeCobro||0) + 0.005) e.push('El monto es mayor a lo que se debe de la factura (' + fmtFull(m._debeCobro) + ')');
   if (!fecha) e.push('Falta la fecha del pago');
+  else if (fecha > nunHoy()) e.push('La fecha del pago no puede ser futura'); // v3.99
   if (conTimbre && !forma) e.push('Falta la forma de pago');
   if (conCobro && !cuenta) e.push('Falta la cuenta donde entró');
   if (conCobro && c && monto > (+c.pendiente||0) + 0.005) e.push('El monto es mayor al saldo en Cobranza (' + fmtFull(c.pendiente) + ')');

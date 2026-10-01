@@ -46,6 +46,6 @@ setTimeout(async()=>{ const r={};
   const f2=DB.facturas.filter(f=>f.id!=='f_old')[1]; r.factura2=f2&&{folio:f2.folio,total:f2.total,sub:f2.subtotal,iva:f2.iva,notas:f2.notas,n:JSON.parse(f2.items_json).length,pu:JSON.parse(f2.items_json)[0].precio_unitario};
   // Alta a cobranza: una factura de remisión no se agrega
   r.altaCob=await w.eval("nunAltaCobranza('facturas',{id:'zz',folio:'FT0009',pedido_origen:'REM 321',total:5})");
-  r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+  r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  }catch(e){ r.error=String(e.stack||e).slice(0,600);}
  r.errs=errs.slice(0,5); console.log(JSON.stringify(r,null,1)); w.close(); },4000);

@@ -18,7 +18,7 @@ const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),
 const w=dom.window,d=w.document;const sleep=t=>new Promise(z=>setTimeout(z,t));
 setTimeout(async()=>{const r={};try{
  for (const t of Object.keys(DB).filter(t=>t!=='usuarios')) await w.eval(`cargarTabla('${t}')`);
- r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+ r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  w.eval("navegar('ingresos')"); await sleep(400);
  r.ingresos=[...d.querySelectorAll('#dtMount_ingresos tbody tr')].map(tr=>tr.textContent.replace(/\s+/g,' ').trim().slice(0,40));
  w.eval("navegar('cobranza')"); await sleep(400);

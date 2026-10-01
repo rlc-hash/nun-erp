@@ -21,7 +21,7 @@ const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),
 const w=dom.window,d=w.document;const sleep=t=>new Promise(z=>setTimeout(z,t));
 setTimeout(async()=>{const r={};try{
  for (const t of ['clientes','remisiones','facturas','pedidos','notascredito','cobranza']) await w.eval(`cargarTabla('${t}')`);
- r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+ r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  w.eval("abrirDetalleCliente('cl1')"); await sleep(300);
  const html=[...d.querySelectorAll('.drawer')].map(x=>x.innerHTML).join(''); r.ficha={ligasBind:(html.match(/bind\.com\.mx/g)||[]).length,botonesPDF:[...d.querySelectorAll('button')].filter(b=>b.textContent.includes('📄 PDF')).length,
    botonNC:[...d.querySelectorAll('button')].some(b=>b.textContent.includes('Nota de crédito')),botonXML:[...d.querySelectorAll('button')].some(b=>b.textContent.includes('📋 XML'))};

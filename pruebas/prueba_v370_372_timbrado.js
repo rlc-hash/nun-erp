@@ -55,6 +55,6 @@ setTimeout(async()=>{ const r={};
   // 7) Formulario de cliente con régimen y uso
   const h=w.eval("buildFormHTML(SCHEMAS.clientes,{regimen_fiscal:'626',uso_cfdi:'G01'})"); const dv=d.createElement('div'); dv.innerHTML=h; r.formCliente={reg:dv.querySelector('#f_regimen_fiscal').value, regOps:dv.querySelectorAll('#f_regimen_fiscal option').length, uso:dv.querySelector('#f_uso_cfdi').value, vacio:w.eval("(()=>{const x=document.createElement('div');x.innerHTML=buildFormHTML(SCHEMAS.clientes,{});return x.querySelector('#f_regimen_fiscal').value})()")};
   const h2=w.eval("buildFormHTML(SCHEMAS.pagos||Object.values(SCHEMAS).find(s=>s.fields.some(f=>f.type==='select')),{})"); r.otroSelectOk=/<select/.test(h2);
-  r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+  r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  }catch(e){ r.error=String(e.stack||e).slice(0,600);}
  r.errs=errs.slice(0,5); console.log(JSON.stringify(r,null,1)); w.close(); },4000);

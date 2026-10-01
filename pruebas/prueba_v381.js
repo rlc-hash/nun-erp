@@ -32,7 +32,7 @@ const w=dom.window,d=w.document;const sleep=t=>new Promise(z=>setTimeout(z,t));
 setTimeout(async()=>{const r={};try{
  for (const t of ['facturas','notascredito','cobranza','clientes','remisiones','ingresos']) await w.eval(`cargarTabla('${t}')`);
  w.eval("State.data.empresa={rfc:'EKU9003173C9',cp:'11000',razon_social:'EMPRESA PRUEBA',regimen_fiscal:'601'}");
- r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+ r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  w.eval("window.confirmDialog=async()=>true; window.confirm=()=>true");
  // 1) dueño con todo aunque su usuario diga "cobranza / solo consulta"
  r.dueno={admin:w.eval("nunEsAdmin()"),soloConsulta:w.eval("nunSoloConsulta()"),usuarios:w.eval("moduloPermitido('usuarios')"),gastos:w.eval("moduloPermitido('gastos')")};

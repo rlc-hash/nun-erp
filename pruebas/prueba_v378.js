@@ -25,7 +25,7 @@ const w=dom.window,d=w.document;const sleep=t=>new Promise(z=>setTimeout(z,t));
 const blobTxt=async()=>w._ultimoBlob? w._ultimoBlob._t:'';
 setTimeout(async()=>{const r={};try{
  for (const t of Object.keys(DB).filter(t=>t!=='usuarios')) await w.eval(`cargarTabla('${t}')`);
- r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+ r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  r.fechaLarga=w.eval("fmtFechaLarga('2026-09-28')");
  w.eval("abrirDoc('facturas','f322')"); await sleep(600);
  const html=d.body.innerHTML;

@@ -26,7 +26,7 @@ const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),
 const w=dom.window,d=w.document;const sleep=t=>new Promise(z=>setTimeout(z,t));const txt=e=>e?e.textContent.replace(/\s+/g,' ').trim():'';
 setTimeout(async()=>{const r={};try{
  for (const t of Object.keys(DB)) if(t!=='usuarios') await w.eval(`cargarTabla('${t}')`);
- r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+ r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  w.eval("window.confirmDialog=async()=>true; window.confirm=()=>true; window.prompt=(m,def)=>/Motivo de cancelaci/.test(m)?'02':'se capturó dos veces'");
  // 1) lista de pedidos
  w.eval("navegar('pedidos')"); await sleep(300);
@@ -54,7 +54,7 @@ setTimeout(async()=>{const r={};try{
  await w.eval("cuadreVendedoresGuardar()"); await sleep(300);
  r.vendGuardado=[DB.clientes[0].vendedor,DB.remisiones[0].vendedor,DB.facturas[0].vendedor,DB.cobranza[0].vendedor].join(',');
  r.fallas=[];
- if(!/^v3\.(9[2-9]|\d{3,}) · Sistema NUN$/.test(r.version)) r.fallas.push('version');
+ if(!/^v(3\.(9[2-9]|\d{3,})|[4-9]\.\d+) · Sistema NUN$/.test(r.version)) r.fallas.push('version');
  if(r.pedidos.join(' / ')!=='$800,000|—|cancelado|cancelado / $5,000|—|de Bind (sin liga)|confirmado'||r.porCobrar!=='$0') r.fallas.push('pedidos');
  if(r.remision.cancelarPago!==2||!r.remision.cancelarDoc||!r.remision.cerrar||r.remision.eliminar||!r.remision.resumen) r.fallas.push('remision');
  if(r.pago.tipo!=='CANCELADO'||r.pago.cobrado!==0||r.pago.pendiente!==1000) r.fallas.push('pago');

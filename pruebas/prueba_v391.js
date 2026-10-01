@@ -40,7 +40,7 @@ const WB={SheetNames:['2025','2026','Otra'],Sheets:{
  'Otra':[H26(new Date(2026,3,2),'No Se Lee',999,0,999,'LUIS','')]}};
 setTimeout(async()=>{const r={};try{
  for (const t of ['cobranza','clientes','remisiones','facturas']) await w.eval(`cargarTabla('${t}')`);
- r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+ r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  // 1) leer las dos primeras hojas (la tercera no)
  w.XLSX={utils:{sheet_to_json:(sh)=>sh}}; w._xlsxWB=WB;
  await w.eval("procesarSheetCuadre()"); await sleep(400);
@@ -69,7 +69,7 @@ setTimeout(async()=>{const r={};try{
  r.despues=['bind_rem_300','bind_rem_302'].map(sit);
  r.otraVez=w.eval("nunRemCanceladasCandidatas().length");
  r.fallas=[];
- if(!/^v3\.(9[1-9]|\d{3,}) · Sistema NUN$/.test(r.version)) r.fallas.push('version');
+ if(!/^v(3\.(9[1-9]|\d{3,})|[4-9]\.\d+) · Sistema NUN$/.test(r.version)) r.fallas.push('version');
  if(r.excel.filas!==6||r.excel.hojas!=='2025,2026'||r.excel.fecha0!=='2025-11-03'||r.excel.cobrado!==6000||r.excel.folios!==': : R:V01500 F:1028 R:V01500 P:') r.fallas.push('excel');
  if(r.docs.join(' ')!=='Maria  Gomez=OK/cliente+monto Juan Perez Lopez=SOLO_EXCEL Juan Perez Lopez=DIF_COBRADO/folio Comercial Alfa=OK/folio Pedro Inventado=SOLO_EXCEL Rosa Nadie=SOLO_EXCEL V01501=SOLO_BIND V01301=SOLO_BIND') r.fallas.push('docs');
  if(!/2,000.*más cobrado/.test(r.porque.juan)||!/folio repetido/.test(r.porque.pedro)||!/pedido/.test(r.porque.rosa)||!/Debe .*3,000.* no está en tu Excel/.test(r.porque.v501)) r.fallas.push('porque');

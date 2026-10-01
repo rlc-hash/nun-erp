@@ -43,7 +43,7 @@ const w=dom.window,d=w.document;const sleep=t=>new Promise(z=>setTimeout(z,t));
 setTimeout(async()=>{const r={};try{
  for (const t of Object.keys(DB).filter(t=>t!=='usuarios'&&t!=='clientescat')) await w.eval(`cargarTabla('${t}')`);
  await w.eval("cargarTabla('empresa')").catch(()=>{});
- r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+ r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  // 1) dueños por prefijo (sin códigos escritos en el archivo)
  r.duenos={rafaNuevo:w.eval("nunEsDuenoGastos()"),literalesEnArchivo:/RAFA-2026|YADAH-2026|MASTER-NUN-ERP-2026/.test(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'))};
  w.eval("State.sesion.codigo='EDGAR-1'"); r.duenos.edgar=w.eval("nunEsDuenoGastos()"); w.eval("State.sesion.codigo='RAFA-'"); r.duenos.soloPrefijo=w.eval("nunEsDuenoGastos()"); w.eval("State.sesion.codigo='RAFA-PRUEBA9'");

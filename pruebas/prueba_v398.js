@@ -25,7 +25,7 @@ const w=dom.window,d=w.document;const sleep=t=>new Promise(z=>setTimeout(z,t));c
 setTimeout(async()=>{const r={};try{
  for (const t of Object.keys(DB)) if(t!=='usuarios') await w.eval(`cargarTabla('${t}')`);
  w.eval("State.data.cuentas=[{nombre:'BBVA'}]; window.confirmDialog=async()=>true");
- r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+ r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  await w.eval("nunCobrarEnOtraVenta('f3')"); await sleep(200);
  const f0=[...d.querySelectorAll('#modalCOV .covFila')][0]; r.primera=txt(f0.querySelectorAll('td')[1]); r.marcada=f0.querySelector('input').checked;
  await w.eval("nunCobrarEnOtraVentaGuardar()"); await sleep(400);

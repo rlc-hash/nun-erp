@@ -28,7 +28,7 @@ const vis=()=>[...d.querySelectorAll('#modalCOV .covFila')].filter(tr=>tr.style.
 setTimeout(async()=>{const r={};try{
  for (const t of ['pedidos','remisiones','facturas','cobranza','ingresos','clientes']) await w.eval(`cargarTabla('${t}')`);
  w.eval("State.data.cuentas=[{nombre:'BBVA'}]; window.confirmDialog=async()=>true");
- r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+ r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  await w.eval("nunCobrarEnOtraVenta('f3')"); await sleep(200);
  r.alAbrir=vis(); w.eval("nunCOVFiltrar('95,000')"); r.buscando=vis();
  r.cancRem=!!d.getElementById('covCancRem')&&d.getElementById('covCancRem').checked;

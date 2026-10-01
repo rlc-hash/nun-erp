@@ -22,7 +22,7 @@ const w=dom.window,d=w.document;const sleep=t=>new Promise(z=>setTimeout(z,t));
 setTimeout(async()=>{const r={};try{
  for (const t of ['facturas','cobranza','remisiones','ingresos','clientes']) await w.eval(`cargarTabla('${t}')`);
  w.eval("State.data.empresa={rfc:'EKU9003173C9',cp:'11000',razon_social:'EMPRESA PRUEBA',regimen_fiscal:'601'}; State.data.cuentas=[{nombre:'BBVA'}]");
- r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+ r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  const hoy=w.eval("nunHoy()"), ahora=new Date();
  r.pasado=w.eval("nunFechaPagoCfdi('2026-09-15')");
  const h=w.eval("nunFechaPagoCfdi(nunHoy())"); r.hoyFecha=h.substring(0,10)===hoy; r.hoyNoFuturo=new Date(h)<=ahora;

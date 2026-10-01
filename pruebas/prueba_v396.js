@@ -36,7 +36,7 @@ const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),
 const w=dom.window,d=w.document;const sleep=t=>new Promise(z=>setTimeout(z,t));const txt=e=>e?e.textContent.replace(/\s+/g,' ').trim():'';
 setTimeout(async()=>{const r={};try{
  for (const t of Object.keys(DB)) if(t!=='usuarios') await w.eval(`cargarTabla('${t}')`);
- r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+ r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  // 1) remisión correcta
  r.remDeFactura=w.eval("nunRemDeFactura(State.data.facturas.find(f=>f.id==='f3')).id");
  const sit=id=>w.eval(`nunSituacionHTML('remisiones', State.data.remisiones.find(x=>x.id==='${id}'))`).replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim();

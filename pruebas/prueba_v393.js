@@ -32,7 +32,7 @@ const w=dom.window,d=w.document;const sleep=t=>new Promise(z=>setTimeout(z,t));
 setTimeout(async()=>{const r={};try{
  for (const t of ['facturas','remisiones','cobranza','ingresos','clientes']) await w.eval(`cargarTabla('${t}')`);
  w.eval("State.data.empresa={rfc:'EKU9003173C9',cp:'11000',razon_social:'EMPRESA PRUEBA',regimen_fiscal:'601'}; State.data.cuentas=[{nombre:'BBVA'},{nombre:'Efectivo'}]");
- r.version=d.body.innerHTML.match(/v3\.\d+ · Sistema NUN/)[0];
+ r.version=d.body.innerHTML.match(/v\d+\.\d+ · Sistema NUN/)[0];
  // aviso en la factura
  w.eval("abrirDoc('facturas','f3')"); await sleep(300); r.aviso=/ligada a la remisión REM-2026-0001 de \$5,730/.test(d.querySelector('.drawer').textContent); w.eval("cerrarDrawer()");
  // 1) complemento ya timbrado, pago sin registrar

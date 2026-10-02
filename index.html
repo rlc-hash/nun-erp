@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.01 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.02 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7460,6 +7460,8 @@ function abrirDoc(tabla, id) {
     acciones += `<button class="btn btn-secondary" onclick="${['pedidos','remisiones','facturas'].includes(tabla) ? `nunPdfDoc('${tabla}','${id}')` : `imprimirDocumento('${tabla}','${id}')`}">📄 PDF</button>`; // v3.78
     if (tabla === 'facturas') acciones += `<button class="btn btn-secondary" onclick="descargarXMLCFDI('${id}')">📃 XML CFDI</button>`;
     if (tabla === 'pedidos' && nunPuedeLigar() && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunLigarAPedido('${id}')" title="Remisiones o facturas que salieron de este pedido pero no quedaron ligadas (ej. las de Bind)">🔗 Ligar remisiones</button>`; // v3.97 · v4.00 también quien edita ventas
+    if (tabla === 'remisiones' && nunPuedeLigar() && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunDescuentoRemision('${id}')" title="Descuento o nota de crédito sobre el total (baja el saldo en Cobranza)">💸 Descuento / nota de crédito</button>`; // v4.02
+    if (tabla === 'facturas' && doc.uuid_sat && !/cancel/i.test(doc.estatus||'') && nunPuedeLigar()) acciones += `<button class="btn btn-secondary" onclick="nunNuevaNCDeFactura('${id}')" title="Descuento o devolución sobre una factura timbrada: nota de crédito ante el SAT">💳 Nota de crédito</button>`; // v4.02
     if ((tabla === 'remisiones' || (tabla === 'facturas' && !nunEsDeRemision(doc))) && nunPuedeLigar() && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunLigarDocAPedido('${tabla}','${id}')" title="Decir de qué pedido salió">🔗 Ligar a un pedido</button>`; // v4.00
     if (tabla === 'facturas' && nunEsAdmin() && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunCobrarEnOtraVenta('${id}')" title="La factura es de una venta que ya existía (ej. una remisión de Bind): su pago se cobra en esa venta">🔗 Cobrar en otra venta</button>`; // v3.94
     // v3.38 — Timbrar con Facturama (solo facturas sin timbrar)
@@ -8459,7 +8461,10 @@ function nunNCsDelDoc(r, tabla){
 function nunMontoNCs(r, tabla){ return nunR2(nunNCsDelDoc(r, tabla).reduce((s, n) => s + (+n.total||0), 0)); }
 // v3.92 — un pedido no es una deuda: se cobra su remisión o factura. Solo tiene saldo si tiene su propio cobro (anticipo).
 function nunSaldoPedido(r){ const c = nunCobranzaDeDoc(r, State.data.cobranza||[]); return (c && !/^cancelad/i.test(c.estatus||'')) ? Math.max(0, +c.pendiente||0) : null; }
-function nunSaldoDoc(r, tabla){ const s0 = nunSaldoDocBase(r, tabla); const nc = nunMontoNCs(r, tabla); return nc ? Math.max(0, nunR2(s0 - nc)) : s0; } // v3.80
+function nunSaldoDoc(r, tabla){ const s0 = nunSaldoDocBase(r, tabla);
+  const conReps = (tabla === 'facturas' || (!tabla && r.uuid_sat)) && typeof nunRepsDeFactura === 'function' && nunRepsDeFactura(r).length;
+  const nc = nunR2(nunNCsDelDoc(r, tabla).filter(n => conReps || !/\[aplicada en Cobranza/.test(String(n.notas||''))).reduce((a, n) => a + (+n.total||0), 0)); // v4.02 las ya aplicadas en Cobranza no se restan dos veces
+  return nc ? Math.max(0, nunR2(s0 - nc)) : s0; } // v3.80
 function nunSaldoDocBase(r, tabla){
   if (tabla === 'facturas' || (!tabla && r.uuid_sat)) { // v3.77
     const reps = (typeof nunRepsDeFactura === 'function') ? nunRepsDeFactura(r) : [];
@@ -14233,12 +14238,90 @@ async function nunTimbrarNC(id){
     if (okGuardado) { try { localStorage.removeItem('nun_nc_timbrada_' + nc.id); } catch(e){} }
     else toast('⚠ La nota SÍ se timbró (UUID ' + r.uuid + ') pero no se guardó en el sistema. NO la vuelvas a timbrar; avísale a Claude.', { type:'error', duration:20000 });
     if (r.xml) { const td = cfdiTimbreData(r.xml); if (td) { const tm = cfdiGetTimbres(); tm[r.uuid] = td; cfdiSetTimbres(tm); } }
+    if (okGuardado) { try { await nunAplicarNCaCobranza(Object.assign({}, nc, cam), 'facturas', fac); } catch(e){} } // v4.02 — el saldo baja también en Cobranza
     nunOcupado(''); document.getElementById('modalNC').remove();
     toast('✓ Nota de crédito ' + nc.folio + ' timbrada · UUID ' + String(r.uuid).substring(0,8) + '…', { type:'success', duration:8000 });
     await Promise.all([cargarTabla('notascredito'), cargarTabla('facturas')]); try { cerrarDrawer(); } catch(e){} renderCurrent();
   } catch(ex) { nunOcupado(''); err.textContent = '✗ ' + ex.message; btn.disabled = false; btn.textContent = '⚡ Timbrar ante el SAT'; }
   finally { window._nunTimbrandoNC = false; }
 }
+// ============================================================
+// v4.02 — DESCUENTO / NOTA DE CRÉDITO DE REMISIÓN (interna, sin SAT): sobre el total, en $ o %. Se crea la nota (folio NR0001…,
+// estatus aplicada, ligada a la remisión) y el saldo baja en Cobranza (total y saldo del cobro), con nota en el cobro. No se borra nada.
+// Las notas de factura timbrada siguen siendo CFDI de egreso ante el SAT (botón 💳 Nota de crédito) y ahora también bajan Cobranza.
+// ============================================================
+async function nunAplicarNCaCobranza(nc, tabla, doc){
+  if (/\[aplicada en Cobranza/.test(String(nc.notas||''))) return true;
+  await cargarTabla('cobranza');
+  const c = nunCobroDeDoc(tabla, doc); if (!c || /cancel/i.test(String(c.estatus||''))) return false;
+  const monto = nunR2(+nc.total||0), total = Math.max(0, nunR2((+c.total||0) - monto)), pendiente = Math.max(0, nunR2(total - (+c.cobrado||0)));
+  const ok1 = await nunGuardarSeguro('cobranza', { id: c.id, total, pendiente, descripcion: String(c.descripcion||'') + ' · ' + nunHoy() + ': nota de crédito ' + (nc.folio||'') + ' −' + monto.toFixed(2) + ' (total ' + (+c.total||0).toFixed(2) + '→' + total.toFixed(2) + ')' });
+  if (!ok1) { toast('⚠ La nota quedó, pero no pude bajar el saldo en Cobranza (' + (c.numero||'') + '). Avísale a Claude.', { type:'error', duration:12000 }); return false; }
+  await nunGuardarSeguro('notascredito', { id: nc.id, notas: (nc.notas ? String(nc.notas) + ' · ' : '') + '[aplicada en Cobranza ' + (c.numero||'') + ']' });
+  return true;
+}
+async function nunDescuentoRemision(idRem){
+  if (!nunPuedeLigar()) { toast('Tu usuario no puede editar ventas', { type:'error' }); return; }
+  await Promise.all(['remisiones','cobranza','notascredito'].map(t => cargarTabla(t)));
+  const r = (State.data.remisiones||[]).find(x => x.id === idRem); if (!r) return;
+  const c = nunCobroDeDoc('remisiones', r), saldo = c ? Math.max(0, +c.pendiente||0) : nunSaldoDoc(r, 'remisiones'), previas = nunNCsDelDoc(r, 'remisiones');
+  window._nunDR = { r, c, saldo };
+  let m = document.getElementById('modalDR'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalDR';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:560px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><div><h3 style="margin:0">Descuento / nota de crédito · remisión ${escapeHTML(nunFolioStr(r))}</h3>
+      <div style="font-size:12px;color:var(--ink-3)">${escapeHTML(r.cliente||'')} · total ${fmtFull(c ? c.total : r.total)} · saldo <b>${fmtFull(saldo)}</b>${previas.length ? ' · ya tiene ' + previas.length + ' nota(s) por ' + fmtFull(nunMontoNCs(r, 'remisiones')) : ''}</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalDR').remove()">✕</button></div>
+    <div style="padding:16px 20px">
+      <div class="form-grid">
+        <div class="field"><label>Descuento en $</label><input type="number" id="drMonto" step="0.01" min="0" oninput="nunDRCalc('monto')"></div>
+        <div class="field"><label>o en % del total</label><input type="number" id="drPct" step="0.01" min="0" max="100" oninput="nunDRCalc('pct')"></div>
+        <div class="field"><label>Tipo</label><select id="drTipo"><option value="descuento">Descuento</option><option value="devolucion">Devolución de mercancía</option><option value="ajuste">Ajuste de precio</option></select></div>
+        <div class="field"><label>Fecha</label><input type="date" id="drFecha" value="${nunHoy()}"></div>
+        <div class="field full"><label>Motivo *</label><input type="text" id="drMotivo" maxlength="200" placeholder="Ej. descuento por pronto pago, pieza dañada, precio acordado…"></div>
+      </div>
+      <div id="drResumen" style="margin-top:12px;font-size:13px;padding:10px 12px;border-radius:8px;background:var(--bg-2)">Escribe el monto o el porcentaje.</div>
+      <div style="font-size:11.5px;color:var(--ink-3);margin-top:8px">Es una nota interna (la remisión no lleva SAT). ${c ? 'El saldo baja en Cobranza (' + escapeHTML(String(c.numero||'')) + ').' : '⚠ Esta remisión no tiene renglón en Cobranza: la nota baja el saldo del documento.'} Si es devolución, el inventario no se mueve solo.</div>
+      <div id="drError" style="color:var(--red);font-size:12.5px;margin-top:10px;white-space:pre-line"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)">
+      <button class="btn" onclick="document.getElementById('modalDR').remove()">Cancelar</button>
+      <button class="btn btn-primary" id="drBoton" onclick="nunDescuentoRemisionGuardar()">Aplicar</button></div></div>`;
+  document.body.appendChild(m);
+}
+function nunDRCalc(de){
+  const S = window._nunDR; if (!S) return; const base = nunR2(S.c ? +S.c.total||0 : +S.r.total||0);
+  const mEl = document.getElementById('drMonto'), pEl = document.getElementById('drPct');
+  if (de === 'pct') mEl.value = pEl.value === '' ? '' : nunR2(base * (+pEl.value||0) / 100);
+  else pEl.value = mEl.value === '' || !base ? '' : nunR2((+mEl.value||0) / base * 100);
+  const mt = nunR2(+mEl.value||0); const res = document.getElementById('drResumen');
+  if (res) res.innerHTML = mt > 0 ? `Nota por <b>${fmtFull(mt)}</b> · saldo ${fmtFull(S.saldo)} → <b>${fmtFull(Math.max(0, nunR2(S.saldo - mt)))}</b>` : 'Escribe el monto o el porcentaje.';
+}
+async function nunDescuentoRemisionGuardar(){
+  const S = window._nunDR; if (!S) return; const btn = document.getElementById('drBoton'), err = document.getElementById('drError'); if (btn.disabled) return;
+  const monto = nunR2(+document.getElementById('drMonto').value||0), motivo = String(document.getElementById('drMotivo').value||'').trim(), tipo = document.getElementById('drTipo').value, fecha = document.getElementById('drFecha').value || nunHoy();
+  const e = []; if (!(monto > 0)) e.push('Escribe el monto o el porcentaje'); if (monto > S.saldo + 0.005) e.push('El descuento es mayor al saldo (' + fmtFull(S.saldo) + ')'); if (!motivo) e.push('Escribe el motivo');
+  if (e.length) { err.textContent = '⚠ ' + e.join('\n⚠ '); return; }
+  const ok = await confirmDialog({ title:'¿Aplicar nota de crédito por ' + fmtFull(monto) + '?', message: (S.r.cliente||'') + ' · remisión ' + nunFolioStr(S.r) + '. El saldo pasa de ' + fmtFull(S.saldo) + ' a ' + fmtFull(Math.max(0, nunR2(S.saldo - monto))) + '. Motivo: ' + motivo, ok:'Aplicar' });
+  if (!ok) return;
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    const todas = await nunListarFresco('notascredito'); let mx = 0; todas.forEach(n => { const mm = String(n.folio||'').match(/^NR(\d+)$/); if (mm) mx = Math.max(mx, +mm[1]); });
+    const fr = nunFolioStr(S.r), nc = { id: 'nc_' + Date.now() + '_' + Math.random().toString(36).slice(2,6), folio: 'NR' + String(mx + 1).padStart(4, '0'), fecha, cliente: S.r.cliente,
+      documento_origen: /^R\d{4,}$/.test(fr) ? fr : 'V01' + fr, total: monto, subtotal: monto, iva: 0, estatus: 'aplicada', motivo, vendedor: S.r.vendedor || '',
+      notas: 'Nota de crédito interna de remisión (sin SAT) · ' + (tipo === 'devolucion' ? 'devolución' : tipo) + ' · hecha por ' + (((State.sesion||{}).usuario||{}).nombre || '') + ' el ' + nunHoy() };
+    const cr = await api({ accion:'erp_crear', tabla:'notascredito', item: nc });
+    if (!(cr && cr.ok)) throw new Error('No se guardó la nota: ' + ((cr && cr.error) || 'sin respuesta'));
+    if (cr.item && cr.item.folio) nc.folio = cr.item.folio;
+    await nunAplicarNCaCobranza(nc, 'remisiones', S.r);
+    const mm = document.getElementById('modalDR'); if (mm) mm.remove();
+    await Promise.all(['notascredito','cobranza','remisiones'].map(t => cargarTabla(t)));
+    try { cerrarDrawer(); } catch(e2){} renderCurrent();
+    toast('✓ Nota ' + nc.folio + ' por ' + fmtFull(monto) + ' aplicada · saldo ' + fmtFull(Math.max(0, nunR2(S.saldo - monto))), { type:'success', duration:8000 });
+  } catch(ex) { err.textContent = '✗ ' + ex.message; btn.disabled = false; btn.textContent = 'Aplicar'; }
+}
+window.nunDescuentoRemision = nunDescuentoRemision; window.nunDRCalc = nunDRCalc; window.nunDescuentoRemisionGuardar = nunDescuentoRemisionGuardar;
 window.nunAbrirTimbrarNC = nunAbrirTimbrarNC; window.nunTimbrarNC = nunTimbrarNC; window.nunNCResumen = nunNCResumen;
 // ============================================================
 // v3.70 — Datos fiscales al timbrar: forma y método de pago, uso CFDI y clave SAT por producto.

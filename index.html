@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.02 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.03 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -8498,11 +8498,17 @@ function nunOcupado(msg){
   if (!o) { o = document.createElement('div'); o.id = 'nunOcupado'; o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99999;display:flex;align-items:center;justify-content:center'; document.body.appendChild(o); }
   o.innerHTML = '<div style="background:var(--bg,#fff);color:var(--ink,#111);border-radius:14px;padding:22px 26px;font-size:15px;font-weight:600;box-shadow:0 20px 50px rgba(0,0,0,0.3)">⏳ ' + escapeHTML(msg) + '<div style="font-size:12px;font-weight:400;opacity:0.65;margin-top:6px">No cierres ni vuelvas a presionar, el servidor tarda unos segundos.</div></div>';
 }
-async function nunAltaCobranza(tabla, doc){
+// v4.03 — otra remisión/factura vigente del mismo cliente con el mismo total en los últimos 45 días
+function nunDocParecido(tabla, cliente, total, exceptoId){
+  const cli = String(cliente||'').trim().toUpperCase(), t = +total||0, lim = new Date(Date.now() - 45 * 86400000).toISOString().substring(0,10);
+  if (!cli || !(t > 0)) return null;
+  return (State.data[tabla]||[]).find(d => String(d.id) !== String(exceptoId||'') && !/cancel/i.test(d.estatus||'') && String(d.cliente||'').trim().toUpperCase() === cli && Math.abs((+d.total||0) - t) < 1 && String(d.fecha||'').substring(0,10) >= lim) || null;
+}
+async function nunAltaCobranza(tabla, doc, nuevo){
   // v3.80 — null = no hacía falta; false = el servidor no lo guardó
   if (!doc || !doc.id || (tabla !== 'remisiones' && tabla !== 'facturas')) return null;
   if (tabla === 'facturas' && /^(R\d{4,}|REM )/.test(String(doc.pedido_origen||''))) return null; // v3.71 // factura de una remisión: ya está en cobranza
-  const cob = await nunListarFresco('cobranza');
+  const cob = nuevo ? (State.data.cobranza||[]) : await nunListarFresco('cobranza'); // v4.03 — documento recién creado: no hace falta bajar toda Cobranza (el id cob_ no se repite)
   if (cob.some(c => c.factura_origen === doc.id || c.id === 'cob_' + doc.id)) return null;
   const cli = (State.data.clientes||[]).find(c => String(c.razon_social||'').trim().toUpperCase() === String(doc.cliente||'').trim().toUpperCase()) || {};
   const credito = +cli.credito_dias || 0;
@@ -8527,7 +8533,7 @@ async function guardarDoc(tabla, id, opts) {
   let _nunFresco = null;
   if (!id && NUN_PREF_FOLIO[tabla]) {
     nunOcupado('Guardando…');
-    _nunFresco = await nunListarFresco(tabla);
+    _nunFresco = State.data[tabla] || []; // v4.03 — antes bajaba toda la lista (hasta 40 s); el servidor da otro folio si se repite
     if (!folio || _nunFresco.some(d => String(d.folio||'').trim() === folio)) folio = nunFolioNUNde(tabla, _nunFresco);
   }
   if (!folio && !id) {
@@ -8576,6 +8582,16 @@ async function guardarDoc(tabla, id, opts) {
     return;
   }
   if (_previo && _previo.notas) item.notas = nunNotasConservando(item.notas, _previo.notas); // v3.80
+  // v4.03 — si cambia el total de una remisión/factura, queda escrito en sus notas el monto de antes (no se pierde)
+  if (_previo && (tabla === 'remisiones' || tabla === 'facturas') && item.total != null && Math.abs((+item.total||0) - (+_previo.total||0)) > 0.005) {
+    const _quien = (((State.sesion||{}).usuario||{}).nombre || ''), _h = 'Total cambió de ' + fmtFull(+_previo.total||0) + ' a ' + fmtFull(+item.total||0) + ' el ' + nunHoy() + (_quien ? ' (' + _quien + ')' : '');
+    item.notas = (item.notas ? String(item.notas) + ' · ' : '') + _h;
+  }
+  // v4.03 — documento NUEVO igual a otro del mismo cliente (mismo total, últimos 45 días): se pregunta antes (se duplicaban cuando el servidor tardaba)
+  if (!id && (tabla === 'remisiones' || tabla === 'facturas')) {
+    const _dup = nunDocParecido(tabla, item.cliente, item.total, null);
+    if (_dup && !(await confirmDialog({ title:'¿Es otra venta?', message:'Ya existe ' + (tabla === 'facturas' ? 'la factura ' : 'la remisión ') + _dup.folio + ' de ' + (_dup.cliente||'') + ' por ' + fmtFull(_dup.total) + ' del ' + fmtFecha(_dup.fecha) + '. Si es la misma venta, no la hagas otra vez (si tarda, espera a que termine). ¿Crear otra de todos modos?', ok:'Sí, es otra venta' }))) { nunOcupado(''); return; }
+  }
 
   const btnGuardar = document.querySelector('.drawer .btn-primary');
   if (btnGuardar) { btnGuardar.disabled = true; btnGuardar.textContent = 'Guardando…'; }
@@ -8612,11 +8628,12 @@ async function guardarDoc(tabla, id, opts) {
   const idGuardado = id || (data.item && data.item.id) || _nunIdNuevo || null;
   window._nunDocGuardadoOk = idGuardado; // v3.72
   // v3.80 — si otra persona guardó al mismo tiempo con el mismo folio, el nuestro pasa al siguiente libre
-  if (!id && NUN_PREF_FOLIO[tabla] && idGuardado) folio = await nunResolverFolioDuplicado(tabla, idGuardado, folio);
+  if (!id && data && data.item && data.item.folio) folio = String(data.item.folio); // v4.03 — el servidor ya cuidó que el folio no se repita
+  else if (!id && NUN_PREF_FOLIO[tabla] && idGuardado) folio = await nunResolverFolioDuplicado(tabla, idGuardado, folio);
   // v3.80 — si algo de Cobranza falla, se avisa (antes decía "✓ Creado" aunque el cobro no existiera)
   if (id && /cancel/i.test(item.estatus||'') && _previo && !/cancel/i.test(_previo.estatus||'')) { await nunCancelarCobranzaDoc(tabla, Object.assign({}, _previo, item, { id, folio })); if (tabla === 'pedidos') await nunLiberarApartado(id); } // v3.82
   else if (id) { try { await nunSyncCobranzaDoc(tabla, Object.assign({}, _previo||{}, item, { id, folio })); await cargarTabla('cobranza'); } catch(e){ toast('⚠ Se guardó el documento pero no se pudo actualizar Cobranza: ' + e.message, { type:'error', duration:9000 }); } } // v3.72
-  if (!id && (tabla === 'remisiones' || tabla === 'facturas')) { try { const _r = await nunAltaCobranza(tabla, Object.assign({}, item, { id: idGuardado, folio })); if (_r === false) throw new Error('el servidor no confirmó'); await cargarTabla('cobranza'); } catch(e){ toast('⚠ Se creó ' + folio + ' pero NO su renglón de Cobranza (' + e.message + '). Avísame o créalo a mano.', { type:'error', duration:12000 }); } } // v3.69
+  if (!id && (tabla === 'remisiones' || tabla === 'facturas')) { try { const _r = await nunAltaCobranza(tabla, Object.assign({}, item, { id: idGuardado, folio }), true); if (_r === false) throw new Error('el servidor no confirmó'); cargarTabla('cobranza').catch(()=>{}); } catch(e){ toast('⚠ Se creó ' + folio + ' pero NO su renglón de Cobranza (' + e.message + '). Avísame o créalo a mano.', { type:'error', duration:12000 }); } } // v3.69
   await cargarTabla(tabla);
   // v3.47 — flujo "Guardar y Facturar": después de guardar, timbrar sin cerrar
   if (opts.luegoTimbrar && tabla === 'facturas' && idGuardado) {
@@ -14562,11 +14579,16 @@ async function nunDesdePedidosCrear(dest){
   try {
     const sinIva = destino === 'remisiones' && nunEsVerdad(peds[0].sin_iva);
     const t = nunCalcDoc(lineas, sinIva);
-    const lista = await nunListarFresco(destino);
+    const lista = State.data[destino] || []; // v4.03 — sin bajar toda la lista: el servidor cuida el folio
     const id = m.dataset.idNuevo || ((destino === 'facturas' ? 'fac_' : 'rem_') + Date.now() + '_' + Math.random().toString(36).substring(2,6));
     m.dataset.idNuevo = id;
     const vends = [...new Set(peds.map(p => String(p.vendedor||'').toUpperCase().trim()).filter(Boolean))];
-    let doc = lista.find(d => String(d.id) === id);
+    let doc = m.dataset.creado === id ? lista.find(d => String(d.id) === id) : null;
+    if (!doc && !m.dataset.creado) { // v4.03 — ¿ya hay una igual del cliente? (se duplicaban cuando el servidor tardaba)
+      const _dup = nunDocParecido(destino, peds[0].cliente, t.total, null);
+      if (_dup && !(await confirmDialog({ title:'¿Es otra venta?', message:'Ya existe ' + (destino === 'facturas' ? 'la factura ' : 'la remisión ') + _dup.folio + ' de ' + (_dup.cliente||'') + ' por ' + fmtFull(_dup.total) + ' del ' + fmtFecha(_dup.fecha) + (_dup.pedido_origen ? ' (pedido ' + _dup.pedido_origen + ')' : ' (sin pedido)') + '. Si es la misma, cancela y usa "🔗 Ligar remisiones" en el pedido. ¿Crear otra de todos modos?', ok:'Sí, es otra venta' }))) {
+        nunOcupado(''); btn.disabled = false; btn.textContent = destino === 'facturas' ? '🧾 Hacer factura' : '📦 Hacer remisión'; return; }
+    }
     if (!doc) {
       const item = { id, folio: nunFolioNUNde(destino, lista), fecha: nunHoy(), cliente: peds[0].cliente, vendedor: vends[0] || '',
         pedido_origen: peds.map(p => String(p.folio || p.id)).join(', '), subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: sinIva || (destino === 'facturas' && modo === 'sin'),
@@ -14576,19 +14598,20 @@ async function nunDesdePedidosCrear(dest){
       const r = await api({ accion:'erp_crear', tabla: destino, item });
       if (!(r && r.ok)) { const chk = await nunListarFresco(destino); doc = chk.find(d => String(d.id) === id); if (!doc) throw new Error((r && r.error) || 'el servidor no confirmó'); }
       else doc = Object.assign({}, item, (r.item && r.item.folio) ? { folio: r.item.folio } : {});
+      m.dataset.creado = id;
     }
-    if (await nunAltaCobranza(destino, doc) === false) toast('⚠ Se creó ' + doc.folio + ' pero NO su cobro en Cobranza. Revísalo.', { type:'error', duration:12000 });
-    // estatus de cada pedido: si ya salió todo, entregado/facturado
-    const docs2 = (await nunListarFresco('remisiones')).concat(await nunListarFresco('facturas'));
+    if (await nunAltaCobranza(destino, doc, true) === false) toast('⚠ Se creó ' + doc.folio + ' pero NO su cobro en Cobranza. Revísalo.', { type:'error', duration:12000 });
+    // estatus de cada pedido: si ya salió todo, entregado/facturado (v4.03 — con lo que ya está en pantalla + el documento nuevo)
+    const docs2 = (State.data.remisiones||[]).concat(State.data.facturas||[]).filter(d => String(d.id) !== String(doc.id)).concat([doc]);
     for (const p of peds) {
       let its = []; try { its = JSON.parse(p.items_json||'[]'); } catch(e){}
       const sur = nunPedidoSurtido(p, docs2);
       const completo = its.every(it => (sur[String(it.sku||it.descripcion||'').toUpperCase()]||0) >= (+it.cantidad||0));
       if (completo) { await nunGuardarSeguro('pedidos', { id: p.id, estatus: destino === 'facturas' ? 'facturado' : 'entregado' }); if (peds.length > 1 || destino === 'facturas') await nunLiberarApartado(p.id); }
     }
-    nunOcupado(''); m.remove();
-    await Promise.all([cargarTabla(destino), cargarTabla('pedidos'), cargarTabla('cobranza')]); try { cerrarDrawer(); } catch(e){} renderCurrent();
+    nunOcupado(''); m.remove(); try { cerrarDrawer(); } catch(e){}
     toast('✓ ' + (destino === 'facturas' ? 'Factura ' : 'Remisión ') + doc.folio + ' creada · ' + fmtFull(doc.total), { type:'success', duration:7000 });
+    Promise.all([cargarTabla(destino), cargarTabla('pedidos'), cargarTabla('cobranza')]).then(() => renderCurrent()).catch(()=>{}); // v4.03 — se actualiza la lista sin hacerte esperar
   } catch(e) { nunOcupado(''); err.textContent = '✗ ' + e.message; btn.disabled = false; btn.textContent = destino === 'facturas' ? '🧾 Hacer factura' : '📦 Hacer remisión'; }
 }
 window.nunDesdePedidos = nunDesdePedidos; window.nunDesdePedidosTotal = nunDesdePedidosTotal; window.nunDesdePedidosCrear = nunDesdePedidosCrear;

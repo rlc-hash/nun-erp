@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.17</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.18</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.17</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.18</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -2587,7 +2587,7 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, m => ({'&':'&am
         } catch(e){ if (!lectura) return json({ ok:false, error:'Sin conexión con el servidor. Revisa tu internet y si se guardó antes de repetirlo.' }); }
         if (i < 3 && lectura) await new Promise(z => setTimeout(z, 1500 * i));
       }
-      return json({ ok:false, error: lectura ? 'El servidor de Google no respondió. Intenta otra vez en un momento.' : 'El servidor de Google no confirmó. Revisa si sí se guardó antes de repetirlo.' });
+      return json({ ok:false, error: lectura ? 'El servidor no respondió. Intenta otra vez en un momento.' : 'El servidor no confirmó. Revisa si sí se guardó antes de repetirlo.' });
     })();
   };
   f1._nunCodigo = true; window.fetch = f1;
@@ -2638,7 +2638,10 @@ function nunIngresosValidos(arr){
 let ingresos = nunIngresosValidos(cargarCache(KEY_CACHE_I));
 let cobranza = cargarCache(KEY_CACHE_C).filter(x => !/^cancelad/i.test(String(x.estatus||''))); // v1.9.12 igual que después de sincronizar
 let clientesCatalogo = cargarCache(KEY_CACHE_CLI);  // v1.3.7: catálogo cliente→vendedor
-let urlScript = localStorage.getItem(KEY_URL) || 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
+// v1.9.18 — el servidor ahora es Supabase; si el celular tenía guardado el de Google, se cambia solo
+const NUN_URL_SUPABASE = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun', NUN_URL_GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
+try { if ((localStorage.getItem(KEY_URL)||'').trim() === NUN_URL_GOOGLE) localStorage.setItem(KEY_URL, NUN_URL_SUPABASE); if ((localStorage.getItem('nun_erp_bridge_url')||'').trim() === NUN_URL_GOOGLE) localStorage.setItem('nun_erp_bridge_url', NUN_URL_SUPABASE); } catch(e){}
+let urlScript = localStorage.getItem(KEY_URL) || NUN_URL_SUPABASE;
 let tabActiva = 'gastos';
 let charts = {};
 
@@ -10271,7 +10274,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 ============================================================ */
 (function(){
 const ERP_KEY_URL = 'nun_erp_bridge_url';
-const ERP_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
+const ERP_URL_DEFAULT = NUN_URL_SUPABASE; // v1.9.18
 window.erpUrl = localStorage.getItem(ERP_KEY_URL) || ERP_URL_DEFAULT;
 const ERP_TABS = ['erp_pedidos','erp_inventario'];
 const erpData = { productos:[], pedidos:[], facturas:[], remisiones:[], clientes:[] };
@@ -11317,7 +11320,7 @@ setInterval(function(){
     if (typeof sincronizarTodo === 'function') sincronizarTodo();
     if (/^erp_/.test(tabActiva) && typeof renderERPTab === 'function') renderERPTab(tabActiva, true);
   } catch(e){}
-}, 600000); // v1.9.17 — cada 10 min (antes 2): con varios celulares abiertos saturaba el servidor de Google; "Sincronizar" sigue a la mano
+}, 120000); // v1.9.18 — otra vez cada 2 min: con Supabase ya no se satura (v1.9.17 lo había subido a 10 por Google)
 </script>
 </body>
 </html>

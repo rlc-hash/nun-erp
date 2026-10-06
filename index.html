@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.10 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.11 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2572,11 +2572,13 @@ function slaInitPeriodos(){
   localStorage.setItem('nun_periodos', JSON.stringify(periodos));
 }
 slaInitPeriodos();
-const URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
+// v4.11 — el servidor ahora es Supabase (rápido); el de Google queda solo para entrar, usuarios y timbrar (Supabase se lo pasa)
+const URL_DEFAULT = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 
 // Migración automática: si el navegador traía guardado el backend VIEJO (hoja real), se reapunta solo.
 const URLS_OBSOLETAS = [
-  'https://script.google.com/macros/s/AKfycbz9oHWEUDUfgFKYXvy8DxsjWuyN7ZoJoEB7eE03BP-nkdIJE_Yc6heolkv8v2J8wwmL/exec'
+  'https://script.google.com/macros/s/AKfycbz9oHWEUDUfgFKYXvy8DxsjWuyN7ZoJoEB7eE03BP-nkdIJE_Yc6heolkv8v2J8wwmL/exec',
+  'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec' // v4.11 — Google directo: ahora todo va por Supabase
 ];
 (function migrarBackend(){
   try {
@@ -2696,7 +2698,7 @@ async function api(payload) {
     } catch(netErr) { if (!_lectura) throw new Error('Sin conexión con el servidor. Revisa tu internet y si se guardó antes de repetirlo.'); }
     if (!_ok && _lectura && _i < 3) await new Promise(z => setTimeout(z, 1500 * _i));
   }
-  if (!_ok) throw new Error(_lectura ? 'El servidor de Google no respondió. Inténtalo otra vez en un momento.' : 'El servidor de Google no confirmó. Revisa si sí se guardó antes de repetirlo.');
+  if (!_ok) throw new Error(_lectura ? 'El servidor no respondió. Inténtalo otra vez en un momento.' : 'El servidor no confirmó. Revisa si sí se guardó antes de repetirlo.');
   // Si el backend rechaza la sesión, forzar re-login
   if (j && j.requiere_login) {
     localStorage.removeItem('nun_sesion_v2');

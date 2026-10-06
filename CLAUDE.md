@@ -32,10 +32,13 @@ Este repo puede ser público: no escribas aquí datos de clientes, montos, RFC n
   Propiedades del script → `codigo_maestro`). Claude NO puede publicarlo: Rafa lo pega en el editor de Apps Script y hace
   Implementar → Administrar implementaciones → editar la activa (…Dt2A) → Versión nueva (la URL no cambia).
   Prueba: `node pruebas/prueba_backend_v099.js` (hoja simulada). Nunca usar el backend viejo `AKfycbz9oHW…`.
-- `supabase/` — mudanza a Supabase (proyecto vlqbzfotjltarelwenvu, Ohio). La función `nun` corre `backend/Codigo.gs` SIN CAMBIOS
-  sobre hojas guardadas en la tabla `nun_hojas` (`functions/nun/emulador.js`); login, usuarios y Facturama se le pasan a Google.
-  Publicar: `python3 supabase/publicar.py` (la llave la pone el entorno). Prueba: `node pruebas/prueba_supabase_emulador.js`.
-  Estado 6 oct 2026: función publicada y probada; FALTA copiar los datos de Google (pendiente de autorización) y cambiar las apps.
+- **Servidor: Supabase desde el 6 oct 2026 (v4.11 / app v1.9.18)**, proyecto vlqbzfotjltarelwenvu (Ohio), función `nun`:
+  https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun. Corre `backend/Codigo.gs` SIN CAMBIOS sobre la tabla `nun_hojas`
+  (una fila por hoja; `supabase/functions/nun/emulador.js`); respaldo de cada hoja cada 2 h en `nun_historial`; `nun_log` = tiempos.
+  Entrar (login), usuarios y Facturama se le pasan a Google (ahí viven los códigos y las credenciales del PAC).
+  La hoja de Google YA NO se actualiza: la verdad está en Supabase. Si cambias Codigo.gs: `python3 supabase/publicar.py`
+  (y si toca login/usuarios/Facturama, Rafa también lo pega en Apps Script). Prueba: `node pruebas/prueba_supabase_emulador.js`.
+  `supabase/copiar_de_google.py` copió las hojas de Google (solo volver a usarlo con autorización de Rafa: reemplaza lo de Supabase).
 - `pruebas/` — pruebas con jsdom y backend simulado. Correr desde la raíz del repo:
   `for f in pruebas/*.js; do node $f; done` (requiere `npm i jsdom`). Cada una imprime un JSON; revisar que no haya "error".
   `NUN_INDEX=otra/ruta/index.html node pruebas/prueba_v379.js` prueba otra copia.

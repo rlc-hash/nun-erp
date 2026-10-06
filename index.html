@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.08 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.09 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7401,6 +7401,7 @@ function abrirDoc(tabla, id) {
   try { docItems = doc.items_json ? JSON.parse(doc.items_json) : []; } catch(e) { docItems = []; }
   if (!Array.isArray(docItems)) docItems = [];
   docSinIva = !!doc.sin_iva; // v3.40 — remisión/factura sin IVA (cliente exento)
+  window._nunDocAbierto = { tabla, id: doc.id }; // v4.09
   // v4.06 — documentos de Bind: sus renglones vinieron SIN el % de IVA (el total y el PDF sí están bien). Se toma de los totales:
   // si el IVA es el 16% del subtotal, todos los renglones van al 16%; si es 0, al 0%. Mixtos (pocos): se avisa con los totales del CFDI.
   window._nunIvaMixto = null;
@@ -7495,6 +7496,12 @@ function abrirDoc(tabla, id) {
 function renderDocItems() {
   const mount = document.getElementById('docItemsMount');
   if (!mount) return;
+  // v4.09 — en un pedido: de cada producto, cuánto ya salió, en qué remisión/factura y a qué precio
+  let _salio = null;
+  try { const A = window._nunDocAbierto; if (A && A.tabla === 'pedidos' && A.id) { const ped = (State.data.pedidos||[]).find(p => String(p.id) === String(A.id));
+    if (ped) { const docs2 = (State.data.remisiones||[]).concat(State.data.facturas||[]), fIds = new Set((State.data.facturas||[]).map(f => f.id));
+      _salio = docItems.map(it => { const en = nunDondeSalio(ped, String(it.sku||it.descripcion||'').toUpperCase(), docs2, fIds); const ya = en.reduce((a, e) => a + e.cant, 0), falta = Math.max(0, (+it.cantidad||0) - ya);
+        return `<td style="font-size:10.5px;line-height:1.35">${en.length ? en.map(e => '<b>' + e.cant + '</b> en ' + escapeHTML(e.folio) + ' a ' + fmtFull(e.pu)).join('<br>') : '<span style="color:var(--ink-4)">—</span>'}${falta && en.length ? '<br><span style="color:var(--amber,#b45309);font-weight:600">faltan ' + falta + '</span>' : (en.length ? ' <span style="color:var(--green)">✓</span>' : '')}</td>`; }); } } } catch(e){ _salio = null; }
   if (docItems.length === 0) {
     mount.innerHTML = `<div style="padding:24px;text-align:center;color:var(--mute);border:1px dashed var(--line);border-radius:6px;font-size:12px">Sin productos. Clic en "+ Agregar producto" para empezar.</div>`;
     return;
@@ -7510,6 +7517,7 @@ function renderDocItems() {
           <th style="width:58px" class="right">IVA%</th>
           <th style="width:75px" class="right">IVA $</th>
           <th style="width:80px" class="right">Total</th>
+          ${_salio ? '<th style="min-width:150px">Ya salió (en / a qué precio)</th>' : ''}
           <th style="width:28px"></th>
         </tr></thead><tbody>
         ${docItems.map((it,i) => {
@@ -7523,6 +7531,7 @@ function renderDocItems() {
             <td class="right"><select onchange="docCambiarItem(${i},'iva_pct',this.value)" style="padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-size:11px"><option value="16" ${(+it.iva_pct)===0?'':'selected'}>16%</option><option value="0" ${(+it.iva_pct)===0?'selected':''}>0%</option></select></td>
             <td class="right mono" id="docIva_${i}">${fmtFull(_c.iva)}</td>
             <td class="right mono" style="font-weight:500" id="docTot_${i}">${fmtFull(_c.total)}</td>
+            ${_salio ? (_salio[i] || '<td></td>') : ''}
             <td><button onclick="docQuitarItem(${i})" style="background:transparent;border:none;color:var(--accent);cursor:pointer;font-size:14px">×</button></td>
           </tr>`;
         }).join('')}
@@ -14553,8 +14562,10 @@ function nunDondeSalio(p, k, docs, facIds){
   const claves = nunPedClaves(p), out = [];
   (docs||[]).forEach(d => { if (/cancel/i.test(d.estatus||'')) return; let its = []; try { its = JSON.parse(d.items_json||'[]'); } catch(e){}
     const delPed = claves.includes(String(d.pedido_origen||'').trim()) || String(d.pedido_origen||'').split(/[,;]/).map(x => x.trim()).some(x => claves.includes(x));
-    const c = its.filter(it => String(it.sku||it.descripcion||'').toUpperCase() === k && (it.pedido ? claves.includes(String(it.pedido)) : delPed)).reduce((a, it) => a + (+it.cantidad||0), 0);
-    if (c > 0) out.push({ folio: (facIds && facIds.has(d.id) ? 'F ' : 'R ') + String(d.folio||''), cant: c }); });
+    const ls = its.filter(it => String(it.sku||it.descripcion||'').toUpperCase() === k && (it.pedido ? claves.includes(String(it.pedido)) : delPed));
+    const c = ls.reduce((a, it) => a + (+it.cantidad||0), 0);
+    const imp = ls.reduce((a, it) => a + nunCalcLinea(it, nunEsVerdad(d.sin_iva)).total, 0); // v4.09 precio por pieza al que salió (con IVA si lleva)
+    if (c > 0) out.push({ folio: (facIds && facIds.has(d.id) ? 'F ' : 'R ') + String(d.folio||''), cant: c, pu: nunR2(imp / c) }); });
   return out;
 }
 async function nunDesdePedidos(idPedido, destino){

@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.04 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.05 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -8564,6 +8564,7 @@ async function guardarDoc(tabla, id, opts) {
   // v3.80 — factura ya timbrada: no se cambian productos, totales, cliente ni estatus (para cancelar: "Cancelar ante SAT").
   // Solo se guardan notas/vendedor, y nunca se pierden el "Facturama ID" ni los complementos (REP) de las notas.
   const _previo = id ? (State.data[tabla]||[]).find(d => String(d.id) === String(id)) : null;
+  if (_previo && /^(pedidos|remisiones|facturas|cotizaciones)$/.test(tabla) && _previo.items_json === undefined) { toast('Espera un momento: todavía no terminan de cargar los productos de este documento. Vuelve a abrirlo en unos segundos.', { type:'error', duration:8000 }); return; } // v4.05 — nunca guardar sin sus productos
   if (_previo && (tabla === 'facturas' || tabla === 'notascredito') && _previo.uuid_sat) { // v3.81 también notas de crédito timbradas
     let _fresco = _previo; try { _fresco = (await nunListarFresco(tabla)).find(d => String(d.id) === String(id)) || _previo; } catch(e){}
     const _notas = nunNotasConservando(item.notas, _fresco.notas);
@@ -11278,6 +11279,31 @@ setInterval(() => { try { actualizarBadgeNotif(); } catch(e){} }, 60000);
    CARGA DE DATOS
    ============================================================ */
 // v3.10.1 — Cache localStorage con TTL para arranque rápido
+// v4.05 — COPIA LOCAL COMPLETA (IndexedDB, en la computadora): el sistema abre al instante con lo último que bajó y se actualiza
+// solo en segundo plano. Si Google no responde (a veces tarda 30-60 s o manda error), nunca se queda en blanco: se usa la copia.
+const NUN_IDB = { db:null, abriendo:null };
+function nunIdb(){
+  if (NUN_IDB.db) return Promise.resolve(NUN_IDB.db);
+  if (NUN_IDB.abriendo) return NUN_IDB.abriendo;
+  NUN_IDB.abriendo = new Promise(res => { try {
+    if (typeof indexedDB === 'undefined' || !indexedDB) return res(null);
+    const rq = indexedDB.open('nun_erp_copia', 1);
+    rq.onupgradeneeded = () => { try { rq.result.createObjectStore('tablas'); } catch(e){} };
+    rq.onsuccess = () => { NUN_IDB.db = rq.result; res(rq.result); };
+    rq.onerror = () => res(null);
+  } catch(e){ res(null); } });
+  return NUN_IDB.abriendo;
+}
+async function nunCopiaGet(tabla){ const db = await nunIdb(); if (!db) return null; return new Promise(res => { try { const rq = db.transaction('tablas','readonly').objectStore('tablas').get(tabla); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => res(null); } catch(e){ res(null); } }); }
+async function nunCopiaSet(tabla, items){ const db = await nunIdb(); if (!db) return; try { db.transaction('tablas','readwrite').objectStore('tablas').put({ t: Date.now(), items }, tabla); } catch(e){} }
+function nunAvisoCopia(){
+  const malas = Object.keys(State._cargaOk||{}).filter(k => State._cargaOk[k] === false);
+  let el = document.getElementById('nunAvisoCopia');
+  if (!malas.length) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'nunAvisoCopia'; el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:14px;z-index:300;background:#7a4b00;color:#fff;font-size:12.5px;padding:8px 14px;border-radius:20px;box-shadow:0 6px 18px rgba(0,0,0,.25);cursor:pointer'; el.onclick = () => { malas.forEach(t => cargarTabla(t)); }; document.body.appendChild(el); }
+  const hh = State._copiaHora ? ' de las ' + new Date(State._copiaHora).toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' }) : '';
+  el.textContent = '⚠ Google no respondió: estás viendo la última copia' + hh + (malas.length > 3 ? ' (' + malas.length + ' listas)' : ' (' + malas.join(', ') + ')') + '. Toca para reintentar.';
+}
 async function cargarTabla(tabla, opts) {
   opts = opts || {};
   const ttl = opts.ttl || 5*60*1000; // 5 min default
@@ -11298,6 +11324,17 @@ async function cargarTabla(tabla, opts) {
       }
     }
   } catch(e){}
+  // 1b. v4.05 — si no hay nada en pantalla, se muestra al instante la copia completa guardada en esta computadora (con productos)
+  const _sinProductos = () => /^(pedidos|remisiones|facturas|cotizaciones|notascredito)$/.test(tabla) && Array.isArray(State.data[tabla]) && State.data[tabla].length && State.data[tabla][0].items_json === undefined; // copia rápida sin productos
+  if (!Array.isArray(State.data[tabla]) || !State.data[tabla].length || _sinProductos()) {
+    try { const cp = await nunCopiaGet(tabla); if (cp && Array.isArray(cp.items) && cp.items.length && (!Array.isArray(State.data[tabla]) || !State.data[tabla].length || _sinProductos())) {
+      State.data[tabla] = cp.items; State._copiaHora = Math.min(State._copiaHora || cp.t, cp.t);
+      if (tabla === 'cobranza') { State.data.cobranzaTodos = cp.items.slice(); State.data[tabla] = nunRecalcAtraso(cp.items.filter(c => !/^cancelad/i.test(c.estatus||''))); }
+      if (tabla === 'ingresos') nunSepararIngresos();
+      if (/^(pedidos|remisiones|facturas)$/.test(tabla)) { try { _nunSitIdx = null; } catch(e){} }
+      if (State.modulo === tabla) renderCurrent();
+    } } catch(e){}
+  }
   // 2. Pedir backend en background (siempre actualiza)
   try {
     // v3.64 — solo se acepta una respuesta con lista de items; si el backend contesta sin items, se reintenta
@@ -11308,8 +11345,9 @@ async function cargarTabla(tabla, opts) {
       data = null; await new Promise(r => setTimeout(r, 1500 * (intento + 1)));
     }
     State._cargaOk = State._cargaOk || {};
-    if (!data) { State._cargaOk[tabla] = false; console.warn('[cargarTabla] ' + tabla + ': el backend no devolvió datos, se conserva lo anterior'); return; }
-    State._cargaOk[tabla] = true;
+    if (!data) { State._cargaOk[tabla] = false; console.warn('[cargarTabla] ' + tabla + ': el backend no devolvió datos, se conserva lo anterior'); try { nunAvisoCopia(); } catch(e){} return; }
+    State._cargaOk[tabla] = true; try { nunAvisoCopia(); } catch(e){}
+    if (data.ok && Array.isArray(data.items)) nunCopiaSet(tabla, data.items); // v4.05 copia completa para la próxima vez
     if (data.ok) {
       State.data[tabla] = data.items || [];
       if (/^(pedidos|remisiones|facturas)$/.test(tabla)) { try { _nunSitIdx = null; } catch(e){} } // v3.90 situación al día

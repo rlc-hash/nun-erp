@@ -17,12 +17,13 @@
 //  · Bind apagado (ya no se usa desde el 29-sep-2026): sincronización y proxy desactivados; el
 //    activador automático se borra solo si llega a correr.
 //
+// v0.9.12 (6-oct-2026) — listas en memoria rápida de Google (CacheService) hasta que haya un cambio: el sistema carga mucho más rápido.
 // v0.9.11 (30-sep-2026) — documentos nuevos y convertidos llevan folio NUN (P0001/R0001/FT0001/NC0001), ya no REM-2026-0001.
 // v0.9.10 (30-sep-2026) — el usuario de Rafa (código RAFA-…) solo lo ve y lo cambia Rafa (o el código maestro).
 //  Nadie más puede crear códigos de dueño (RAFA-, YADAH-, MASTER-NUN-), porque esos dan permisos de dueño.
 // ============================================================
 
-const VERSION_ERP = 'v0.9.11';
+const VERSION_ERP = 'v0.9.12';
 
 // v0.9.2 — Mapeo de tablas que el CRM pide por nombre "corto" a la hoja real del ERP.
 // El CRM usa 'clientes' para su catálogo de vendedores (NO el catálogo fiscal 'clientes' del ERP).
@@ -449,7 +450,39 @@ function listarUsuarios(codigoAdmin) {
 // ============================================================
 // CRUD GENÉRICO
 // ============================================================
+// v0.9.12 — LISTAS EN MEMORIA RÁPIDA (CacheService): leer toda la hoja tarda y a veces Google falla; la lista armada se guarda
+// en pedazos de 90 KB por 6 horas. Cualquier cambio (crear, guardar, pago, cancelar…) sube la "versión" y todas las listas
+// se vuelven a leer de la hoja en la siguiente consulta. Si la memoria falla, se lee la hoja como siempre.
+function _listaVer(){ try { return CacheService.getScriptCache().get('L_ver') || '1'; } catch(e){ return '1'; } }
+function _listaInvalidar(){ try { CacheService.getScriptCache().put('L_ver', String(Date.now()), 21600); } catch(e){} }
+// v0.9.12 — si alguien cambia algo directo en la hoja de Google, las listas en memoria se vuelven a leer
+function onEdit(e){ _listaInvalidar(); }
+function onChange(e){ _listaInvalidar(); }
+function _listaCacheGet(tabla){
+  try {
+    const c = CacheService.getScriptCache(), base = 'L_' + _listaVer() + '_' + tabla, n = +(c.get(base + '_n') || 0);
+    if (!n) return null;
+    const keys = []; for (let i = 0; i < n; i++) keys.push(base + '_' + i);
+    const all = c.getAll(keys); let txt = '';
+    for (let i = 0; i < n; i++) { const pz = all[base + '_' + i]; if (pz == null) return null; txt += pz; }
+    return JSON.parse(txt);
+  } catch(e){ return null; }
+}
+function _listaCachePut(tabla, items){
+  try {
+    const c = CacheService.getScriptCache(), base = 'L_' + _listaVer() + '_' + tabla, txt = JSON.stringify(items), T = 90000, obj = {};
+    const n = Math.ceil(txt.length / T); if (n > 90) return;
+    for (let i = 0; i < n; i++) obj[base + '_' + i] = txt.substring(i * T, (i + 1) * T);
+    c.putAll(obj, 21600); c.put(base + '_n', String(n), 21600);
+  } catch(e){}
+}
 function erpListar(tabla) {
+  const _c = _listaCacheGet(tabla); if (_c) return { ok:true, items:_c, cache:true }; // v0.9.12
+  const r = _erpListarHoja(tabla);
+  if (r.ok && Array.isArray(r.items)) _listaCachePut(tabla, r.items);
+  return r;
+}
+function _erpListarHoja(tabla) {
   const hoja = asegurarHoja(tabla);
   if (!hoja) return { ok:false, error:'Tabla desconocida' };
   const datos = hoja.getDataRange().getValues();
@@ -2641,6 +2674,9 @@ function doPost(e) {
     const codigoSesion = esAccUsuarios ? body.codigo_admin : (body.codigo || body.codigo_usuario || body.codigo_admin);
     const sesion = validarSesion(codigoSesion);
     if (!sesion.ok) return resp({ ok:false, error:'AUTH: ' + (sesion.error || 'sesión inválida'), requiere_login:true });
+
+    // ===== v0.9.12 — cualquier acción que no sea de solo lectura invalida las listas en memoria =====
+    if (!/^(erp_listar|listar_|obtener_|cfdi_xml_get|facturama_estado|siguiente_folio_ver|leer|consultar|buscar|version)/.test(String(accion))) _listaInvalidar();
 
     // ===== v0.9.9 — Usuarios nunca por las acciones genéricas =====
     if (/^erp_/.test(String(accion)) && TABLAS_PRIVADAS[body.tabla]) return resp({ ok:false, error:'Tabla no disponible' });

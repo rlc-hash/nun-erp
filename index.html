@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.09 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.10 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2681,6 +2681,7 @@ async function api(payload) {
   if (payload && payload.accion === 'kv_guardar' && nunSoloConsulta()) return { ok:true, omitido:'solo consulta' };
   if (!State.url) throw new Error('URL no configurada');
   const body = Object.assign({}, payload);
+  if (!(await nunCandadoLigaOtroCliente(body))) throw new Error('No se guardó: el pedido es de otro cliente'); // v4.10
   if (!body.codigo && State.sesion && State.sesion.codigo && State.sesion.codigo !== 'DEMO') {
     body.codigo = State.sesion.codigo;
   }
@@ -6918,6 +6919,7 @@ function renderDocOperativo(tabla) {
         ${(tabla === 'remisiones' || tabla === 'facturas') && nunEsAdmin() && nunFoliosServidor(tabla).length ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunRevisarFoliosServidor('${tabla}')">🧹 Folios REM/FAC (${nunFoliosServidor(tabla).length})</button>` : ''}
         ${tabla === 'remisiones' && nunEsAdmin() ? `<button class="btn btn-secondary" onclick="nunRemMarcarFacturadas()" title="Remisiones canceladas en Bind que sí se facturaron">🔎 Canceladas que se facturaron</button>` : ''}
         ${nunEsAdmin() && (() => { try { return rows.some(r => !/cancel/i.test(r.estatus||'') && String(r.cliente||'').trim() && !NUN_VENDEDORES_VALIDOS.includes(String(r.vendedor||'').toUpperCase().trim())); } catch(e){ return false; } })() ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunVendedoresACorregir()" title="Documentos con YASMIN, sin vendedor u otro que no es vendedor">👤 Vendedores a corregir</button>` : ''}
+        ${tabla === 'pedidos' && nunPuedeLigar() ? `<button class="btn btn-secondary" onclick="nunAuditoriaPedidos()" title="Revisa que cada remisión y factura ligada a un pedido sea del mismo cliente y de esos productos">🔎 Auditoría de ligas</button>` : ''}
         <button class="btn btn-secondary" onclick="exportarTabla('${tabla}')">Exportar</button>
         <button class="btn btn-primary" onclick="abrirDoc('${tabla}')">+ Nueva ${escapeHTML(def.singular)}</button>
       </div>
@@ -8115,6 +8117,98 @@ async function nunLigarDocAPedidoGuardar(){
 }
 window.nunLigarDocAPedido = nunLigarDocAPedido; window.nunLigarDocAPedidoGuardar = nunLigarDocAPedidoGuardar;
 window.nunLigarAPedido = nunLigarAPedido; window.nunLigarAPedidoGuardar = nunLigarAPedidoGuardar; window.nunLigarSuma = nunLigarSuma;
+// ============================================================
+// v4.10 — AUDITORÍA DE LIGAS PEDIDO ↔ REMISIÓN/FACTURA (pasó con el pedido 1109: tenía facturas de otros clientes, venían así de Bind)
+// · nunMismoCliente: mismo cliente aunque cambie un poco el nombre (acentos, "S.A. de C.V.", nombre corto).
+// · Pedidos → 🔎 Auditoría de ligas: lista lo ligado a un pedido de OTRO cliente, productos que el pedido no tenía y lo surtido de más.
+//   "Quitar liga" deja el documento sin pedido y lo anota en sus notas (no se borra nada).
+// · Candado: al guardar una remisión/factura con pedido de otro cliente, el sistema pregunta antes (api()).
+// ============================================================
+function nunCliTokens(s){
+  return String(s||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/)
+    .filter(t => t.length > 2 && !['DEL','LOS','LAS','SAN','MTY','GDL','CDMX','S','A','DE','C','V'].includes(t));
+}
+function nunMismoCliente(a, b){
+  const x = String(a||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9]/g, ''), y = String(b||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9]/g, '');
+  if (!x || !y || x === y) return true;
+  const A = new Set(nunCliTokens(a)), B = nunCliTokens(b); const comun = B.filter(t => A.has(t)).length;
+  return comun >= 2 || (comun === 1 && (A.size === 1 || B.length === 1));
+}
+function nunClaveProd(it){
+  const t = (String(it.sku||'') + ' ' + String(it.descripcion||'')).toUpperCase(), m = t.match(/\b[A-Z]{2}\d{3}[A-Z]?\b/);
+  return m ? m[0] : String(it.descripcion || it.sku || '').trim().toUpperCase().replace(/\s+/g, ' ');
+}
+function nunCantProd(d){ const c = {}; try { JSON.parse(d.items_json||'[]').forEach(it => { const k = nunClaveProd(it); c[k] = (c[k]||0) + (+it.cantidad||0); }); } catch(e){} return c; }
+function nunAuditoriaPedidosCalc(){
+  const D = State.data, idx = new Map();
+  (D.pedidos||[]).forEach(p => nunPedClaves(p).forEach(k => idx.set(k, p)));
+  const out = { otroCliente: [], productos: [], demas: [] }, porPed = new Map();
+  ['remisiones','facturas'].forEach(t => (D[t]||[]).forEach(d => {
+    if (/cancel/i.test(d.estatus||'')) return;
+    if (t === 'facturas' && typeof nunEsDeRemision === 'function' && nunEsDeRemision(d)) return;   // factura de remisión: cuenta la remisión
+    String(d.pedido_origen||'').split(/[,;]/).map(x => x.trim()).filter(Boolean).forEach(o => {
+      const p = idx.get(o); if (!p) return;
+      if (!nunMismoCliente(p.cliente, d.cliente)) { out.otroCliente.push({ p, d, t }); return; }
+      const pc = nunCantProd(p), dc = nunCantProd(d), fuera = Object.keys(dc).filter(k => Object.keys(pc).length && !(k in pc));
+      if (fuera.length) out.productos.push({ p, d, t, fuera });
+      if (!/cancel/i.test(p.estatus||'')) { if (!porPed.has(p.id)) porPed.set(p.id, { p, docs: [] }); porPed.get(p.id).docs.push({ d, t }); }
+    });
+  }));
+  porPed.forEach(({ p, docs }) => {
+    const pc = nunCantProd(p), s = {}; docs.forEach(x => { const c = nunCantProd(x.d); Object.keys(c).forEach(k => s[k] = (s[k]||0) + c[k]); });
+    const mas = Object.keys(s).filter(k => pc[k] && s[k] > pc[k] + 0.001), tot = nunR2(docs.reduce((a, x) => a + (+x.d.total||0), 0));
+    if (mas.length || tot > (+p.total||0) * 1.17 + 1) out.demas.push({ p, docs, tot, mas: mas.map(k => k + ' (' + s[k] + ' de ' + pc[k] + ')') });
+  });
+  return out;
+}
+async function nunAuditoriaPedidos(){
+  nunOcupado('Revisando todos los pedidos…');
+  try { await Promise.all(['pedidos','remisiones','facturas'].map(t => cargarTabla(t))); } finally { nunOcupado(''); }
+  const A = nunAuditoriaPedidosCalc(), F = d => escapeHTML(nunFolioStr(d)), T = x => x.t === 'remisiones' ? 'R ' : 'F ';
+  const fila = (cells) => `<tr>${cells.map(c => `<td style="padding:5px 8px;border-top:1px solid var(--line);vertical-align:top">${c}</td>`).join('')}</tr>`;
+  const ver = (t, d) => `<button class="btn btn-sm" onclick="document.getElementById('modalAUD').remove();abrirDoc('${t}','${d.id}')">Abrir</button>`;
+  const seccion = (titulo, ayuda, enc, filas) => `<h4 style="margin:18px 0 4px">${titulo} <span class="tag ${filas.length ? 'amber' : 'green'}">${filas.length}</span></h4><div style="font-size:12px;color:var(--ink-3);margin-bottom:6px">${ayuda}</div>
+    ${filas.length ? `<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="text-align:left;color:var(--ink-3)">${enc.map(e => `<th style="padding:4px 8px">${e}</th>`).join('')}</tr></thead><tbody>${filas.join('')}</tbody></table>` : '<div style="font-size:12px;color:var(--green)">✓ Nada que revisar</div>'}`;
+  window._nunAUD = A;
+  let m = document.getElementById('modalAUD'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalAUD';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:1000px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><div><h3 style="margin:0">Auditoría de ligas pedido → remisión / factura</h3>
+      <div style="font-size:12px;color:var(--ink-3)">${(State.data.pedidos||[]).length} pedidos revisados uno por uno contra todas las remisiones y facturas (las canceladas no cuentan)</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalAUD').remove()">✕</button></div>
+    <div style="overflow:auto;padding:0 20px 16px;flex:1">
+      ${seccion('1. Ligado a un pedido de OTRO cliente', 'Casi siempre es un error (venían así de Bind). Si a propósito se facturó a nombre de otra persona, déjalo.', ['Pedido','Cliente del pedido','Documento','Cliente del documento','Total',''],
+        A.otroCliente.map((x, i) => fila([F(x.p), escapeHTML(x.p.cliente||''), T(x) + F(x.d), escapeHTML(x.d.cliente||''), fmtFull(x.d.total), ver(x.t, x.d) + (nunPuedeLigar() ? ` <button class="btn btn-sm" style="color:var(--red)" onclick="nunQuitarLiga(${i})">Quitar liga</button>` : '')])))}
+      ${seccion('2. Salió más de lo que se pidió', 'Suele arreglarse solo al corregir la sección 1.', ['Pedido','Cliente','Total pedido','Documentos','Suma','Qué pasa'],
+        A.demas.map(x => fila([F(x.p), escapeHTML(x.p.cliente||''), fmtFull(x.p.total), x.docs.map(y => T(y) + F(y.d)).join(', '), fmtFull(x.tot), escapeHTML(x.mas.join(', ') || 'la suma pasa el total del pedido')])))}
+      ${seccion('3. Productos que el pedido no tenía', 'Mismo cliente; casi siempre es cambio de color o modelo. Solo revisa que sí sea de ese pedido.', ['Pedido','Cliente','Documento','Total','Productos de más',''],
+        A.productos.map(x => fila([F(x.p), escapeHTML(x.p.cliente||''), T(x) + F(x.d), fmtFull(x.d.total), escapeHTML(x.fuera.slice(0, 5).join(', ')), ver(x.t, x.d)])))}
+    </div></div>`;
+  document.body.appendChild(m);
+}
+async function nunQuitarLiga(i){
+  const x = (window._nunAUD || { otroCliente: [] }).otroCliente[i]; if (!x) return;
+  const fol = nunFolioStr(x.p), ok = await confirmDialog({ title:'¿Quitar la liga de ' + nunFolioStr(x.d) + ' con el pedido ' + fol + '?',
+    message:'El pedido ' + fol + ' es de ' + (x.p.cliente||'') + ' y el documento es de ' + (x.d.cliente||'') + '. El documento se queda igual (con sus pagos); solo deja de decir que salió de ese pedido. Queda anotado en sus notas.', ok:'Quitar liga' });
+  if (!ok) return;
+  const bien = await nunGuardarSeguro(x.t, { id: x.d.id, pedido_origen: '', notas: (x.d.notas ? String(x.d.notas) + ' · ' : '') + 'Se quitó la liga con el pedido ' + fol + ' (' + (x.p.cliente||'') + ', otro cliente) el ' + nunHoy() });
+  toast(bien ? '✓ Liga quitada' : '✗ No se guardó. Inténtalo de nuevo.', { type: bien ? 'success' : 'error' });
+  if (bien) { await cargarTabla(x.t); nunAuditoriaPedidos(); }
+}
+// Candado: antes de guardar una remisión/factura con pedido de otro cliente, se pregunta (lo llama api())
+async function nunCandadoLigaOtroCliente(body){
+  if (!/^(erp_upsert_batch|erp_crear|erp_actualizar)$/.test(String(body.accion||'')) || !/^(remisiones|facturas)$/.test(String(body.tabla||''))) return true;
+  const items = body.items || (body.item ? [body.item] : []), idx = new Map();
+  (State.data.pedidos||[]).forEach(p => nunPedClaves(p).forEach(k => idx.set(k, p)));
+  const malos = [];
+  items.forEach(it => { if (!it || !it.pedido_origen) return;
+    const cli = it.cliente || ((State.data[body.tabla]||[]).find(d => d.id === it.id) || {}).cliente; if (!cli) return;
+    String(it.pedido_origen).split(/[,;]/).map(x => x.trim()).filter(Boolean).forEach(o => { const p = idx.get(o); if (p && !nunMismoCliente(p.cliente, cli)) malos.push(o + ' es de ' + (p.cliente||'') + ' y el documento es de ' + cli); }); });
+  if (!malos.length) return true;
+  return await confirmDialog({ title:'⚠ ¿Ligar a un pedido de OTRO cliente?', message: malos.slice(0, 5).join('\n') + '\n\nSolo sigue si a propósito se facturó a nombre de otra persona.', ok:'Sí, ligar', danger:true });
+}
+window.nunAuditoriaPedidos = nunAuditoriaPedidos; window.nunQuitarLiga = nunQuitarLiga;
  window.nunCobrarEnOtraVenta = nunCobrarEnOtraVenta; window.nunCobrarEnOtraVentaGuardar = nunCobrarEnOtraVentaGuardar;
 
 // XML del complemento
@@ -8412,6 +8506,10 @@ function nunPanelDoc(tabla, doc, acciones){
     if (its.length) yaSalio = `<div style="margin-top:10px;font-size:12px"><div style="font-weight:600;margin-bottom:4px">Qué ya salió de este pedido</div><table style="width:100%;border-collapse:collapse"><thead><tr style="color:var(--ink-3);font-size:11px;text-align:left"><th style="padding:2px 6px">Producto</th><th style="text-align:right">Pedido</th><th style="padding:2px 6px">Salió en</th><th style="text-align:right">Falta</th><th></th></tr></thead><tbody>${filas.join('')}</tbody></table></div>`;
   } catch(e){} }
   const avisoLiga = _remDif ? `<div style="font-size:12px;margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(245,158,11,0.10)">⚠ Esta factura (${fmtFull(doc.total)}) está ligada a la remisión ${escapeHTML(nunFolioStr(_remDif))} de ${fmtFull(_remDif.total)}: no parecen la misma venta. Su cobro va en la factura.</div>` : '';
+  // v4.10 — documento ligado a un pedido de OTRO cliente (pasó con datos de Bind, ej. pedido 1109): se avisa en rojo
+  const _otros = tabla === 'pedidos' ? R.remisiones.concat(R.facturas).filter(d => !/cancel/i.test(d.estatus||'') && !nunMismoCliente(d.cliente, doc.cliente))
+    : R.pedidos.filter(p => !nunMismoCliente(p.cliente, doc.cliente));
+  const avisoOtro = _otros.length ? `<div style="font-size:12px;margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(220,38,38,0.10);color:var(--red)">⚠ Ligado a ${tabla === 'pedidos' ? 'documento(s)' : 'pedido'} de OTRO cliente: ${_otros.map(d => escapeHTML(nunFolioStr(d) + ' (' + (d.cliente||'') + ')')).join(', ')}. Revísalo en Pedidos → 🔎 Auditoría de ligas.</div>` : '';
   const pagoVivo = i => !/CANCELADO|DUPLICADO/i.test(String(i.tipo||'')); // v3.92 los cancelados no cuentan
   const vivos = R.pagos.filter(pagoVivo);
   const cobrado = vivos.reduce((s, i) => s + (+i.monto||0), 0);
@@ -8425,7 +8523,7 @@ function nunPanelDoc(tabla, doc, acciones){
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${cadena.join('<span style="color:var(--ink-4)">→</span>') || '<span style="font-size:12px;color:var(--ink-3)">Sin documentos ligados</span>'}</div>
     <div style="font-size:12.5px;margin-top:8px;color:var(--ink-2)">${info} <a onclick="drawerCambiarTab('rel')" style="cursor:pointer;text-decoration:underline;margin-left:6px">ver detalle</a> · <a onclick="drawerCambiarTab('arch')" style="cursor:pointer;text-decoration:underline">📎 archivos</a></div>
     ${R.pagos.length ? `<div style="margin-top:8px;font-size:12px">${R.pagos.map(i => nunPagoRenglonHTML(i, pagoVivo(i))).join('')}</div>` : ''}
-    ${avisoLiga}
+    ${avisoLiga}${avisoOtro}
     ${yaSalio}
     ${acciones ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">${acciones}</div>` : ''}
   </div>`;

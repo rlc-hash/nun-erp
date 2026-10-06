@@ -454,7 +454,7 @@ function listarUsuarios(codigoAdmin) {
 // en pedazos de 90 KB por 6 horas. Cualquier cambio (crear, guardar, pago, cancelar…) sube la "versión" y todas las listas
 // se vuelven a leer de la hoja en la siguiente consulta. Si la memoria falla, se lee la hoja como siempre.
 function _listaVer(){ try { return CacheService.getScriptCache().get('L_ver') || '1'; } catch(e){ return '1'; } }
-function _listaInvalidar(){ try { CacheService.getScriptCache().put('L_ver', String(Date.now()), 21600); } catch(e){} }
+function _listaInvalidar(){ try { CacheService.getScriptCache().put('L_ver', Date.now() + '_' + Math.random().toString(36).slice(2, 8), 21600); } catch(e){} }
 // v0.9.12 — si alguien cambia algo directo en la hoja de Google, las listas en memoria se vuelven a leer
 function onEdit(e){ _listaInvalidar(); }
 function onChange(e){ _listaInvalidar(); }

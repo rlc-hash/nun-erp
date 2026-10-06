@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.05 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.06 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -6879,7 +6879,7 @@ const MODULOS = {
 const DOC_DEFS = {
   cotizaciones: { label:'Cotizaciones', singular:'cotización', usa:'cliente', estatus:['borrador','enviada','aceptada','rechazada','convertida'], folio_tipo:'cotizacion' },
   pedidos:      { label:'Pedidos',      singular:'pedido',     usa:'cliente', estatus:['borrador','confirmado','en_produccion','entregado','facturado','cancelado'], folio_tipo:'pedido' },
-  remisiones:   { label:'Remisiones',   singular:'remisión',   usa:'cliente', estatus:['borrador','entregada','facturada','cancelada'], folio_tipo:'remision' },
+  remisiones:   { label:'Remisiones',   singular:'remisión',   usa:'cliente', estatus:['entregada','facturada','cancelada','borrador'], folio_tipo:'remision' }, // v4.06 — una remisión nueva queda activa (entregada), no en borrador
   facturas:     { label:'Facturas',     singular:'factura',    usa:'cliente', estatus:['borrador','timbrada','cancelada','pagada'], folio_tipo:'factura' },
   notascredito: { label:'Notas de crédito', singular:'nota de crédito', usa:'mixto', estatus:['borrador','aplicada','cancelada'], folio_tipo:'notacredito' },
   ordenescompra:{ label:'Órdenes de compra', singular:'OC', usa:'proveedor', estatus:['borrador','enviada','recibida_parcial','recibida','cancelada'], folio_tipo:'ordencompra' },
@@ -7401,6 +7401,15 @@ function abrirDoc(tabla, id) {
   try { docItems = doc.items_json ? JSON.parse(doc.items_json) : []; } catch(e) { docItems = []; }
   if (!Array.isArray(docItems)) docItems = [];
   docSinIva = !!doc.sin_iva; // v3.40 — remisión/factura sin IVA (cliente exento)
+  // v4.06 — documentos de Bind: sus renglones vinieron SIN el % de IVA (el total y el PDF sí están bien). Se toma de los totales:
+  // si el IVA es el 16% del subtotal, todos los renglones van al 16%; si es 0, al 0%. Mixtos (pocos): se avisa con los totales del CFDI.
+  window._nunIvaMixto = null;
+  if (docItems.length && docItems.every(it => it.iva_pct === undefined || it.iva_pct === '')) {
+    const _sub = +doc.subtotal||0, _iva = +doc.iva||0;
+    if (_iva > 0 && Math.abs(_iva - nunR2(_sub * 0.16)) <= 1) docItems = docItems.map(it => Object.assign({}, it, { iva_pct: 16 }));
+    else if (!(_iva > 0)) docItems = docItems.map(it => Object.assign({}, it, { iva_pct: 0 }));
+    else window._nunIvaMixto = { subtotal:_sub, iva:_iva, total:+doc.total||0 };
+  }
 
   const fields = `
     <div class="form-grid">
@@ -7423,6 +7432,7 @@ function abrirDoc(tabla, id) {
         <h4 style="margin:0;font-size:13px;font-weight:600">Productos del documento</h4>
         <button class="btn btn-sm btn-secondary" onclick="docAgregarItem()">+ Agregar producto</button>
       </div>
+      ${window._nunIvaMixto ? `<div style="font-size:12px;margin:6px 0;padding:8px 10px;border-radius:8px;background:rgba(245,158,11,0.10)">⚠ Factura de Bind con productos con y sin IVA: los renglones no traen el detalle. Los totales correctos (los del CFDI) son: subtotal <b>${fmtFull(window._nunIvaMixto.subtotal)}</b> · IVA <b>${fmtFull(window._nunIvaMixto.iva)}</b> · total <b>${fmtFull(window._nunIvaMixto.total)}</b>.</div>` : ''}
       <div id="docItemsMount"></div>
       <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;cursor:pointer;user-select:none">
         <input type="checkbox" id="dSinIva" ${docSinIva?'checked':''} onchange="docSinIva=this.checked;recalcularDocDesdeItems()" style="width:16px;height:16px">
@@ -7453,6 +7463,7 @@ function abrirDoc(tabla, id) {
     acciones += `<button class="btn btn-secondary" onclick="${['pedidos','remisiones','facturas'].includes(tabla) ? `nunPdfDoc('${tabla}','${id}')` : `imprimirDocumento('${tabla}','${id}')`}">📄 PDF</button>`; // v3.78
     if (tabla === 'facturas') acciones += `<button class="btn btn-secondary" onclick="descargarXMLCFDI('${id}')">📃 XML CFDI</button>`;
     if (tabla === 'pedidos' && nunPuedeLigar() && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunLigarAPedido('${id}')" title="Remisiones o facturas que salieron de este pedido pero no quedaron ligadas (ej. las de Bind)">🔗 Ligar remisiones</button>`; // v3.97 · v4.00 también quien edita ventas
+    if (tabla === 'remisiones' && /borrador/i.test(doc.estatus||'') && nunPuedeLigar()) acciones += `<button class="btn btn-primary" onclick="nunActivarRemision('${id}')" title="La remisión quedó en borrador: activarla (entregada)">✅ Activar remisión</button>`; // v4.06
     if (tabla === 'remisiones' && nunPuedeLigar() && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunDescuentoRemision('${id}')" title="Descuento o nota de crédito sobre el total (baja el saldo en Cobranza)">💸 Descuento / nota de crédito</button>`; // v4.02
     if (tabla === 'facturas' && doc.uuid_sat && !/cancel/i.test(doc.estatus||'') && nunPuedeLigar()) acciones += `<button class="btn btn-secondary" onclick="nunNuevaNCDeFactura('${id}')" title="Descuento o devolución sobre una factura timbrada: nota de crédito ante el SAT">💳 Nota de crédito</button>`; // v4.02
     if ((tabla === 'remisiones' || (tabla === 'facturas' && !nunEsDeRemision(doc))) && nunPuedeLigar() && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-secondary" onclick="nunLigarDocAPedido('${tabla}','${id}')" title="Decir de qué pedido salió">🔗 Ligar a un pedido</button>`; // v4.00
@@ -14369,7 +14380,17 @@ async function nunDescuentoRemisionGuardar(){
     toast('✓ Nota ' + nc.folio + ' por ' + fmtFull(monto) + ' aplicada · saldo ' + fmtFull(Math.max(0, nunR2(S.saldo - monto))), { type:'success', duration:8000 });
   } catch(ex) { err.textContent = '✗ ' + ex.message; btn.disabled = false; btn.textContent = 'Aplicar'; }
 }
-window.nunDescuentoRemision = nunDescuentoRemision; window.nunDRCalc = nunDRCalc; window.nunDescuentoRemisionGuardar = nunDescuentoRemisionGuardar;
+// v4.06 — remisión en borrador → entregada (activa). Si no tiene cobro en Cobranza, se le crea.
+async function nunActivarRemision(id){
+  const r = (State.data.remisiones||[]).find(x => x.id === id); if (!r) return;
+  const ok = await confirmDialog({ title:'¿Activar la remisión ' + nunFolioStr(r) + '?', message:(r.cliente||'') + ' · ' + fmtFull(r.total) + '. Pasa de borrador a entregada (activa) y queda en Cobranza.', ok:'Activar' });
+  if (!ok) return;
+  if (!(await nunGuardarSeguro('remisiones', { id, estatus:'entregada' }))) { toast('✗ No se guardó. Inténtalo de nuevo.', { type:'error' }); return; }
+  try { await nunAltaCobranza('remisiones', Object.assign({}, r, { estatus:'entregada' })); } catch(e){}
+  try { cerrarDrawer(); } catch(e){} toast('✓ Remisión ' + nunFolioStr(r) + ' activa', { type:'success' });
+  Promise.all([cargarTabla('remisiones'), cargarTabla('cobranza')]).then(() => renderCurrent()).catch(()=>{});
+}
+window.nunActivarRemision = nunActivarRemision; window.nunDescuentoRemision = nunDescuentoRemision; window.nunDRCalc = nunDRCalc; window.nunDescuentoRemisionGuardar = nunDescuentoRemisionGuardar;
 window.nunAbrirTimbrarNC = nunAbrirTimbrarNC; window.nunTimbrarNC = nunTimbrarNC; window.nunNCResumen = nunNCResumen;
 // ============================================================
 // v3.70 — Datos fiscales al timbrar: forma y método de pago, uso CFDI y clave SAT por producto.
@@ -14520,7 +14541,8 @@ function nunPedidoSurtido(ped, docs){
 async function nunDesdePedidos(idPedido, destino){
   nunOcupado('Revisando pedidos…');
   let peds, rems, facs;
-  try { [peds, rems, facs] = await Promise.all([nunListarFresco('pedidos'), nunListarFresco('remisiones'), nunListarFresco('facturas')]); }
+  const _enMem = t => Array.isArray(State.data[t]) && State.data[t].length && State.data[t][0].items_json !== undefined ? State.data[t] : null; // v4.06 — sin esperar al servidor si ya está en pantalla
+  try { [peds, rems, facs] = await Promise.all(['pedidos','remisiones','facturas'].map(t => _enMem(t) || nunListarFresco(t))); }
   catch(e) { nunOcupado(''); toast('No se pudo leer: ' + e.message, { type:'error' }); return; } finally { nunOcupado(''); }
   const base = peds.find(p => String(p.id) === String(idPedido)); if (!base) { toast('No encontré el pedido', { type:'error' }); return; }
   if (/cancel/i.test(base.estatus||'')) { toast('El pedido está cancelado', { type:'error' }); return; }
@@ -14546,7 +14568,7 @@ async function nunDesdePedidos(idPedido, destino){
       ${x.lineas.map((l, li) => `<tr style="border-top:1px solid var(--line)"><td style="padding:5px 8px"><span class="mono">${escapeHTML(l.it.sku||'')}</span> <span style="color:var(--ink-3)">${escapeHTML(String(l.it.descripcion||'').substring(0,40))}</span></td>
         <td style="text-align:right">${+l.it.cantidad||0}</td><td style="text-align:right;color:var(--ink-3)">${l.ya||'—'}</td>
         <td style="padding-left:8px;white-space:nowrap"><input type="number" class="dpCant" data-p="${pi}" data-l="${li}" min="0" max="${l.resta}" step="1" value="${pi === 0 ? l.resta : 0}" ${l.resta > 0 ? '' : 'disabled'} oninput="nunDesdePedidosTotal()" style="width:64px">${l.resta > 0 ? ` <a style="cursor:pointer;color:var(--mute)" title="Quitar" onclick="const x=this.previousElementSibling; x.value=0; nunDesdePedidosTotal()">✕</a>` : ''}</td>
-        <td style="text-align:right;padding-right:8px" class="mono">${fmtFull(+l.it.precio_unitario||0)}</td></tr>`).join('')}</tbody></table></div>`;
+        <td style="text-align:right;padding-right:8px"><input type="number" class="dpPrecio mono" data-p="${pi}" data-l="${li}" step="0.01" min="0" value="${+l.it.precio_unitario||0}" ${l.resta > 0 ? '' : 'disabled'} oninput="nunDesdePedidosTotal()" title="Precio por pieza (puedes cambiarlo)" style="width:90px;text-align:right;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg)"></td></tr>`).join('')}</tbody></table></div>`;
   m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:780px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)">
       <div><h3 style="margin:0">Pedido ${escapeHTML(String(base.folio||''))} → remisión o factura · ${escapeHTML(base.cliente||'')}</h3>
@@ -14559,6 +14581,12 @@ async function nunDesdePedidos(idPedido, destino){
           <option value="mas" ${lista.every(x => !nunEsVerdad(x.p.sin_iva)) ? 'selected' : ''}>NO incluye IVA → la factura suma 16% de IVA</option>
           <option value="incluye">YA incluye IVA → se desglosa (precio ÷ 1.16)</option>
           <option value="sin">Sin IVA (tasa 0)</option></select></div>` : ''}
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--bg-2)">
+        <label style="font-size:12px;flex:1;min-width:220px">¿El cliente pagó otro monto? Escribe el <b>total</b> al que debe quedar (con IVA si es factura)<br>
+          <input type="number" id="dpMonto" step="0.01" min="0" placeholder="Ej. 5500" style="width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--line);border-radius:6px"></label>
+        <button class="btn btn-secondary" onclick="nunDesdePedidosAjustarMonto()">Ajustar precios a ese monto</button>
+        <div style="font-size:11px;color:var(--ink-3);width:100%">Si subes o bajas precios, lo que falte del pedido se compensa (si a la factura le subiste $X, a lo pendiente se le baja $X) y queda anotado en el pedido.</div>
+      </div>
       <div id="dpTotales" style="margin-top:12px;font-size:13px;text-align:right" class="mono"></div>
       <div id="dpError" style="color:var(--red);font-size:12.5px;margin-top:8px;white-space:pre-line"></div>
       <div style="font-size:11.5px;color:var(--ink-3);margin-top:8px">Remisión: se crea entregada (R…), entra a Cobranza y descuenta inventario. Factura: se crea en borrador (FT…) para revisarla y timbrarla, y entra a Cobranza.</div></div>
@@ -14578,17 +14606,71 @@ function nunDesdePedidosLineas(){
     const x = m._lista[+inp.dataset.p], l = x.lineas[+inp.dataset.l];
     if (cant > l.resta) { errs.push((l.it.sku||l.it.descripcion) + ' del pedido ' + (x.p.folio||'') + ': máximo ' + l.resta); return; }
     usados.add(+inp.dataset.p);
-    const pu = +l.it.precio_unitario || 0;
+    const _pin = m.querySelector('.dpPrecio[data-p="' + inp.dataset.p + '"][data-l="' + inp.dataset.l + '"]');
+    const pu = _pin && _pin.value !== '' ? Math.max(0, +_pin.value || 0) : (+l.it.precio_unitario || 0); // v4.06 precio editable
     const sinIvaPed = nunEsVerdad(x.p.sin_iva);
     const ivaPct = destino === 'facturas' ? (modo === 'sin' ? 0 : 16) : (sinIvaPed ? 0 : (l.it.iva_pct != null ? (+l.it.iva_pct === 0 ? 0 : 16) : 16));
     lineas.push({ sku: l.it.sku||'', descripcion: l.it.descripcion||'', cantidad: cant,
       precio_unitario: modo === 'incluye' ? +(pu / 1.16).toFixed(6) : pu, descuento_pct: +l.it.descuento_pct || 0, iva_pct: ivaPct,
-      clave_sat: l.it.clave_sat || '', unidad: l.it.unidad || '', pedido: String(x.p.folio || x.p.id) });
+      clave_sat: l.it.clave_sat || '', unidad: l.it.unidad || '', pedido: String(x.p.folio || x.p.id), _p: +inp.dataset.p, _l: +inp.dataset.l, _puOrig: +l.it.precio_unitario || 0, _puNuevo: pu });
   });
   const peds = [...usados].map(i => m._lista[i].p);
   if (destino === 'remisiones' && peds.length > 1 && new Set(peds.map(p => nunEsVerdad(p.sin_iva))).size > 1) errs.push('No se pueden juntar en una remisión pedidos con IVA y sin IVA');
   return { lineas, errs, modo, peds };
 }
+
+// v4.06 — ajustar los precios de lo marcado para que el total quede EXACTO en el monto que pagó el cliente
+function nunDesdePedidosAjustarMonto(){
+  const m = document.getElementById('modalDP'); if (!m) return; const err = document.getElementById('dpError');
+  const meta = nunR2(+(document.getElementById('dpMonto')||{}).value || 0); if (!(meta > 0)) { err.textContent = '⚠ Escribe el monto'; return; }
+  const modo = (document.getElementById('dpIva')||{}).value, comoFactura = !!modo;
+  const d0 = m._destino; m._destino = comoFactura ? 'facturas' : 'remisiones'; const R = nunDesdePedidosLineas(); m._destino = d0;
+  if (!R.lineas.length) { err.textContent = '⚠ Marca primero las piezas'; return; }
+  const sinIva = !comoFactura && R.peds.length && nunEsVerdad(R.peds[0].sin_iva);
+  const tot = ls => nunCalcDoc(ls, sinIva).total, t0 = tot(R.lineas); if (!(t0 > 0)) { err.textContent = '⚠ El total actual es cero'; return; }
+  const f = meta / t0;
+  // nuevos precios (como los escribe el usuario: si "ya incluye IVA", el precio del pedido es con IVA)
+  const nuevos = R.lineas.map(l => nunR2(l._puNuevo * f));
+  const calc = arr => tot(R.lineas.map((l, i) => Object.assign({}, l, { precio_unitario: modo === 'incluye' ? +(arr[i] / 1.16).toFixed(6) : arr[i] })));
+  // el último renglón absorbe los centavos (precio con 6 decimales si hace falta)
+  const k = R.lineas.length - 1, q = R.lineas[k].cantidad || 1;
+  for (let it = 0; it < 8; it++) { const dif = nunR2(meta - calc(nuevos)); if (Math.abs(dif) < 0.005) break; const n2 = nuevos.slice(); n2[k] = nuevos[k] + 1; const pend = calc(n2) - calc(nuevos) || q; nuevos[k] = Math.max(0, +(nuevos[k] + dif / pend).toFixed(6)); }
+  // si el redondeo del IVA por renglón deja centavos, se prueba mover 1-5 centavos en uno o dos renglones hasta quedar exacto
+  if (Math.abs(nunR2(meta - calc(nuevos))) >= 0.005) {
+    const mover = (arr, i, c) => { const a = arr.slice(), qq = R.lineas[i].cantidad || 1, f2 = modo === 'incluye' ? 1.16 : 1; a[i] = Math.max(0, +(a[i] + c / 100 * f2 / qq).toFixed(6)); return a; };
+    let hecho = false; const L2 = R.lineas.length;
+    for (let i = L2 - 1; i >= 0 && !hecho; i--) for (let c = -5; c <= 5 && !hecho; c++) { if (!c) continue; const a = mover(nuevos, i, c); if (Math.abs(nunR2(meta - calc(a))) < 0.005) { nuevos.splice(0, L2, ...a); hecho = true; } }
+    for (let i = L2 - 1; i >= 0 && !hecho; i--) for (let j = i - 1; j >= 0 && !hecho; j--) for (let c = -3; c <= 3 && !hecho; c++) for (let e = -3; e <= 3 && !hecho; e++) { if (!c && !e) continue; const a = mover(mover(nuevos, i, c), j, e); if (Math.abs(nunR2(meta - calc(a))) < 0.005) { nuevos.splice(0, L2, ...a); hecho = true; } }
+  }
+  R.lineas.forEach((l, i) => { const inp = m.querySelector('.dpPrecio[data-p="' + l._p + '"][data-l="' + l._l + '"]'); if (inp) inp.value = nuevos[i]; });
+  err.textContent = Math.abs(nunR2(meta - calc(nuevos))) < 0.01 ? '' : '⚠ Quedó a ' + fmtFull(nunR2(meta - calc(nuevos))) + ' del monto; ajusta un precio a mano';
+  nunDesdePedidosTotal();
+}
+// v4.06 — si a lo que salió le cambiaste el precio, a lo que falta del pedido se le compensa (y queda anotado y ligado)
+async function nunCompensarPedidos(lineas, doc, destino){
+  const porPed = new Map();
+  lineas.forEach(l => { const d = nunR2(((+l._puNuevo||0) - (+l._puOrig||0)) * (+l.cantidad||0)); if (Math.abs(d) < 0.005) return; porPed.set(l.pedido, nunR2((porPed.get(l.pedido)||0) + d)); });
+  for (const [fol, delta] of porPed) {
+    const p = (State.data.pedidos||[]).find(x => String(x.folio || x.id) === fol); if (!p) continue;
+    let its = []; try { its = JSON.parse(p.items_json||'[]'); } catch(e){}
+    const docs = (State.data.remisiones||[]).concat(State.data.facturas||[]).filter(d => String(d.id) !== String(doc.id)).concat([doc]);
+    const sur = nunPedidoSurtido(p, docs);
+    const pend = its.map(it => { const kk = String(it.sku||it.descripcion||'').toUpperCase(); return Math.max(0, (+it.cantidad||0) - (sur[kk]||0)); });
+    const valorPend = its.reduce((a, it, i) => a + pend[i] * (+it.precio_unitario||0), 0);
+    const quien = (((State.sesion||{}).usuario||{}).nombre || ''), etiqueta = (destino === 'facturas' ? 'factura ' : 'remisión ') + (doc.folio||'');
+    let nota = 'Precio ajustado en ' + etiqueta + ': ' + (delta > 0 ? '+' : '−') + fmtFull(Math.abs(delta)) + ' sin IVA (' + nunHoy() + (quien ? ', ' + quien : '') + ')';
+    const cam = { id: p.id };
+    if (valorPend > 0.005) {
+      // se reparte −delta entre lo pendiente, en proporción a su valor (el precio no baja de 0)
+      const nuevos = its.map((it, i) => { if (!pend[i]) return it; const share = (pend[i] * (+it.precio_unitario||0)) / valorPend * delta; return Object.assign({}, it, { precio_unitario: Math.max(0, +(((+it.precio_unitario||0) - share / pend[i])).toFixed(6)) }); });
+      cam.items_json = JSON.stringify(nuevos);
+      nota += ' → lo pendiente del pedido se compensó ' + (delta > 0 ? '−' : '+') + fmtFull(Math.abs(delta));
+    } else nota += ' → el pedido ya no tiene pendiente que compensar';
+    cam.notas = (p.notas ? String(p.notas) + ' · ' : '') + nota;
+    await nunGuardarSeguro('pedidos', cam);
+  }
+}
+window.nunDesdePedidosAjustarMonto = nunDesdePedidosAjustarMonto;
 function nunDesdePedidosTotal(){
   const el = document.getElementById('dpTotales'); if (!el) return;
   const m = document.getElementById('modalDP'); const d0 = m._destino;
@@ -14623,7 +14705,7 @@ async function nunDesdePedidosCrear(dest){
     if (!doc) {
       const item = { id, folio: nunFolioNUNde(destino, lista), fecha: nunHoy(), cliente: peds[0].cliente, vendedor: vends[0] || '',
         pedido_origen: peds.map(p => String(p.folio || p.id)).join(', '), subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: sinIva || (destino === 'facturas' && modo === 'sin'),
-        estatus: destino === 'facturas' ? 'borrador' : 'entregada', items_json: JSON.stringify(lineas),
+        estatus: destino === 'facturas' ? 'borrador' : 'entregada', items_json: JSON.stringify(lineas.map(l => { const o = Object.assign({}, l); delete o._p; delete o._l; delete o._puOrig; delete o._puNuevo; return o; })),
         notas: (destino === 'facturas' ? 'Factura' : 'Remisión') + ' de pedido(s) ' + peds.map(p => p.folio||p.id).join(', ') + (vends.length > 1 ? ' · vendedores: ' + vends.join(', ') : '') + (modo === 'incluye' ? ' · precio con IVA incluido' : '') };
       if (destino === 'remisiones') { item.fecha_entrega = nunHoy(); item.sin_entregar = false; }
       const r = await api({ accion:'erp_crear', tabla: destino, item });
@@ -14632,6 +14714,7 @@ async function nunDesdePedidosCrear(dest){
       m.dataset.creado = id;
     }
     if (await nunAltaCobranza(destino, doc, true) === false) toast('⚠ Se creó ' + doc.folio + ' pero NO su cobro en Cobranza. Revísalo.', { type:'error', duration:12000 });
+    if (!m.dataset.compensado) { try { await nunCompensarPedidos(lineas, doc, destino); } catch(e){ toast('⚠ No se pudo compensar el precio en el pedido: ' + e.message, { type:'error', duration:9000 }); } m.dataset.compensado = '1'; } // v4.06
     // estatus de cada pedido: si ya salió todo, entregado/facturado (v4.03 — con lo que ya está en pantalla + el documento nuevo)
     const docs2 = (State.data.remisiones||[]).concat(State.data.facturas||[]).filter(d => String(d.id) !== String(doc.id)).concat([doc]);
     for (const p of peds) {

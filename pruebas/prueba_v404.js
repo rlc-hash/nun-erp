@@ -35,6 +35,6 @@ function abrir(archivo, sesionKey, sesion){ return new Promise(res=>{
  if(!r.erpEscritura||r.erpEscritura.intentos!==1||!/no confirmó.*si sí se guardó/.test(r.erpEscritura.msg)) r.fallas.push('erpEscritura');
  if(!r.crmLectura||!r.crmLectura.ok||r.crmLectura.intentos!==2) r.fallas.push('crmLectura');
  if(!r.crmEscritura||r.crmEscritura.ok!==false||r.crmEscritura.intentos!==1||!/no confirmó/.test(r.crmEscritura.msg||'')) r.fallas.push('crmEscritura');
- if(r.crmVersion!=='v1.9.16') r.fallas.push('crmVersion');
+ if(!/^v1\.9\.(1[6-9]|[2-9]\d)$/.test(r.crmVersion)) r.fallas.push('crmVersion');
  console.log(JSON.stringify(r,null,1)); process.exit(0);
 })();

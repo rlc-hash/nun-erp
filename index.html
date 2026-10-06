@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.06 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.07 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -14538,6 +14538,15 @@ function nunPedidoSurtido(ped, docs){
   });
   return out;
 }
+// v4.07 — en qué remisión/factura salió cada producto del pedido (para saber qué ya se facturó)
+function nunDondeSalio(p, k, docs, facIds){
+  const claves = nunPedClaves(p), out = [];
+  (docs||[]).forEach(d => { if (/cancel/i.test(d.estatus||'')) return; let its = []; try { its = JSON.parse(d.items_json||'[]'); } catch(e){}
+    const delPed = claves.includes(String(d.pedido_origen||'').trim()) || String(d.pedido_origen||'').split(/[,;]/).map(x => x.trim()).some(x => claves.includes(x));
+    const c = its.filter(it => String(it.sku||it.descripcion||'').toUpperCase() === k && (it.pedido ? claves.includes(String(it.pedido)) : delPed)).reduce((a, it) => a + (+it.cantidad||0), 0);
+    if (c > 0) out.push({ folio: (facIds && facIds.has(d.id) ? 'F ' : 'R ') + String(d.folio||''), cant: c }); });
+  return out;
+}
 async function nunDesdePedidos(idPedido, destino){
   nunOcupado('Revisando pedidos…');
   let peds, rems, facs;
@@ -14550,11 +14559,11 @@ async function nunDesdePedidos(idPedido, destino){
     const ok = await confirmDialog({ title:'⚠ Este pedido viene de Bind', message:'Casi seguro ya tiene su remisión o factura en Bind (V01… o A…). Si sigues, se puede DUPLICAR la venta. ¿Es una venta nueva?', ok:'Sí, es nueva', danger:true });
     if (!ok) return;
   }
-  const docs = rems.concat(facs);
+  const docs = rems.concat(facs), _facIds = new Set(facs.map(f => f.id));
   const cli = String(base.cliente||'').trim().toUpperCase();
   const lista = [base].concat(peds.filter(p => p.id !== base.id && String(p.cliente||'').trim().toUpperCase() === cli && !/cancel/i.test(p.estatus||'') && !/^bind_/.test(String(p.id))))
     .map(p => { let its = []; try { its = JSON.parse(p.items_json||'[]'); } catch(e){} const sur = nunPedidoSurtido(p, docs);
-      const lineas = its.map(it => { const k = String(it.sku||it.descripcion||'').toUpperCase(); return { it, ya: sur[k]||0, resta: Math.max(0, (+it.cantidad||0) - (sur[k]||0)) }; });
+      const lineas = its.map(it => { const k = String(it.sku||it.descripcion||'').toUpperCase(); return { it, ya: sur[k]||0, resta: Math.max(0, (+it.cantidad||0) - (sur[k]||0)), en: nunDondeSalio(p, k, docs, _facIds) }; });
       return { p, lineas, resta: lineas.reduce((s, l) => s + l.resta, 0) }; })
     .filter((x, i) => i === 0 || x.resta > 0);
   if (!lista[0].lineas.length) { toast('El pedido no tiene productos', { type:'error' }); return; }
@@ -14566,7 +14575,7 @@ async function nunDesdePedidos(idPedido, destino){
       <div style="padding:8px 10px;background:var(--bg-2);font-size:12.5px;display:flex;justify-content:space-between"><b>Pedido ${escapeHTML(String(x.p.folio||x.p.id))}</b><span>${fmtFecha(x.p.fecha)} · ${fmtFull(x.p.total)}${nunEsVerdad(x.p.sin_iva) ? ' · sin IVA' : ''}${pi === 0 ? '' : ' · <span style="color:var(--ink-3)">otro pedido del cliente</span>'}</span></div>
       <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:var(--ink-3);text-align:left"><th style="padding:4px 8px">Producto</th><th style="text-align:right">Pedido</th><th style="text-align:right">Ya salió</th><th style="padding-left:8px">Ahora</th><th style="text-align:right;padding-right:8px">Precio</th></tr></thead><tbody>
       ${x.lineas.map((l, li) => `<tr style="border-top:1px solid var(--line)"><td style="padding:5px 8px"><span class="mono">${escapeHTML(l.it.sku||'')}</span> <span style="color:var(--ink-3)">${escapeHTML(String(l.it.descripcion||'').substring(0,40))}</span></td>
-        <td style="text-align:right">${+l.it.cantidad||0}</td><td style="text-align:right;color:var(--ink-3)">${l.ya||'—'}</td>
+        <td style="text-align:right">${+l.it.cantidad||0}</td><td style="text-align:right;color:var(--ink-3)" title="${escapeHTML(l.en.map(e => e.folio + ': ' + e.cant + ' pza(s)').join(' · '))}">${l.ya||'—'}${l.en.length ? '<div style="font-size:10px;line-height:1.2">' + l.en.map(e => escapeHTML(e.folio)).join(', ') + '</div>' : ''}</td>
         <td style="padding-left:8px;white-space:nowrap"><input type="number" class="dpCant" data-p="${pi}" data-l="${li}" min="0" max="${l.resta}" step="1" value="${pi === 0 ? l.resta : 0}" ${l.resta > 0 ? '' : 'disabled'} oninput="nunDesdePedidosTotal()" style="width:64px">${l.resta > 0 ? ` <a style="cursor:pointer;color:var(--mute)" title="Quitar" onclick="const x=this.previousElementSibling; x.value=0; nunDesdePedidosTotal()">✕</a>` : ''}</td>
         <td style="text-align:right;padding-right:8px"><input type="number" class="dpPrecio mono" data-p="${pi}" data-l="${li}" step="0.01" min="0" value="${+l.it.precio_unitario||0}" ${l.resta > 0 ? '' : 'disabled'} oninput="nunDesdePedidosTotal()" title="Precio por pieza (puedes cambiarlo)" style="width:90px;text-align:right;padding:3px 6px;border:1px solid var(--line);border-radius:6px;background:var(--bg)"></td></tr>`).join('')}</tbody></table></div>`;
   m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:780px;width:100%;max-height:92vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.30)">

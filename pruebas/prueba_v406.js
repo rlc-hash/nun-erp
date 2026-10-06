@@ -35,6 +35,8 @@ setTimeout(async()=>{const r={};try{
  const p=DB.pedidos[0]; const pits=JSON.parse(p.items_json); r.pedido={precios:pits.map(i=>i.precio_unitario),nota:(p.notas||'').replace(/\d{4}-\d{2}-\d{2}/,'HOY')};
  // pendiente: 1 RD + 1 N; base original pendiente 3,300; delta = 4,741.38-4,950 = -208.62 → pendiente +208.62
  r.pendienteNuevo=Math.round((pits[1].precio_unitario+pits[2].precio_unitario)*100)/100;
+ await w.eval("cargarTabla('facturas')"); await w.eval("nunDesdePedidos('p1')"); await sleep(200);
+ r.yaSalio=[...d.querySelectorAll('#modalDP tbody tr')].map(tr=>tr.querySelectorAll('td')[2].textContent.replace(/\s+/g,' ').trim()).join(' | '); d.getElementById('modalDP').remove();
  // 2) remisión en borrador → Activar
  w.eval("abrirDoc('remisiones','rb')"); await sleep(200); r.botonActivar=[...d.querySelectorAll('.drawer button')].some(b=>/Activar remisión/.test(b.textContent)); w.eval("cerrarDrawer()");
  await w.eval("nunActivarRemision('rb')"); await sleep(200); r.activada=DB.remisiones.find(x=>x.id==='rb').estatus;
@@ -43,6 +45,7 @@ setTimeout(async()=>{const r={};try{
  w.eval("abrirDoc('facturas','bind_f1103')"); await sleep(300); r.iva1103=w.eval("docItems.map(i=>i.iva_pct).join()"); r.mixto=w.eval("window._nunIvaMixto"); w.eval("cerrarDrawer()");
  w.eval("abrirDoc('facturas','bind_f1017')"); await sleep(300); r.aviso1017=/productos con y sin IVA.*18,354/.test(txt(d.querySelector('.drawer'))); w.eval("cerrarDrawer()");
  r.fallas=[];
+ if(r.yaSalio!=='1F FT0001 | 1F FT0001 | 1F FT0001') r.fallas.push('yaSalio');
  if(r.antes!=='como factura $4,950.00 + IVA $792.00 = $5,742.00'||r.despues!=='= $5,500.00'||r.errAjuste) r.fallas.push('ajuste');
  if(!r.factura||r.factura.total!==5500||!r.factura.limpio) r.fallas.push('factura');
  if(Math.abs(r.pendienteNuevo-(3300+208.62))>0.02||!/Precio ajustado en factura FT0001: −\$208\.6\d sin IVA .* lo pendiente del pedido se compensó \+\$208\.6\d/.test(r.pedido.nota)) r.fallas.push('compensacion');

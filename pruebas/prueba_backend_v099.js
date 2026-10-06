@@ -21,8 +21,14 @@ const ctx={ console, JSON, Math, Date, String, Number, Object, Array, parseFloat
   ScriptApp:{ getProjectTriggers:()=>[], deleteTrigger(){} }, Utilities:{}, UrlFetchApp:{ fetch(){ throw new Error('sin red'); } } };
 vm.createContext(ctx); vm.runInContext(code,ctx);
 const post=b=>JSON.parse(ctx.doPost({postData:{contents:JSON.stringify(b)}}).t);
+// v0.9.13 — en Google (sin en_supabase) ya no se guarda; lo demás de esta prueba corre como en Supabase
+const _r913={}; { ctx.asegurarHoja('usuarios'); hojas['Usuarios'].appendRow(['TMP-PRUEBA0','T','admin','{}','','[]',2,true,'','']);
+  const x=post({accion:'erp_crear',tabla:'facturas',item:{id:'zz',cliente:'X'},codigo:'TMP-PRUEBA0'}); _r913.bloqueado=x.ok===false&&x.recargar===true;
+  _r913.leerSi=post({accion:'erp_listar',tabla:'facturas',codigo:'TMP-PRUEBA0'}).ok===true; _r913.cuentasSi=post({accion:'listar_cuentas',codigo:'TMP-PRUEBA0'}).ok===true;
+  hojas['Usuarios'].rows.pop(); }
+props.en_supabase='1';
 const get=p=>JSON.parse(ctx.doGet({parameter:p}).t);
-const r={};
+const r={v0913:_r913};
 // usuarios de prueba
 ctx.asegurarHoja('usuarios'); const U=hojas['Usuarios'];
 U.appendRow(['DUENO-PRUEBA1','Dueño','admin','{}','','[]',2,true,'','']);
@@ -93,4 +99,5 @@ if(!r.usuarios.desactivarVend||!r.usuarios.vendSigue||!r.usuarios.reactivar||!/�
 if(r.borradosHoja!==0) f.push('seBorraronRenglones');
 if(r.rafa.otroAdminLoVe||!r.rafa.rafaLoVe||r.rafa.otroAdminLoDesactiva||r.rafa.otroAdminCreaRafa||r.rafa.otroAdminCreaYadah||!r.rafa.rafaCreaNuevo||!r.rafa.rafaDesactivaViejo) f.push('rafaProtegido');
 if(r.folioNUN.convertida!=='R0001'||r.folioNUN.guardada!=='R0001'||r.folioNUN.pedidoViejo!=='P0003'||r.folioNUN.pedidoSinFolio!=='P0004'||r.folioNUN.facturaBind!=='1106') f.push('folioNUN');
+if(!r.v0913.bloqueado||!r.v0913.leerSi||!r.v0913.cuentasSi) f.push('v0913');
 r.fallas=f; console.log(JSON.stringify(r,null,1));

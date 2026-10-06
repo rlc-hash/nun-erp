@@ -28,7 +28,7 @@ Este repo puede ser público: no escribas aquí datos de clientes, montos, RFC n
 - `index.html` — ERP completo (~800 KB, un solo archivo, JS en línea). Publicado en GitHub Pages:
   https://rlc-hash.github.io/nun-erp/ (tarda ~1 min en actualizarse después del push).
 - `crm.html` — app de vendedores (misma base de datos). `importar.html` — importador de XML.
-- Backend: Google Apps Script. Su código está en `backend/Codigo.gs` (v0.9.12; el usuario RAFA- solo lo ve y cambia Rafa; sin códigos de acceso: el maestro va en
+- Backend: Google Apps Script. Su código está en `backend/Codigo.gs` (v0.9.13: en Google ya NO se guarda, solo entrar/usuarios/Facturama/lecturas; en Supabase la propiedad `en_supabase=1` deja todo normal; el usuario RAFA- solo lo ve y cambia Rafa; sin códigos de acceso: el maestro va en
   Propiedades del script → `codigo_maestro`). Claude NO puede publicarlo: Rafa lo pega en el editor de Apps Script y hace
   Implementar → Administrar implementaciones → editar la activa (…Dt2A) → Versión nueva (la URL no cambia).
   Prueba: `node pruebas/prueba_backend_v099.js` (hoja simulada). Nunca usar el backend viejo `AKfycbz9oHW…`.
@@ -38,6 +38,7 @@ Este repo puede ser público: no escribas aquí datos de clientes, montos, RFC n
   Entrar (login), usuarios y Facturama se le pasan a Google (ahí viven los códigos y las credenciales del PAC).
   La hoja de Google YA NO se actualiza: la verdad está en Supabase. Si cambias Codigo.gs: `python3 supabase/publicar.py`
   (y si toca login/usuarios/Facturama, Rafa también lo pega en Apps Script). Prueba: `node pruebas/prueba_supabase_emulador.js`.
+  Desde v4.12 / app v1.9.19, si una página abierta es vieja sale un aviso para recargar (compara con la página publicada).
   `supabase/copiar_de_google.py` copió las hojas de Google (solo volver a usarlo con autorización de Rafa: reemplaza lo de Supabase).
 - `pruebas/` — pruebas con jsdom y backend simulado. Correr desde la raíz del repo:
   `for f in pruebas/*.js; do node $f; done` (requiere `npm i jsdom`). Cada una imprime un JSON; revisar que no haya "error".

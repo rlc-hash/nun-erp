@@ -11,7 +11,7 @@ function hojaMock(nombre){ const h={_n:nombre,rows:[],
     clearContent(){ for(let i=0;i<nr;i++) if(me.rows[r-1+i]) for(let j=0;j<nc;j++) me.rows[r-1+i][c-1+j]=''; me.rows=me.rows.filter((row,k)=>k===0||row.some(x=>x!=='')); return rg; },
     setFontWeight(){return rg;}, setBackground(){return rg;}, setFontColor(){return rg;} }; return rg; },
   deleteRow(i){ h.borrados=(h.borrados||0)+1; this.rows.splice(i-1,1); }, deleteRows(i,n){ h.borrados=(h.borrados||0)+n; this.rows.splice(i-1,n); }, setFrozenRows(){} }; return h; }
-const hojas={}; const props={}; const MEM={}; let lecturasHoja=0;
+const hojas={}; const props={en_supabase:'1'}; const MEM={}; let lecturasHoja=0; // v0.9.13: en Google ya no se guarda; esta prueba revisa la memoria rápida
 const CACHE={ get:k=>k in MEM?MEM[k]:null, put:(k,v)=>{MEM[k]=String(v);}, putAll:o=>{Object.assign(MEM,o);}, getAll:ks=>{const r={}; ks.forEach(k=>{ if(k in MEM) r[k]=MEM[k]; }); return r;}, remove:k=>{delete MEM[k];} };
 const ctx={ console, JSON, Math, Date, String, Number, Object, Array, parseFloat, parseInt, isNaN, RegExp, Error,
   SpreadsheetApp:{ getActiveSpreadsheet:()=>({ getSheetByName:n=>hojas[n]||null, insertSheet:n=>(hojas[n]=hojaMock(n)) }), flush(){} },
@@ -44,5 +44,5 @@ r.fallas=[];
 if(r.primera.items!==1||!r.segunda.desdeMemoria) r.fallas.push('memoria');
 if(r.trasCambio.total!==20||r.trasCambio.desdeMemoria) r.fallas.push('invalidar');
 if(r.get.items!==1||r.trasEditarHoja.desdeMemoria) r.fallas.push('getYhoja');
-if(!/v0\.9\.12/.test(r.version)) r.fallas.push('version');
+if(!/v0\.9\.1[2-9]/.test(r.version)) r.fallas.push('version');
 console.log(JSON.stringify(r,null,1));

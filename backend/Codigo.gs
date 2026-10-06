@@ -17,13 +17,15 @@
 //  · Bind apagado (ya no se usa desde el 29-sep-2026): sincronización y proxy desactivados; el
 //    activador automático se borra solo si llega a correr.
 //
+// v0.9.13 (6-oct-2026) — los datos viven en Supabase: este servidor de Google ya NO guarda (una página vieja abierta recibe "recarga la página").
+//  Aquí solo se entra, se manejan usuarios y se timbra (Supabase se lo pide). En Supabase la propiedad en_supabase=1 deja todo igual que antes.
 // v0.9.12 (6-oct-2026) — listas en memoria rápida de Google (CacheService) hasta que haya un cambio: el sistema carga mucho más rápido.
 // v0.9.11 (30-sep-2026) — documentos nuevos y convertidos llevan folio NUN (P0001/R0001/FT0001/NC0001), ya no REM-2026-0001.
 // v0.9.10 (30-sep-2026) — el usuario de Rafa (código RAFA-…) solo lo ve y lo cambia Rafa (o el código maestro).
 //  Nadie más puede crear códigos de dueño (RAFA-, YADAH-, MASTER-NUN-), porque esos dan permisos de dueño.
 // ============================================================
 
-const VERSION_ERP = 'v0.9.12';
+const VERSION_ERP = 'v0.9.13';
 
 // v0.9.2 — Mapeo de tablas que el CRM pide por nombre "corto" a la hoja real del ERP.
 // El CRM usa 'clientes' para su catálogo de vendedores (NO el catálogo fiscal 'clientes' del ERP).
@@ -44,6 +46,10 @@ function _protegido(codigoTarget, codigoAdmin) {
   if (t.indexOf('RAFA-') === 0 && !_esRafa(codigoAdmin)) return 'Ese usuario solo lo puede cambiar Rafa';
   return '';
 }
+// v0.9.13 — ¿este código corre en Supabase? (allá la propiedad en_supabase vale 1). En Google solo quedan estas acciones:
+// entrar, usuarios, Facturama, y lecturas (Supabase las usa para revisar códigos y para copiar/comparar datos).
+const ACC_EN_GOOGLE = /^(login|liberar_dispositivo|listar_usuarios|crear_usuario|actualizar_usuario|eliminar_usuario|facturama_guardar_cred|facturama_estado|facturama_timbrar|facturama_cancelar|listar_cuentas|listar_bitacora|erp_listar|kv_leer|obtener_empresa|cfdi_xml_get|cfdi_xml_uuids)$/;
+function _enSupabase() { try { return String(PropertiesService.getScriptProperties().getProperty('en_supabase') || '') === '1'; } catch(e) { return false; } }
 // v0.9.9 — tablas que nunca se entregan por las lecturas genéricas
 const TABLAS_PRIVADAS = { usuarios:true };
 // v0.9.9 — Bind ya no se usa
@@ -2674,6 +2680,9 @@ function doPost(e) {
     const codigoSesion = esAccUsuarios ? body.codigo_admin : (body.codigo || body.codigo_usuario || body.codigo_admin);
     const sesion = validarSesion(codigoSesion);
     if (!sesion.ok) return resp({ ok:false, error:'AUTH: ' + (sesion.error || 'sesión inválida'), requiere_login:true });
+
+    // ===== v0.9.13 — en Google ya no se guarda nada: la verdad está en Supabase =====
+    if (!_enSupabase() && !ACC_EN_GOOGLE.test(String(accion))) return resp({ ok:false, recargar:true, error:'El sistema ya usa el servidor nuevo: recarga la página (en compu Ctrl+Shift+R; en celular cierra y abre la app). No se guardó nada.' });
 
     // ===== v0.9.12 — cualquier acción que no sea de solo lectura invalida las listas en memoria =====
     if (!/^(erp_listar|listar_|obtener_|cfdi_xml_get|facturama_estado|siguiente_folio_ver|leer|consultar|buscar|version)/.test(String(accion))) _listaInvalidar();

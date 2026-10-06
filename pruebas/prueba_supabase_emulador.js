@@ -5,7 +5,7 @@ const fs = require('fs'), path = require('path');
   const E = await import(path.join(__dirname, '..', 'supabase', 'functions', 'nun', 'emulador.js'));
   const code = fs.readFileSync(path.join(__dirname, '..', 'backend', 'Codigo.gs'), 'utf8');
   const fn = E.compilar(code);
-  const DB = new Map(); let PROPS = {}; let cargas = 0;
+  const DB = new Map(); let PROPS = { en_supabase: '1' }; let cargas = 0;   // v0.9.13: en Supabase la propiedad en_supabase=1
   const COD = { 'DUENO-PRUEBA1': { admin: true }, 'VEND-PRUEBA2': { admin: false } };
   async function llamar(body, tipo){
     const r = await E.atender({ fn, existentes: [...DB.keys()], props: PROPS,

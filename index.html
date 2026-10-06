@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.11 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.12 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -15870,6 +15870,31 @@ if (document.readyState === 'loading') {
 } else {
   boot();
 }
+// ============================================================
+// v4.12 — AVISO DE VERSIÓN NUEVA: si la página abierta es vieja (ej. se quedó abierta antes de un cambio), sale un aviso para recargar.
+// Lee la misma página publicada (sin memoria del navegador) y compara el número de versión. Cada 5 min y al volver a la pestaña.
+// ============================================================
+(function(){
+  const RE = /rwd-version\">v(\d+\.\d+(?:\.\d+)?)/;
+  const actual = () => { const m = document.documentElement.innerHTML.match(RE); return m ? m[1] : ''; };
+  const num = v => String(v||'').split('.').map(x => parseInt(x, 10) || 0);
+  const mayor = (a, b) => { const x = num(a), y = num(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i]||0) !== (y[i]||0)) return (x[i]||0) > (y[i]||0); } return false; };
+  async function revisar(){
+    try {
+      if (!/^https?:$/.test(location.protocol) || document.getElementById('nunAvisoVersion')) return;
+      const r = await fetch(location.pathname + '?_v=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return;
+      const t = await r.text(), m = t.match(RE), yo = actual(); if (!m || !yo || !mayor(m[1], yo)) return;
+      const d = document.createElement('div'); d.id = 'nunAvisoVersion';
+      d.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9999;background:#111;color:#fff;padding:12px 16px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35);font:14px system-ui,sans-serif;display:flex;gap:12px;align-items:center;max-width:92vw';
+      d.innerHTML = '<span>Hay una versión nueva del sistema (v' + m[1] + '). Recarga para usarla; sin recargar puede no guardarse lo que hagas.</span><button style="background:#fff;color:#111;border:0;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer">Recargar</button>';
+      d.querySelector('button').onclick = () => location.reload();
+      document.body.appendChild(d);
+    } catch(e){}
+  }
+  window.nunRevisarVersion = revisar;
+  setTimeout(revisar, 20000); setInterval(revisar, 300000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') revisar(); });
+})();
 </script>
 </body>
 </html>

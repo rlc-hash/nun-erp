@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.18</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.19</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.18</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.19</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -11321,6 +11321,31 @@ setInterval(function(){
     if (/^erp_/.test(tabActiva) && typeof renderERPTab === 'function') renderERPTab(tabActiva, true);
   } catch(e){}
 }, 120000); // v1.9.18 — otra vez cada 2 min: con Supabase ya no se satura (v1.9.17 lo había subido a 10 por Google)
+// ============================================================
+// v1.9.19 — AVISO DE VERSIÓN NUEVA: si la página abierta es vieja (ej. se quedó abierta antes de un cambio), sale un aviso para recargar.
+// Lee la misma página publicada (sin memoria del navegador) y compara el número de versión. Cada 5 min y al volver a la pestaña.
+// ============================================================
+(function(){
+  const RE = /letter-spacing:0\.05em">v(\d+\.\d+\.\d+)<\/span>/;
+  const actual = () => { const m = document.documentElement.innerHTML.match(RE); return m ? m[1] : ''; };
+  const num = v => String(v||'').split('.').map(x => parseInt(x, 10) || 0);
+  const mayor = (a, b) => { const x = num(a), y = num(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { if ((x[i]||0) !== (y[i]||0)) return (x[i]||0) > (y[i]||0); } return false; };
+  async function revisar(){
+    try {
+      if (!/^https?:$/.test(location.protocol) || document.getElementById('nunAvisoVersion')) return;
+      const r = await fetch(location.pathname + '?_v=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return;
+      const t = await r.text(), m = t.match(RE), yo = actual(); if (!m || !yo || !mayor(m[1], yo)) return;
+      const d = document.createElement('div'); d.id = 'nunAvisoVersion';
+      d.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9999;background:#111;color:#fff;padding:12px 16px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35);font:14px system-ui,sans-serif;display:flex;gap:12px;align-items:center;max-width:92vw';
+      d.innerHTML = '<span>Hay una versión nueva del sistema (v' + m[1] + '). Recarga para usarla; sin recargar puede no guardarse lo que hagas.</span><button style="background:#fff;color:#111;border:0;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer">Recargar</button>';
+      d.querySelector('button').onclick = () => location.reload();
+      document.body.appendChild(d);
+    } catch(e){}
+  }
+  window.nunRevisarVersion = revisar;
+  setTimeout(revisar, 20000); setInterval(revisar, 300000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') revisar(); });
+})();
 </script>
 </body>
 </html>

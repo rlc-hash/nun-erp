@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.15</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.16</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.15</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.16</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -2569,7 +2569,26 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, m => ({'&':'&am
         else if ((!init || !init.body) && /[?&]tabla=/.test(u) && !/[?&]codigo=/.test(u)) url = u + '&codigo=' + encodeURIComponent(cod);
       }
     } catch(e){}
-    return f0.call(this, url, init);
+    // v1.9.16 — Google a veces responde una página de error (404 HTML) en lugar de los datos cuando tarda. Las LECTURAS se
+    // reintentan solas (3 veces); las escrituras no (para no duplicar): se avisa claro en lugar de "Unexpected token <".
+    const u2 = String(url || '');
+    if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(u2)) return f0.call(this, url, init);
+    let acc = ''; try { acc = (init && typeof init.body === 'string') ? String((JSON.parse(init.body)||{}).accion||'') : ''; } catch(e){}
+    const lectura = !init || !init.body || !acc || /^(erp_listar|listar|obtener|login|validar|cfdi_xml_get|facturama_estado|version|kv_leer|leer|buscar|consultar)/i.test(acc);
+    const self = this;
+    const json = obj => new Response(JSON.stringify(obj), { status:200, headers:{ 'Content-Type':'application/json' } });
+    return (async () => {
+      for (let i = 1; i <= (lectura ? 3 : 1); i++) {
+        try {
+          const res = await f0.call(self, url, init);
+          if (!res || typeof res.clone !== 'function') return res; // respuesta sin forma estándar: se entrega tal cual
+          const t = (await res.clone().text()).trim();
+          if (res.ok && (t.startsWith('{') || t.startsWith('['))) return res;
+        } catch(e){ if (!lectura) return json({ ok:false, error:'Sin conexión con el servidor. Revisa tu internet y si se guardó antes de repetirlo.' }); }
+        if (i < 3 && lectura) await new Promise(z => setTimeout(z, 1500 * i));
+      }
+      return json({ ok:false, error: lectura ? 'El servidor de Google no respondió. Intenta otra vez en un momento.' : 'El servidor de Google no confirmó. Revisa si sí se guardó antes de repetirlo.' });
+    })();
   };
   f1._nunCodigo = true; window.fetch = f1;
 })();

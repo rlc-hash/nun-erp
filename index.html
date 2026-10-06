@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.03 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.04 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2684,25 +2684,18 @@ async function api(payload) {
   if (!body.codigo && State.sesion && State.sesion.codigo && State.sesion.codigo !== 'DEMO') {
     body.codigo = State.sesion.codigo;
   }
-  let r;
-  try {
-    r = await fetch(State.url, {
-      method:'POST',
-      body: JSON.stringify(body),
-      headers: { 'Content-Type':'text/plain;charset=utf-8' }
-    });
-  } catch(netErr) {
-    // Falla de red / sin conexión: mensaje claro en vez de excepción cruda
-    throw new Error('Sin conexión con el servidor. Revisa tu internet e inténtalo de nuevo.');
+  // v4.04 — Google a veces responde una página de error (404 HTML) en lugar de los datos cuando tarda: las LECTURAS se reintentan
+  // solas (3 veces); las escrituras no (para no duplicar un pago o un documento): se avisa que revisen si se guardó.
+  const _lectura = /^(erp_listar|listar|obtener|login|validar|cfdi_xml_get|facturama_estado|version|kv_leer|leer|buscar|consultar)/i.test(String(body.accion||''));
+  let r, j, _ok = false;
+  for (let _i = 1; _i <= (_lectura ? 3 : 1) && !_ok; _i++) {
+    try {
+      r = await fetch(State.url, { method:'POST', body: JSON.stringify(body), headers: { 'Content-Type':'text/plain;charset=utf-8' } });
+      try { j = await r.json(); _ok = true; } catch(parseErr) { j = undefined; }
+    } catch(netErr) { if (!_lectura) throw new Error('Sin conexión con el servidor. Revisa tu internet y si se guardó antes de repetirlo.'); }
+    if (!_ok && _lectura && _i < 3) await new Promise(z => setTimeout(z, 1500 * _i));
   }
-  // v3.49: el backend (Apps Script) a veces responde HTML de error en vez de JSON.
-  // Blindamos el parseo para no lanzar "Unexpected token <" y dar un mensaje entendible.
-  let j;
-  try {
-    j = await r.json();
-  } catch(parseErr) {
-    throw new Error('El servidor respondió algo inesperado (posible caída de Apps Script). Inténtalo de nuevo en un momento.');
-  }
+  if (!_ok) throw new Error(_lectura ? 'El servidor de Google no respondió. Inténtalo otra vez en un momento.' : 'El servidor de Google no confirmó. Revisa si sí se guardó antes de repetirlo.');
   // Si el backend rechaza la sesión, forzar re-login
   if (j && j.requiere_login) {
     localStorage.removeItem('nun_sesion_v2');

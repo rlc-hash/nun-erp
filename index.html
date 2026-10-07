@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.15 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.16 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2684,6 +2684,7 @@ async function api(payload) {
   if (!State.url) throw new Error('URL no configurada');
   const body = Object.assign({}, payload);
   if (!(await nunCandadoLigaOtroCliente(body))) throw new Error('No se guardó: el pedido es de otro cliente'); // v4.10
+  if (!body._quien) { try { body._quien = ((State.sesion||{}).usuario||{}).nombre || ''; } catch(e){} } // v4.16 para el historial de cambios
   if (!body.codigo && State.sesion && State.sesion.codigo && State.sesion.codigo !== 'DEMO') {
     body.codigo = State.sesion.codigo;
   }
@@ -7458,6 +7459,7 @@ function abrirDoc(tabla, id) {
   if (id) {
     // v4.14 — flujo nuevo: la cotización se CONFIRMA y se vuelve pedido (venta); del pedido sale la factura (ya no hay remisión)
     if (tabla === 'cotizaciones' && nunPuedeLigar() && !/convertida|rechaz|cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-primary" onclick="nunConfirmarCotizacion('${id}')" title="Se vuelve pedido: descuenta inventario y entra a Cobranza como venta">✅ Confirmar → Pedido</button>`;
+    if (nunEsAdmin() && /^(pedidos|cotizaciones|remisiones|facturas|notascredito)$/.test(tabla)) acciones += `<button class="btn btn-secondary" onclick="nunHistorialDoc('${id}')" title="Quién lo cambió y cuándo">🕘 Cambios</button>`; // v4.16
     if (tabla === 'pedidos' && nunPuedeLigar() && nunPedidoPorConfirmar(doc)) acciones += `<button class="btn btn-primary" onclick="nunActivarPedido('${id}')" title="Descuenta inventario y entra a Cobranza como venta">✅ Confirmar pedido</button>`;
     if (tabla === 'pedidos' && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn ${nunPedidoPorConfirmar(doc) ? 'btn-secondary' : 'btn-primary'}" onclick="nunDesdePedidos('${id}','facturas')">🧾 Hacer factura</button>`; // v3.88 · v4.14 sin remisión
     if (tabla === 'remisiones') acciones += `<button class="btn btn-secondary" onclick="nunFacturarRemisionDesdeDrawer('${id}')">→ Factura</button>`; // v3.72 guarda y luego factura
@@ -8269,6 +8271,27 @@ async function nunCancelarPedidoVentaSiAplica(p){
   return true;
 }
 window.nunConfirmarCotizacion = nunConfirmarCotizacion; window.nunActivarPedido = nunActivarPedido;
+
+// ============================================================
+// v4.16 — HISTORIAL DE CAMBIOS: quién y cuándo cambió un documento (desde el 7 oct 2026 el servidor anota el nombre).
+// Antes de esa fecha solo hay hora (sin nombre). Solo para administradores.
+// ============================================================
+async function nunHistorialDoc(id){
+  nunOcupado('Buscando cambios…');
+  let r; try { r = await api({ accion:'historial_doc', id }); } catch(e){ r = { ok:false, error:e.message }; } finally { nunOcupado(''); }
+  if (!(r && r.ok)) { toast('✗ ' + ((r && r.error) || 'No se pudo leer el historial'), { type:'error' }); return; }
+  const qué = a => { a = String(a||''); return /^erp_crear/.test(a) ? 'Se creó' : /^erp_upsert_batch|^erp_actualizar/.test(a) ? 'Se guardó / cambió' : /^capturar_pago/.test(a) ? 'Pago registrado' : /^confirmar_cotizacion/.test(a) ? 'Cotización confirmada' : /^activar_pedido/.test(a) ? 'Pedido confirmado' : /^cancelar_pedido_venta|^pedido_liberar/.test(a) ? 'Cancelado / liberado' : /^convertir_documento/.test(a) ? 'Se convirtió' : a.split(' ')[0]; };
+  let m = document.getElementById('modalHIS'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalHIS';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:140;display:flex;align-items:center;justify-content:center;padding:16px';
+  const filas = (r.cambios||[]).map(c => `<tr><td style="padding:5px 8px;white-space:nowrap" class="mono">${escapeHTML(String(c.fecha||'').replace('T',' '))}</td><td style="padding:5px 8px">${escapeHTML(qué(c.accion))}${c.ok === false ? ' <span class="tag red">no se guardó</span>' : ''}</td><td style="padding:5px 8px"><b>${escapeHTML(c.quien || '—')}</b></td></tr>`).join('');
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:640px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)"><h3 style="margin:0">🕘 Cambios de este documento</h3><button class="icon-btn" onclick="document.getElementById('modalHIS').remove()">✕</button></div>
+    <div style="overflow:auto;padding:4px 18px 14px">${filas ? `<table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="text-align:left;color:var(--ink-3)"><th style="padding:5px 8px">Fecha y hora (México)</th><th style="padding:5px 8px">Qué pasó</th><th style="padding:5px 8px">Quién</th></tr></thead><tbody>${filas}</tbody></table>` : '<div style="padding:20px;color:var(--mute)">No hay cambios registrados desde que el sistema está en el servidor nuevo (6 oct 2026).</div>'}
+    <div style="font-size:11.5px;color:var(--ink-3);margin-top:8px">El nombre se anota desde el 7 oct 2026; antes solo quedó la hora (aparece "—").</div></div></div>`;
+  document.body.appendChild(m);
+}
+window.nunHistorialDoc = nunHistorialDoc;
  window.nunCobrarEnOtraVenta = nunCobrarEnOtraVenta; window.nunCobrarEnOtraVentaGuardar = nunCobrarEnOtraVentaGuardar;
 
 // XML del complemento

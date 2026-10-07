@@ -44,9 +44,9 @@ async function google(body: Record<string, unknown>, intentos = 3){
 
 // ¿Es un código activo? Se pregunta a Google una vez y se recuerda 6 horas.
 async function sesion(c: string, necesitaAdmin: boolean){
-  if (!c) return { ok: false, admin: false };
+  if (!c) return { ok: false, admin: false, nombre: '' };
   const h = await sha(c);
-  const [s] = await sql`select admin, hasta > now() as vigente, hasta from nun_sesiones where h = ${h}`;
+  const [s] = await sql`select admin, nombre, hasta > now() as vigente, hasta from nun_sesiones where h = ${h}`;
   let ok = !!(s && s.vigente), admin = !!(s && s.admin);
   if (!ok || (necesitaAdmin && s && s.admin === null)){
     const v = await google({ accion: 'listar_cuentas', codigo: c });
@@ -60,7 +60,7 @@ async function sesion(c: string, necesitaAdmin: boolean){
     if (ok) await sql`insert into nun_sesiones (h, admin, hasta) values (${h}, ${necesitaAdmin ? admin : (s ? s.admin : null)}, now() + interval '6 hours')
                       on conflict (h) do update set admin = excluded.admin, hasta = excluded.hasta`;
   }
-  return { ok, admin };
+  return { ok, admin, nombre: (s && s.nombre) || '' };
 }
 
 async function cargar(db: any, nombres: string[]){
@@ -106,7 +106,7 @@ async function ejecutar(tipo: 'post'|'get', payload: string|Record<string,string
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   const t0 = Date.now();
-  let accion = '', ok = true, err = '';
+  let accion = '', ok = true, err = '', quien = '';
   try {
     const url = new URL(req.url);
     if (req.method === 'GET'){
@@ -120,21 +120,34 @@ Deno.serve(async (req) => {
     let body: any; try { body = JSON.parse(texto); } catch(e){ return json({ ok: false, error: 'Petición inválida' }); }
     accion = String(body.accion || '');
     // en el registro: también qué tabla y qué documentos (para saber quién cambió qué y cuándo)
-    const _det = (body.tabla ? ' ' + body.tabla : '') + (Array.isArray(body.items) ? ' ' + body.items.slice(0, 4).map((i: any) => String((i && i.id) || '').slice(0, 26)).join(',') : (body.item && body.item.id) ? ' ' + String(body.item.id).slice(0, 26) : body.id ? ' ' + String(body.id).slice(0, 26) : '');
+    const _det = (body.tabla ? ' ' + body.tabla : '') + (Array.isArray(body.items) ? ' ' + body.items.slice(0, 4).map((i: any) => String((i && i.id) || '').slice(0, 26)).join(',') : (body.item && body.item.id) ? ' ' + String(body.item.id).slice(0, 26) : body.id ? ' ' + String(body.id).slice(0, 26) : body.id_doc ? ' ' + String(body.id_doc).slice(0, 26) : body.id_origen ? ' ' + String(body.id_origen).slice(0, 26) : '');
     if (A_GOOGLE.test(accion)){
       // timbrar/cancelar NO se reintentan (no timbrar dos veces); lo demás sí
       const r = await google(body, /^facturama_(timbrar|cancelar)$/.test(accion) ? 1 : 3);
       if (accion === 'login' && r && r.ok){
         const c = norm(body.codigo), rol = String((r.usuario && r.usuario.rol) || '').toLowerCase();
-        await sql`insert into nun_sesiones (h, admin, hasta) values (${await sha(c)}, ${rol === 'admin'}, now() + interval '6 hours')
-                  on conflict (h) do update set admin = excluded.admin, hasta = excluded.hasta`;
+        const nom = String((r.usuario && r.usuario.nombre) || '').slice(0, 60);
+        await sql`insert into nun_sesiones (h, admin, nombre, hasta) values (${await sha(c)}, ${rol === 'admin'}, ${nom}, now() + interval '6 hours')
+                  on conflict (h) do update set admin = excluded.admin, nombre = excluded.nombre, hasta = excluded.hasta`;
+        quien = nom;
       }
       ok = !!(r && r.ok); if (!ok) err = String(r && r.error || '').substring(0, 200);
+      if (!quien) quien = String(body._quien || '').slice(0, 60);
       return json(r);
+    }
+    // v4.16 — quién y cuándo cambió un documento (solo administradores)
+    if (accion === 'historial_doc') {
+      const c = norm(body.codigo), se = await sesion(c, true); quien = se.nombre || String(body._quien || '').slice(0, 60);
+      if (!se.ok || !se.admin) return json({ ok: false, error: 'Solo administradores' });
+      const k = String(body.id || '').slice(0, 26); if (!k) return json({ ok: false, error: 'Falta el documento' });
+      const rows = await sql`select to_char(fecha at time zone 'America/Mexico_City', 'YYYY-MM-DD HH24:MI:SS') as fecha, accion, coalesce(quien, '') as quien, ok
+                             from nun_log where accion like ${'% ' + k + '%'} or accion like ${'%,' + k + '%'} order by id desc limit 100`;
+      return json({ ok: true, cambios: rows });
     }
     const necesitaAdmin = A_ADMIN.test(accion);
     const m = new Map();
     for (const c of new Set([body.codigo, body.codigo_usuario, body.codigo_admin].map(norm).filter(Boolean))) m.set(c, await sesion(c, necesitaAdmin));
+    quien = ((m.get(norm(body.codigo || body.codigo_usuario || body.codigo_admin)) || {}).nombre) || String(body._quien || '').slice(0, 60);
     const out = await ejecutar('post', texto, body, m, !A_LECTURA.test(accion));
     if (!A_LECTURA.test(accion)) accion += _det;
     try { const j = JSON.parse(out); ok = !!j.ok; if (!ok) err = String(j.error || '').substring(0, 200); } catch(e){}
@@ -144,6 +157,6 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: 'Error del servidor: ' + err });
   } finally {
     const ms = Date.now() - t0;
-    sql`insert into nun_log (accion, ms, ok, error) values (${accion}, ${ms}, ${ok}, ${err})`.catch(() => {});
+    sql`insert into nun_log (accion, ms, ok, error, quien) values (${accion}, ${ms}, ${ok}, ${err}, ${quien})`.catch(() => {});
   }
 });

@@ -23,3 +23,7 @@ alter table nun_props enable row level security;
 alter table nun_sesiones enable row level security;
 alter table nun_log enable row level security;
 revoke all on nun_hojas, nun_historial, nun_props, nun_sesiones, nun_log from anon, authenticated;
+
+alter table nun_log add column if not exists quien text;           -- v4.16 quién hizo el cambio (nombre, nunca el código)
+alter table nun_sesiones add column if not exists nombre text;
+create index if not exists nun_log_fecha on nun_log (fecha desc);

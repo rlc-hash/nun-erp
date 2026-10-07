@@ -27,7 +27,7 @@ setTimeout(async()=>{const r={};try{
  w.eval("window.__preg=[]; window.confirmDialog=async(o)=>{ window.__preg.push(o.message); return window.__resp; }; window.__resp=false");
  await w.eval("nunDesdePedidos('p4')"); await sleep(200);
  await w.eval("nunDesdePedidosCrear('remisiones')"); await sleep(300);
- r.avisoNo={pregunta:/Ya existe la remisión R0006 de CLIENTE DIEZ por \$4,650.00.*sin pedido/.test(w.__preg[0]||''),creadas:DB.remisiones.length,boton:d.getElementById('dpBotonR')&&d.getElementById('dpBotonR').textContent};
+ r.avisoNo={pregunta:/Ya existe la remisión R0006 de CLIENTE DIEZ por \$4,650.00.*sin pedido/.test(w.__preg[0]||''),creadas:DB.remisiones.length,boton:!!d.getElementById('dpBoton')&&!d.getElementById('dpBoton').disabled}; // v4.14 sin botón de remisión: el de factura queda libre
  // 2) dice "sí, es otra venta" → se crea sin bajar listas completas antes de terminar
  w.eval("window.__resp=true"); const antes=enviados.length;
  await w.eval("nunDesdePedidosCrear('remisiones')");
@@ -39,7 +39,7 @@ setTimeout(async()=>{const r={};try{
  w.eval("docItems[0].precio_unitario=5250"); await w.eval("guardarDoc('remisiones','r323')"); await sleep(400);
  const rr=DB.remisiones.find(x=>x.id==='r323'); r.cambio={total:rr.total,nota:/Total cambió de \$5,550.00 a \$5,250.00 el \d{4}-\d{2}-\d{2} \(Yazmin\)/.test(rr.notas||''),conservaBind:/Importada desde Bind ERP/.test(rr.notas||''),cobro:DB.cobranza.find(c=>c.id==='bind_cob_323').total};
  r.fallas=[];
- if(!r.avisoNo.pregunta||r.avisoNo.creadas!==2||r.avisoNo.boton!=='📦 Hacer remisión') r.fallas.push('avisoNo');
+ if(!r.avisoNo.pregunta||r.avisoNo.creadas!==2||r.avisoNo.boton!==true) r.fallas.push('avisoNo');
  if(r.crear.creadas!==3||r.crear.listasAntesDeTerminar!==0||r.crear.pedido!=='entregado') r.fallas.push('crear');
  if(r.cambio.total!==5250||!r.cambio.nota||!r.cambio.conservaBind||r.cambio.cobro!==5250) r.fallas.push('cambio');
 }catch(e){r.error=String(e.stack).slice(0,600)} r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();},4000);

@@ -77,6 +77,41 @@ const fs = require('fs'), path = require('path');
   const kv = (await llamar({ accion: 'kv_leer', codigo: C })).valores;
   r.kv = { k1: kv.k1.length, k2: kv.k2, renglones: DB.get('ERP_Estado').length };
   ok('kv', kv.k1.length === 100000 && kv.k2 === 'adios' && r.kv.renglones === 5);
+  // v0.9.15 — FLUJO NUEVO: cotización aparta → confirmar = pedido (venta, descuenta inventario, 1 cobro) → factura sin otro cobro
+  DB.get('Productos').push(DB.get('Productos')[0].map(h => ({ id: 'p2', sku: 'B2', stock_actual: 10, stock_comprometido: 0 }[h] ?? '')));
+  const stockB = async () => { const it = (await llamar({ accion: 'erp_listar', tabla: 'productos', codigo: C })).items.find(x => x.sku === 'B2'); return it.stock_actual + '/' + it.stock_comprometido; };
+  const cot = await llamar({ accion: 'erp_crear', tabla: 'cotizaciones', item: { id: 'cot1', folio: '', cliente: 'CLIENTE Z', vendedor: 'EDGAR', total: 300, subtotal: 300, iva: 0, estatus: 'enviada', items_json: JSON.stringify([{ sku: 'B2', cantidad: 3, precio_unitario: 100 }]) }, codigo: 'VEND-PRUEBA2', usuario: 'EDGAR' });
+  const F = { folioCot: cot.item && cot.item.folio, trasCotizacion: await stockB() };
+  const conf = await llamar({ accion: 'confirmar_cotizacion', id: 'cot1', codigo: C, usuario: 'Rafa' });
+  const cobs = (await llamar({ accion: 'erp_listar', tabla: 'cobranza', codigo: C })).items.filter(x => x.factura_origen === (conf.pedido || {}).id);
+  const cotD = (await llamar({ accion: 'erp_listar', tabla: 'cotizaciones', codigo: C })).items.find(x => x.id === 'cot1');
+  const pedD = (await llamar({ accion: 'erp_listar', tabla: 'pedidos', codigo: C })).items.find(x => x.id === (conf.pedido || {}).id);
+  Object.assign(F, { ok: conf.ok, folioPed: pedD && pedD.folio, estatusPed: pedD && pedD.estatus, origen: pedD && pedD.cotizacion_origen, trasConfirmar: await stockB(),
+    cobros: cobs.map(c => c.tipo + ' ' + c.numero + ' ' + c.total + ' pend ' + c.pendiente), cot: cotD.estatus,
+    otraVez: (await llamar({ accion: 'confirmar_cotizacion', id: 'cot1', codigo: C })).error || 'sin error' });
+  const fac = await llamar({ accion: 'convertir_documento', tabla_origen: 'pedidos', id_origen: conf.pedido.id, tabla_destino: 'facturas', usuario: 'Rafa', codigo: C });
+  const facD = (await llamar({ accion: 'erp_listar', tabla: 'facturas', codigo: C })).items.find(x => x.id === fac.nuevoId);
+  F.factura = { cobroCreado: !!fac.cobranzaCreada, cobrosDelPedido: (await llamar({ accion: 'erp_listar', tabla: 'cobranza', codigo: C })).items.filter(x => /cancel/.test(x.estatus) === false && (x.factura_origen === fac.nuevoId)).length, nota: /Cobro en P\d{4} \(id cob_/.test(facD.notas || '') };
+  F.cancelarConFactura = (await llamar({ accion: 'cancelar_pedido_venta', id: conf.pedido.id, codigo: C })).error || 'sin error';
+  await llamar({ accion: 'erp_upsert_batch', tabla: 'facturas', items: [{ id: fac.nuevoId, estatus: 'cancelada' }], codigo: C });
+  const canc = await llamar({ accion: 'cancelar_pedido_venta', id: conf.pedido.id, codigo: C, motivo: 'prueba' });
+  const cobC = (await llamar({ accion: 'erp_listar', tabla: 'cobranza', codigo: C })).items.find(x => x.id === 'cob_' + conf.pedido.id);
+  F.cancelar = { ok: canc.ok, cobro: cobC.estatus, stock: await stockB(), pedido: (await llamar({ accion: 'erp_listar', tabla: 'pedidos', codigo: C })).items.find(x => x.id === conf.pedido.id).estatus };
+  // con pagos no se puede cancelar
+  await llamar({ accion: 'erp_crear', tabla: 'cotizaciones', item: { id: 'cot2', cliente: 'CLIENTE Z', total: 100, estatus: 'enviada', items_json: JSON.stringify([{ sku: 'B2', cantidad: 1, precio_unitario: 100 }]) }, codigo: C });
+  const conf2 = await llamar({ accion: 'confirmar_cotizacion', id: 'cot2', codigo: C });
+  await llamar({ accion: 'capturar_pago_cliente', id_doc: 'cob_' + conf2.pedido.id, monto: 50, fecha: '2026-10-07', cuenta: 'BBVA', codigo_usuario: C, codigo: C });
+  F.cancelarConPago = (await llamar({ accion: 'cancelar_pedido_venta', id: conf2.pedido.id, codigo: C })).error || 'sin error';
+  // cotización rechazada libera lo apartado
+  await llamar({ accion: 'erp_crear', tabla: 'cotizaciones', item: { id: 'cot3', cliente: 'CLIENTE Z', total: 200, estatus: 'enviada', items_json: JSON.stringify([{ sku: 'B2', cantidad: 2, precio_unitario: 100 }]) }, codigo: C });
+  F.cot3Apartada = await stockB(); await llamar({ accion: 'cotizacion_liberar', id: 'cot3', codigo: C }); F.cot3Liberada = await stockB();
+  F.bitacoraSinCodigos = !DB.get('Bitacora').slice(1).some(r => /PRUEBA\d/.test(String(r[1]))) && !DB.get('MovInventario').slice(1).some(r => r.some(v => /PRUEBA\d/.test(String(v))));
+  r.flujo = F;
+  ok('flujo', /^C\d{4}$/.test(F.folioCot || '') && F.trasCotizacion === '10/3' && F.ok && /^P\d{4}$/.test(F.folioPed || '') && F.estatusPed === 'confirmado' && F.origen === F.folioCot
+    && F.trasConfirmar === '7/0' && F.cobros.length === 1 && /^Pedido P\d{4} 300 pend 300$/.test(F.cobros[0]) && F.cot === 'convertida' && /ya se confirmó/.test(F.otraVez)
+    && !F.factura.cobroCreado && F.factura.cobrosDelPedido === 0 && F.factura.nota && /factura .* sin cancelar/.test(F.cancelarConFactura)
+    && F.cancelar.ok && F.cancelar.cobro === 'cancelado' && F.cancelar.stock === '10/0' && F.cancelar.pedido === 'cancelado' && /tiene pagos/.test(F.cancelarConPago)
+    && F.cot3Apartada === '9/2' && F.cot3Liberada === '9/0' && F.bitacoraSinCodigos);
   // usuarios: la hoja existe pero nunca sale
   r.listarSinCambios = (await llamar({ accion: 'erp_listar', tabla: 'pedidos', codigo: C }))._sucias.length;
   ok('lecturaNoEscribe', r.listarSinCambios === 0);

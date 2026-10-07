@@ -17,6 +17,10 @@
 //  · Bind apagado (ya no se usa desde el 29-sep-2026): sincronización y proxy desactivados; el
 //    activador automático se borra solo si llega a correr.
 //
+// v0.9.15 (7-oct-2026) — FLUJO NUEVO DE VENTA: el vendedor sube COTIZACIÓN (folio C0001; aparta inventario); al CONFIRMARLA
+//  (confirmar_cotizacion) se vuelve PEDIDO: se libera lo apartado, se descuenta el inventario y nace UN cobro (tipo Pedido).
+//  La factura que salga de ese pedido NO crea otro cobro: se cobra en el del pedido. Las remisiones ya no se usan.
+//  activar_pedido (pedido capturado directo), cancelar_pedido_venta (sin pagos: cancela el cobro y regresa el inventario), cotizacion_liberar.
 // v0.9.14 (7-oct-2026) — erp_upsert_batch puede VACIAR campos a propósito: item._vaciar = ['pedido_origen'] (un '' normal se sigue ignorando).
 // v0.9.13 (6-oct-2026) — los datos viven en Supabase: este servidor de Google ya NO guarda (una página vieja abierta recibe "recarga la página").
 //  Aquí solo se entra, se manejan usuarios y se timbra (Supabase se lo pide). En Supabase la propiedad en_supabase=1 deja todo igual que antes.
@@ -26,7 +30,7 @@
 //  Nadie más puede crear códigos de dueño (RAFA-, YADAH-, MASTER-NUN-), porque esos dan permisos de dueño.
 // ============================================================
 
-const VERSION_ERP = 'v0.9.14';
+const VERSION_ERP = 'v0.9.15';
 
 // v0.9.2 — Mapeo de tablas que el CRM pide por nombre "corto" a la hoja real del ERP.
 // El CRM usa 'clientes' para su catálogo de vendedores (NO el catálogo fiscal 'clientes' del ERP).
@@ -514,7 +518,7 @@ function objetoAFila(hoja, obj) {
 }
 
 // v0.9.9 — folios NUN que no se pueden repetir (Pedido P0001, Remisión R0001, Factura FT0001, Nota de crédito NC0001)
-const PREF_FOLIO_NUN = { pedidos:'P', remisiones:'R', facturas:'FT', notascredito:'NC' };
+const PREF_FOLIO_NUN = { pedidos:'P', remisiones:'R', facturas:'FT', notascredito:'NC', cotizaciones:'C' }; // v0.9.15 cotizaciones C0001
 function _folioNUNLibre(hoja, tabla, item) {
   const pref = PREF_FOLIO_NUN[tabla];
   const folio = String(item.folio || '').trim();
@@ -933,7 +937,7 @@ function registrarMovInventario(payload) {
     referencia: payload.referencia || '',
     ref_id: payload.ref_id || '',
     motivo: payload.motivo || '',
-    usuario: payload.usuario || '',
+    usuario: _quien(payload.usuario), // v0.9.15
     notas: payload.notas || '',
     almacen: payload.almacen || 'Matriz'
   };
@@ -1131,10 +1135,12 @@ function siguienteFolio(tipoDocumento, serie) {
 // ============================================================
 // BITÁCORA / AUDIT LOG
 // ============================================================
+// v0.9.15 — nunca guardar un código de acceso completo en bitácora ni inventario (cualquiera con usuario puede leer esas hojas)
+function _quien(u) { const s = String(u || '').trim(); const m = s.match(/^([A-Za-zÁÉÍÓÚÑáéíóúñ]+)-[A-Za-z0-9-]{2,}$/); return m ? m[1].toUpperCase() + '-…' : s; }
 function registrarBitacora(usuario, accion, tabla, registroId, detalle) {
   try {
     const hoja = asegurarHoja('bitacora');
-    hoja.appendRow([new Date().toISOString(), usuario || '', accion || '', tabla || '', registroId || '', detalle || '']);
+    hoja.appendRow([new Date().toISOString(), _quien(usuario), accion || '', tabla || '', registroId || '', detalle || '']);
   } catch(e) { /* no rompe si falla la bitácora */ }
 }
 
@@ -1305,7 +1311,10 @@ function convertirDocumento(tablaOrigen, idOrigen, tablaDestino, usuario) {
     if (tablaOrigen === 'pedidos') { try { _ajustarComprometido(_itemsDeDoc('pedidos', idOrigen), -1); } catch(e) {} }
   }
   if (tablaDestino === 'facturas') {
-    cobranzaCreada = generarCobranzaDesdeFactura(r.item, usuario);
+    // v0.9.15 — si el pedido ya es venta (tiene su cobro), la factura se cobra ahí: no se crea otro cobro
+    const _cp = tablaOrigen === 'pedidos' ? _cobroPropioPedido(idOrigen) : null;
+    if (_cp) _anotar('facturas', r.item.id, 'Cobro en ' + (_cp.numero || '') + ' (id ' + _cp.id + ')');
+    else cobranzaCreada = generarCobranzaDesdeFactura(r.item, usuario);
   }
 
   registrarBitacora(usuario, 'convertir', tablaOrigen + '->' + tablaDestino, idOrigen, r.item.id);
@@ -1347,7 +1356,7 @@ function aplicarInventarioDocumento(idDoc, tabla, tipoMov, usuario) {
       costo_unitario: parseFloat(it.precio_unitario || it.costo_unitario) || 0,
       referencia: doc.folio || tabla,
       ref_id: idDoc,
-      motivo: tabla === 'recepciones' ? 'compra' : (tabla === 'remisiones' || tabla === 'facturas') ? 'venta' : '',
+      motivo: tabla === 'recepciones' ? 'compra' : (tabla === 'remisiones' || tabla === 'facturas') ? 'venta' : tabla === 'pedidos' ? (tipoMov === 'entrada' ? 'cancelación de venta' : 'venta') : '', // v0.9.15 pedidos
       usuario: usuario || '',
       notas: 'Auto desde ' + tabla + ' ' + (doc.folio || idDoc)
     });
@@ -2591,6 +2600,94 @@ function remisionAplicar(idRem, usuario) {
   if (pedOrigen) liberados = _ajustarComprometido(_itemsDeDoc('pedidos', pedOrigen), -1);
   return { ok:true, salida: r, liberados: liberados };
 }
+
+// ============================================================
+// v0.9.15 — FLUJO NUEVO DE VENTA (cotización → pedido = venta → factura opcional)
+// ============================================================
+function _hoyISO(){ return new Date().toISOString().substring(0,10); }
+function _filaPorId(tabla, id){
+  const S = _leerHoja(tabla), k = String(id || '').trim(); if (!k) return null;
+  for (let i = 1; i < S.filas.length; i++) if (String(S.filas[i][S.idx.id]) === k || (S.idx.folio !== undefined && String(S.filas[i][S.idx.folio]).trim() === k && tabla !== 'cobranza')) {
+    const o = {}; S.headers.forEach((h, j) => { let v = S.filas[i][j]; if (v instanceof Date) v = v.toISOString(); o[h] = v; }); return { S, i, obj: o };
+  }
+  return null;
+}
+function _poner(f, campo, valor){ if (f && f.S.idx[campo] !== undefined) { f.S.hoja.getRange(f.i + 1, f.S.idx[campo] + 1).setValue(valor); f.obj[campo] = valor; } }
+function _anotar(tabla, id, texto){ const f = _filaPorId(tabla, id); if (f) _poner(f, 'notas', (f.obj.notas ? String(f.obj.notas) + ' · ' : '') + texto); }
+function _cobroPropioPedido(idPedido){
+  const S = _leerHoja('cobranza'), k = String(idPedido || '');
+  for (let i = 1; i < S.filas.length; i++) {
+    if (String(S.filas[i][S.idx.factura_origen]) === k && !/cancel/i.test(String(S.filas[i][S.idx.estatus] || ''))) { const o = {}; S.headers.forEach((h, j) => o[h] = S.filas[i][j]); return o; }
+  }
+  return null;
+}
+function _creditoDias(cliente){
+  try { const S = _leerHoja('clientes'); for (let i = 1; i < S.filas.length; i++) if (String(S.filas[i][S.idx.razon_social]).trim() === String(cliente || '').trim()) return parseInt(S.filas[i][S.idx.credito_dias]) || 0; } catch(e) {}
+  return 0;
+}
+function cotizacionApartar(id, usuario){ const n = _ajustarComprometido(_itemsDeDoc('cotizaciones', id), +1); if (n) registrarBitacora(usuario || '', 'apartar_inventario', 'cotizaciones', id, n + ' SKU(s) apartados'); return { ok:true, apartados:n }; }
+function cotizacionLiberar(id, usuario){
+  const f = _filaPorId('cotizaciones', id); if (!f) return { ok:false, error:'No encontré la cotización' };
+  if (/convertida/i.test(String(f.obj.estatus || ''))) return { ok:true, liberados:0 }; // lo apartado ya se liberó al confirmarla
+  const n = _ajustarComprometido(_itemsDeDoc('cotizaciones', id), -1); if (n) registrarBitacora(usuario || '', 'liberar_apartado', 'cotizaciones', id, n + ' SKU(s) liberados'); return { ok:true, liberados:n };
+}
+// El pedido se vuelve VENTA: descuenta inventario y nace su cobro (uno solo). liberarApartado = si el pedido había apartado al crearse.
+function activarPedido(idPedido, usuario, liberarApartado){
+  const f = _filaPorId('pedidos', idPedido); if (!f) return { ok:false, error:'No encontré el pedido' };
+  const p = f.obj;
+  if (/cancel/i.test(String(p.estatus || ''))) return { ok:false, error:'El pedido está cancelado' };
+  if (/^bind_/.test(String(p.id))) return { ok:false, error:'Los pedidos de Bind no se confirman aquí (ya tienen su venta)' };
+  if (_cobroPropioPedido(p.id)) return { ok:false, error:'Este pedido ya está confirmado (ya tiene su cobro en Cobranza)' };
+  if (liberarApartado) _ajustarComprometido(_itemsDeDoc('pedidos', p.id), -1);
+  const inv = aplicarInventarioDocumento(p.id, 'pedidos', 'salida', usuario);
+  const hoy = _hoyISO(), cred = _creditoDias(p.cliente), venc = new Date(hoy + 'T12:00:00'); venc.setDate(venc.getDate() + cred);
+  const total = parseFloat(p.total) || 0;
+  const cob = { id:'cob_' + p.id, fecha_entrega:hoy, fecha_emision:hoy, fecha_vencimiento:venc.toISOString().substring(0,10), cliente:p.cliente, tipo:'Pedido',
+    numero:String(p.folio || p.id), estatus:'pendiente', vendedor:p.vendedor || '', descripcion:'Venta del pedido ' + (p.folio || '') + (p.cotizacion_origen ? ' (cotización ' + p.cotizacion_origen + ')' : ''),
+    credito:cred, total:total, cobrado:0, pendiente:total, dias_vencido:0, sin_entregar:'', folio_fiscal:'', factura_origen:p.id };
+  const rc = erpCrear('cobranza', cob); if (!rc.ok) return rc;
+  _poner(f, 'estatus', 'confirmado');
+  registrarBitacora(usuario || '', 'activar_pedido', 'pedidos', p.id, 'venta ' + total + ' · cobro ' + cob.id);
+  return { ok:true, pedido:p, cobro:cob, inventario:inv };
+}
+function confirmarCotizacion(idCot, usuario){
+  const f = _filaPorId('cotizaciones', idCot); if (!f) return { ok:false, error:'No encontré la cotización' };
+  const c = f.obj;
+  if (/convertida/i.test(String(c.estatus || ''))) return { ok:false, error:'Esta cotización ya se confirmó (es pedido)' };
+  if (/rechaz|cancel/i.test(String(c.estatus || ''))) return { ok:false, error:'La cotización está ' + c.estatus };
+  let its = []; try { its = JSON.parse(c.items_json || '[]'); } catch(e) {}
+  if (!its.length) return { ok:false, error:'La cotización no tiene productos' };
+  const ped = { id:'ped_' + new Date().getTime() + '_' + Math.random().toString(36).substring(2,6), folio:'', fecha:_hoyISO(), cliente:c.cliente, vendedor:c.vendedor || '',
+    comision_pct:c.comision_pct || '', cotizacion_origen:String(c.folio || c.id), subtotal:c.subtotal, iva:c.iva, total:c.total, sin_iva:c.sin_iva || '', estatus:'borrador',
+    items_json:c.items_json, fecha_entrega:'', sin_entregar:'', notas:'De la cotización ' + (c.folio || ''), creado_por:usuario || c.creado_por || '' };
+  const r = erpCrear('pedidos', ped); if (!r.ok) return r;
+  _ajustarComprometido(its, -1);               // lo apartado por la cotización se libera…
+  const a = activarPedido(ped.id, usuario, false); // …y el pedido descuenta el inventario y crea su cobro
+  const f2 = _filaPorId('cotizaciones', idCot);
+  _poner(f2, 'estatus', 'convertida'); _poner(f2, 'notas', (f2.obj.notas ? String(f2.obj.notas) + ' · ' : '') + 'Confirmada: pedido ' + r.item.folio + ' (' + _hoyISO() + ')');
+  registrarBitacora(usuario || '', 'confirmar_cotizacion', 'cotizaciones', idCot, 'pedido ' + r.item.folio);
+  return { ok: !!a.ok, pedido:r.item, cobro:a.cobro, error:a.error };
+}
+// Cancelar un pedido que ya es venta: solo si no tiene pagos ni factura viva. Cancela su cobro y regresa el inventario. No se borra nada.
+function cancelarPedidoVenta(idPedido, usuario, motivo){
+  const f = _filaPorId('pedidos', idPedido); if (!f) return { ok:false, error:'No encontré el pedido' };
+  const p = f.obj, cob = _cobroPropioPedido(p.id);
+  if (!cob) { const l = pedidoLiberar(p.id, usuario); _poner(f, 'estatus', 'cancelado'); return { ok:true, flujo:'anterior', liberados:l.liberados }; }
+  if ((parseFloat(cob.cobrado) || 0) > 0.005) return { ok:false, error:'El pedido tiene pagos por $' + (parseFloat(cob.cobrado) || 0).toFixed(2) + '. Primero cancela esos pagos.' };
+  const F = _leerHoja('facturas'), viva = [];
+  for (let i = 1; i < F.filas.length; i++) {
+    const po = String(F.filas[i][F.idx.pedido_origen] || '').split(/[,;]/).map(x => x.trim());
+    if ((po.indexOf(String(p.folio)) >= 0 || po.indexOf(String(p.id)) >= 0) && !/cancel/i.test(String(F.filas[i][F.idx.estatus] || ''))) viva.push(F.filas[i][F.idx.folio]);
+  }
+  if (viva.length) return { ok:false, error:'El pedido tiene la factura ' + viva.join(', ') + ' sin cancelar. Cancélala primero.' };
+  const fc = _filaPorId('cobranza', cob.id);
+  _poner(fc, 'estatus', 'cancelado'); _poner(fc, 'pendiente', 0);
+  _poner(fc, 'descripcion', String(cob.descripcion || '') + ' · cancelado el ' + _hoyISO() + (motivo ? ': ' + motivo : ''));
+  const inv = aplicarInventarioDocumento(p.id, 'pedidos', 'entrada', usuario);
+  _poner(f, 'estatus', 'cancelado');
+  registrarBitacora(usuario || '', 'cancelar_pedido_venta', 'pedidos', p.id, motivo || '');
+  return { ok:true, cobro:cob.id, inventario:inv };
+}
 function stockDisponible() {
   const hoja = asegurarHoja('productos');
   const datos = hoja.getDataRange().getValues();
@@ -2761,6 +2858,16 @@ function doPost(e) {
       if (r.ok && r.item && !r.ya_existia) { try { remisionAplicar(r.item.id, body.codigo); } catch(e){} }
       return resp(r);
     }
+    // v0.9.15 — cotización (aparta inventario) → pedido (venta)
+    if (accion === 'erp_crear' && body.tabla === 'cotizaciones') {
+      const r = erpCrear('cotizaciones', body.item || {});
+      if (r.ok && r.item && !r.ya_existia) { try { cotizacionApartar(r.item.id, body.codigo); } catch(e){} }
+      return resp(r);
+    }
+    if (accion === 'cotizacion_liberar')    return resp(cotizacionLiberar(body.id, body.codigo));
+    if (accion === 'confirmar_cotizacion')  return resp(confirmarCotizacion(body.id, body.usuario || body.codigo));
+    if (accion === 'activar_pedido')        return resp(activarPedido(body.id, body.usuario || body.codigo, true));
+    if (accion === 'cancelar_pedido_venta') return resp(cancelarPedidoVenta(body.id, body.usuario || body.codigo, body.motivo || ''));
     // v0.9.9 — cancelar un pedido libera lo apartado (el pedido NO se borra; el ERP lo marca cancelado)
     if (accion === 'pedido_liberar')   return resp(pedidoLiberar(body.id, body.codigo));
     if (accion === 'erp_eliminar' && body.tabla === 'pedidos') {

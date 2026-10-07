@@ -25,8 +25,8 @@ const pon=(p,l,v)=>{ const el=d.querySelector(`#modalDP .dpCant[data-p="${p}"][d
 setTimeout(async()=>{const r={};try{
  for (const t of ['clientes','pedidos','remisiones','facturas','cobranza']) await w.eval(`cargarTabla('${t}')`);
  // 1) remisión: 3 de A (lo que falta) del P0001 + 1 de C del P0002 (juntar pedidos)
- w.eval("abrirDoc('pedidos','p1')"); await sleep(300); r.botonPedido=[...d.querySelectorAll('button')].some(b=>/Hacer remisión o factura/.test(b.textContent)); w.eval("cerrarDrawer()");
- await w.eval("nunDesdePedidos('p1')"); await sleep(200); r.dosBotones=!!d.getElementById('dpBotonR')&&!!d.getElementById('dpBoton');
+ w.eval("abrirDoc('pedidos','p1')"); await sleep(300); r.botonPedido=[...d.querySelectorAll('button')].some(b=>/Hacer factura/.test(b.textContent)); // v4.14 ya no hay remisión w.eval("cerrarDrawer()");
+ await w.eval("nunDesdePedidos('p1')"); await sleep(200); r.dosBotones=!d.getElementById('dpBotonR')&&!!d.getElementById('dpBoton'); // v4.14 solo factura
  const md=d.getElementById('modalDP'); r.ventana={pedidos:[...md.querySelectorAll('b')].map(b=>b.textContent).filter(t=>/^Pedido/.test(t)),maxA:md.querySelector('.dpCant[data-p="0"][data-l="0"]').max,defB:md.querySelector('.dpCant[data-p="0"][data-l="1"]').value,defC:md.querySelector('.dpCant[data-p="1"][data-l="0"]').value};
  pon(0,1,0); pon(1,0,1);
  pon(0,0,9); await w.eval("nunDesdePedidosCrear('remisiones')"); r.demasiado=(d.getElementById('dpError')||{}).textContent; pon(0,0,3);

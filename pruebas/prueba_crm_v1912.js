@@ -100,7 +100,7 @@ const permVend={ver_gastos:false,editar_gastos:false,ver_ingresos:false,editar_i
   w.eval("erpLineaCambio(0,'precio','0.35'); erpAgregarLinea(); erpLineaCambio(1,'sku','B2'); erpLineaCambio(1,'cantidad','7'); erpLineaCambio(1,'precio','10.05')");
   r.totalesPantalla=d.getElementById('erpPedTotales').textContent.replace(/\s+/g,' ').trim();
   await w.eval("erpGuardarPedido()"); await sleep(50);
-  const np=DB.pedidos.find(p=>/^crm_ped_/.test(p.id)); r.pedidoNuevo=np&&{folio:np.folio,subtotal:np.subtotal,iva:np.iva,total:np.total,fecha:np.fecha};
+  const np=(DB.cotizaciones||[]).find(p=>/^crm_cot_/.test(p.id)); r.pedidoNuevo=np&&{folio:np.folio,subtotal:np.subtotal,iva:np.iva,total:np.total,fecha:np.fecha,estatus:np.estatus,creado_por:np.creado_por}; // v1.9.20 el vendedor sube COTIZACIÓN
   // NC parcial de factura sin IVA: IVA 0, un solo concepto, con cliente
   DB.facturas.push({id:'fsin',folio:'FT0099',cliente:'CLIENTE PRUEBA DOS',total:100,subtotal:100,iva:0,sin_iva:true,items_json:DB.pedidos[1].items_json});
   await w.eval("renderERPTab('erp_pedidos', true)"); await sleep(50); w.__prompt=undefined; w.prompt=(m,dd)=>/Monto/.test(m)?'40':dd;
@@ -152,7 +152,7 @@ const permVend={ver_gastos:false,editar_gastos:false,ver_ingresos:false,editar_i
   if(r.conversion.folio!=='FT0001'||r.conversion.items!==2||r.conversion.total!==82.83||!r.conversion.cobro||r.conversion.cobro[0]!=='FT0001'||r.conversion.cobro[2]!==82.83||r.conversion.cobro[3]!==82.83||r.conversion.cobro[4]!=='EDGAR') fallas.push('conversión');
   if(r.conversionSinIva.iva!==0||r.conversionSinIva.total!==100||r.conversionSinIva.sin_iva!==true||!r.conversionSinIva.cobro||r.conversionSinIva.cobro[0]!=='R0001') fallas.push('conversión sin IVA');
   if(!r.precioNegativo.rechazado) fallas.push('precio negativo');
-  if(!r.pedidoNuevo||r.pedidoNuevo.total!==82.83||r.pedidoNuevo.iva!==11.43) fallas.push('pedido nuevo');
+  if(!r.pedidoNuevo||r.pedidoNuevo.total!==82.83||r.pedidoNuevo.iva!==11.43||!/^C\d{4}$/.test(r.pedidoNuevo.folio||'')||r.pedidoNuevo.estatus!=='enviada'||/-/.test(String(r.pedidoNuevo.creado_por||''))) fallas.push('pedido nuevo');
   if(!r.notaCredito||r.notaCredito.iva!==0||r.notaCredito.total!==40||r.notaCredito.renglones!==1||!r.notaCredito.cliente) fallas.push('nota de crédito');
   if(r.cancelarGasto.estatus!=='cancelado'||!r.cancelarGasto.fueraDeVista||r.cancelarGasto.acciones.includes('eliminar')) fallas.push('cancelar gasto');
   if(!r.getConCodigo||!r.espejoApagado) fallas.push('código en GET / espejo');

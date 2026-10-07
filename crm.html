@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.19</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.20</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.19</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.20</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -1634,7 +1634,7 @@
         <button class="btn ghost" id="btnDedupeCobranza" onclick="ejecutarDedupeCobranza()" style="display:none;color:#dc2626">🧹 Limpiar duplicados</button>
         <button class="btn ghost" id="btnBorrarTodoCobranza" onclick="ejecutarBorrarTodoCobranza()" style="display:none;color:#dc2626;border-color:#dc2626">🗑️ Borrar TODO</button>
         <button class="btn ghost" onclick="exportarCSV('cobranza')">Exportar</button>
-        <button class="btn solid" id="btnNuevoPedido" onclick="abrirNuevoPedido()">+ Capturar pedido</button>
+        <button class="btn solid" id="btnNuevoPedido" onclick="abrirNuevoPedido()">+ Cotización</button>
       </div>
     </div>
     <div class="filters">
@@ -10277,7 +10277,7 @@ const ERP_KEY_URL = 'nun_erp_bridge_url';
 const ERP_URL_DEFAULT = NUN_URL_SUPABASE; // v1.9.18
 window.erpUrl = localStorage.getItem(ERP_KEY_URL) || ERP_URL_DEFAULT;
 const ERP_TABS = ['erp_pedidos','erp_inventario'];
-const erpData = { productos:[], pedidos:[], facturas:[], remisiones:[], clientes:[] };
+const erpData = { productos:[], pedidos:[], facturas:[], remisiones:[], clientes:[], cotizaciones:[] }; // v1.9.20 cotizaciones
 const erpCargado = {};
 let erpLineas = [];
 
@@ -10425,13 +10425,14 @@ function erpCalcularMatches(pedidos, facturas, remisiones){
 async function renderERPPedidos(force){
   erpPaneLoading('pane-erp_pedidos','documentos');
   try {
-    const [pedidos, facturas, remisiones] = await Promise.all([
-      erpCargarTabla('pedidos', force), erpCargarTabla('facturas', force), erpCargarTabla('remisiones', force)
+    const [pedidos, facturas, remisiones, cotizaciones] = await Promise.all([
+      erpCargarTabla('pedidos', force), erpCargarTabla('facturas', force), erpCargarTabla('remisiones', force), erpCargarTabla('cotizaciones', force).catch(() => [])
     ]);
+    const misC = erpFiltrarMios(cotizaciones || []).sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||''))); // v1.9.20
     const misP = erpFiltrarMios(pedidos).sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
     const misF = erpFiltrarMios(facturas).sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
     const misR = erpFiltrarMios(remisiones).sort((a,b)=>String(b.fecha||'').localeCompare(String(a.fecha||'')));
-    const filtro = window._erpDocFiltro || 'pedidos';
+    const filtro = window._erpDocFiltro || 'cotizaciones'; // v1.9.20
 
     // Verificación: cada pedido ¿tiene remisión o factura? (2 pasadas: origen, luego cliente+monto)
     const matches = erpCalcularMatches(misP, facturas, remisiones);
@@ -10440,7 +10441,23 @@ async function renderERPPedidos(force){
     const chip = (v, label, n, alerta) => `<button onclick="erpFiltroDoc('${v}')" style="padding:7px 14px;border-radius:100px;border:1px solid ${filtro===v?'currentColor':'var(--line,#333)'};background:${filtro===v?'rgba(127,127,127,0.12)':'transparent'};color:inherit;cursor:pointer;font-size:12.5px;font-weight:${filtro===v?'700':'400'}">${label} <span style="opacity:0.6">${n}</span>${alerta?' ⚠':''}</button>`;
 
     let cuerpo = '';
-    if (filtro === 'pedidos' || filtro === 'sindoc') {
+    // v1.9.20 — cotizaciones del vendedor y en qué van (confirmada = ya es pedido)
+    const estCot = c => { const e = String(c.estatus||'').toLowerCase(); if (/convertida/.test(e)) { const m = String(c.notas||'').match(/pedido (P\d{4,})/); return '<span style="padding:2px 8px;border-radius:100px;background:rgba(46,125,79,0.12);font-size:11px;font-weight:700">✓ confirmada' + (m ? ' · pedido ' + erpEsc(m[1]) : '') + '</span>'; }
+      if (/rechaz|cancel/.test(e)) return '<span style="padding:2px 8px;border-radius:100px;background:rgba(224,82,82,0.14);color:#e05252;font-size:11px;font-weight:700">' + erpEsc(e) + '</span>';
+      return '<span style="padding:2px 8px;border-radius:100px;background:rgba(245,158,11,0.14);font-size:11px;font-weight:700">por confirmar</span>'; };
+    if (filtro === 'cotizaciones') {
+      cuerpo = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr><th style="${erpThStyle}">Folio</th><th style="${erpThStyle}">Fecha</th><th style="${erpThStyle}">Cliente</th><th style="${erpThStyle}">En qué va</th><th style="${erpThStyle};text-align:right">Total</th><th style="${erpThStyle}"></th></tr></thead>
+        <tbody>${misC.slice(0,300).map(c => `<tr>
+            <td style="${erpTdStyle};font-family:monospace">${erpEsc(c.folio||c.id)}</td>
+            <td style="${erpTdStyle}">${erpEsc(String(c.fecha||'').substring(0,10))}</td>
+            <td style="${erpTdStyle}">${erpEsc(c.cliente)}</td>
+            <td style="${erpTdStyle}">${estCot(c)}</td>
+            <td style="${erpTdStyle};text-align:right;font-family:monospace">${erpFmt(c.total)}</td>
+            <td style="${erpTdStyle}"><button class="btn" style="font-size:11px;padding:4px 10px" onclick="erpWhatsAppPedido(${jsq(c.id)})">📲</button></td>
+          </tr>`).join('') || '<tr><td colspan="6" style="padding:30px;text-align:center;color:var(--mute)">Aún no tienes cotizaciones</td></tr>'}</tbody>
+      </table></div>`;
+    } else if (filtro === 'pedidos' || filtro === 'sindoc') {
       const lista = filtro === 'sindoc' ? sinDoc : misP;
       cuerpo = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
         <thead><tr><th style="${erpThStyle}">Folio</th><th style="${erpThStyle}">Fecha</th><th style="${erpThStyle}">Cliente</th><th style="${erpThStyle}">Estatus</th><th style="${erpThStyle}">Doc. derivado</th><th style="${erpThStyle};text-align:right">Total</th><th style="${erpThStyle}"></th></tr></thead>
@@ -10456,7 +10473,7 @@ async function renderERPPedidos(force){
             <td style="${erpTdStyle}"><span style="padding:2px 8px;border-radius:100px;border:1px solid var(--line,#333);font-size:11px">${erpEsc(p.estatus||'—')}</span></td>
             <td style="${erpTdStyle}">${docTag}</td>
             <td style="${erpTdStyle};text-align:right;font-family:monospace">${erpFmt(p.total)}</td>
-            <td style="${erpTdStyle}">${m ? '' : `<button class="btn" style="font-size:11px;padding:4px 10px" onclick="event.stopPropagation();erpElegirConversion(${jsq(p.id)},${jsq(p.folio||'')})">→ Remisión / Factura</button>`}</td>
+            <td style="${erpTdStyle}"></td>
           </tr>`; }).join('') || '<tr><td colspan="7" style="padding:30px;text-align:center;color:var(--mute)">' + (filtro==='sindoc' ? '🎉 Todos tus pedidos tienen remisión o factura' : 'Aún no tienes pedidos') + '</td></tr>'}</tbody>
       </table></div>`;
     } else {
@@ -10482,17 +10499,16 @@ async function renderERPPedidos(force){
 
     document.getElementById('pane-erp_pedidos').innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-        <div><h2 style="margin:0;font-size:18px">Pedidos</h2><div style="font-size:12px;color:var(--mute)">en vivo desde el ERP · ${sinDoc.length ? '⚠ ' + sinDoc.length + ' pedido(s) sin remisión ni factura' : '✓ todos los pedidos tienen documento'}</div></div>
+        <div><h2 style="margin:0;font-size:18px">Cotizaciones y pedidos</h2><div style="font-size:12px;color:var(--mute)">Tú subes la cotización · Rafa o Yazmín la confirman y se vuelve pedido (venta)</div></div>
         <div style="display:flex;gap:8px">
           <button class="btn" onclick="renderERPTab(tabActiva, true)">↻</button>
-          <button class="btn primary" onclick="erpAbrirNuevoPedido()" style="font-weight:700">+ Nuevo pedido</button>
+          <button class="btn primary" onclick="erpAbrirNuevoPedido()" style="font-weight:700">+ Nueva cotización</button>
         </div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        ${chip('cotizaciones','Cotizaciones',misC.length,false)}
         ${chip('pedidos','Pedidos',misP.length,false)}
-        ${chip('remisiones','Remisiones',misR.length,false)}
         ${chip('facturas','Facturas',misF.length,false)}
-        ${chip('sindoc','Sin documento',sinDoc.length, sinDoc.length>0)}
       </div>
       ${cuerpo}`;
   } catch(e){ erpPaneError('pane-erp_pedidos', e); }
@@ -10557,7 +10573,7 @@ window.erpVerPedido = function(id){
       </div>`
     : `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border:1px solid rgba(224,82,82,0.4);border-radius:10px">
         <span style="color:#e05252;font-weight:600">⚠ Este pedido no tiene remisión ni factura</span>
-        <button class="btn primary" style="font-size:12px" onclick="document.getElementById('erpModalDetalle').remove();erpElegirConversion(${jsq(p.id)},${jsq(p.folio||'')})">→ Convertir a remisión / factura</button>
+        <!-- v1.9.20 la factura la hacen Rafa o Yazmín en el sistema -->
       </div>`}
   `);
 };
@@ -10644,7 +10660,7 @@ window.erpAbrirNuevoPedido = async function(){
   m.innerHTML = `
     <div style="background:var(--bg,#fff);color:inherit;border-radius:16px;max-width:680px;width:100%;max-height:90vh;overflow:auto;padding:22px;box-shadow:0 24px 64px rgba(0,0,0,0.35)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-        <h3 style="margin:0">Nuevo pedido → ERP</h3>
+        <h3 style="margin:0">Nueva cotización</h3>
         <button class="btn" onclick="document.getElementById('erpModalPedido').remove()">✕</button>
       </div>
       <label style="font-size:12px;color:var(--mute)">Cliente</label>
@@ -10672,7 +10688,7 @@ window.erpAbrirNuevoPedido = async function(){
       <input id="erpPedNotas" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--line,#333);background:transparent;color:inherit;margin-top:4px;box-sizing:border-box">
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
         <button class="btn" onclick="document.getElementById('erpModalPedido').remove()">Cancelar</button>
-        <button class="btn primary" id="erpPedGuardarBtn" onclick="erpGuardarPedido()" style="font-weight:700">Subir pedido al ERP</button>
+        <button class="btn primary" id="erpPedGuardarBtn" onclick="erpGuardarPedido()" style="font-weight:700">Subir cotización</button>
       </div>
     </div>`;
   document.body.appendChild(m);
@@ -10730,6 +10746,7 @@ function erpActualizarTotales(){
   t.innerHTML = `Subtotal: <strong>${erpFmt(c.subtotal)}</strong> · IVA ${conIVA?'16%':'<span style="color:#e0a052">0% (sin IVA)</span>'}: <strong>${erpFmt(c.iva)}</strong> · Total: <strong style="font-size:16px">${erpFmt(c.total)}</strong>`;
 }
 
+// v1.9.20 — FLUJO NUEVO (Rafa, 7 oct 2026): el vendedor sube COTIZACIÓN (aparta inventario); Rafa o Yazmín la confirman en el sistema y se vuelve pedido (venta)
 window.erpGuardarPedido = async function(){
   if (window._erpGuardandoPedido) return; // v1.9.9 — nunca dos al mismo tiempo
   const cliente = (document.getElementById('erpPedCliente')?.value||'').trim();
@@ -10745,21 +10762,21 @@ window.erpGuardarPedido = async function(){
   const btn = document.getElementById('erpPedGuardarBtn');
   window._erpGuardandoPedido = true;
   if (btn) { btn.disabled = true; btn.textContent = 'Subiendo...'; }
-  erpOcupado('Subiendo pedido…');
+  erpOcupado('Subiendo cotización…');
   // El id se fija UNA vez por pedido: si se reintenta, se revisa si ya quedó guardado (no se duplica)
   const modal = document.getElementById('erpModalPedido');
-  const id = (modal && modal.dataset.idPedido) || ('crm_ped_' + Date.now() + '_' + Math.random().toString(36).substring(2,6));
+  const id = (modal && modal.dataset.idPedido) || ('crm_cot_' + Date.now() + '_' + Math.random().toString(36).substring(2,6));
   if (modal) modal.dataset.idPedido = id;
   let item = null;
   try {
-    const existentes = await erpCargarTabla('pedidos', true);
+    const existentes = await erpCargarTabla('cotizaciones', true);
     const ya = existentes.find(x => String(x.id) === id);
     if (ya) { item = ya; }
     else {
       // v1.9.12 — en un reintento, si el folio ya lo tomó otro pedido, se calcula uno nuevo
       let folio = (modal && modal.dataset.folio) || '';
       if (folio && existentes.some(x => String(x.folio||'').trim() === folio && String(x.id) !== id)) folio = '';
-      if (!folio) folio = await erpFolioNUN('pedidos');
+      if (!folio) folio = await erpFolioNUN('cotizaciones');
       if (modal) modal.dataset.folio = folio;
       const chkIVA = document.getElementById('erpPedConIVA');
       const conIVA = !chkIVA || chkIVA.checked;
@@ -10773,41 +10790,41 @@ window.erpGuardarPedido = async function(){
         cliente, vendedor: erpVendedorDelPedido(cliente), // v1.9.15
         subtotal: tot.subtotal, iva: tot.iva, total: tot.total,
         sin_iva: !conIVA,
-        estatus: 'borrador', items_json: JSON.stringify(items), sin_entregar: true,
-        notas: (document.getElementById('erpPedNotas')?.value||'') + (conIVA ? '' : ' · SIN IVA') + ' · Capturado desde CRM',
-        creado_por: erpCodigo()
+        estatus: 'enviada', items_json: JSON.stringify(items), sin_entregar: true,
+        notas: (document.getElementById('erpPedNotas')?.value||'') + (conIVA ? '' : ' · SIN IVA') + ' · Cotización desde la app',
+        creado_por: erpNombre() // v1.9.20 nunca el código de acceso
       };
       let r = null;
-      try { r = await erpApi({ accion:'erp_crear', tabla:'pedidos', item }); } catch(e){ r = null; }
+      try { r = await erpApi({ accion:'erp_crear', tabla:'cotizaciones', item }); } catch(e){ r = null; }
       if (r && r.ok && r.item && r.item.folio && r.item.folio !== item.folio) { window._erpAvisoFolio = item.folio; item.folio = r.item.folio; if (modal) modal.dataset.folio = r.item.folio; } // v1.9.14 el servidor dio otro folio (el nuestro ya lo tenía otro)
       if (!(r && r.ok)) {
         // ¿Se guardó aunque la respuesta falló? Revisar antes de decir que no
         await new Promise(z => setTimeout(z, 1500));
-        const chk = await erpCargarTabla('pedidos', true);
+        const chk = await erpCargarTabla('cotizaciones', true);
         if (!chk.some(x => String(x.id) === id)) throw new Error((r && r.error) || 'el servidor no confirmó');
       }
     }
     // v1.9.12 — ¿otro pedido quedó con el mismo folio al mismo tiempo? se renombra el nuestro
     let avisoFolio = window._erpAvisoFolio || ''; window._erpAvisoFolio = '';
     try {
-      const todos = await erpCargarTabla('pedidos', true);
+      const todos = await erpCargarTabla('cotizaciones', true);
       if (todos.some(x => String(x.id) !== id && String(x.folio||'').trim() === String(item.folio||'').trim())) {
-        const nuevoFolio = await erpFolioNUN('pedidos');
-        const w = await erpApi({ accion:'erp_upsert_batch', tabla:'pedidos', items:[{ id, folio: nuevoFolio }] });
+        const nuevoFolio = await erpFolioNUN('cotizaciones');
+        const w = await erpApi({ accion:'erp_upsert_batch', tabla:'cotizaciones', items:[{ id, folio: nuevoFolio }] });
         if (w && w.ok) { avisoFolio = item.folio; item.folio = nuevoFolio; if (modal) modal.dataset.folio = nuevoFolio; }
       }
     } catch(e){}
     erpOcupado('');
-    if (avisoFolio) erpToast('⚠ El folio ' + avisoFolio + ' ya lo tenía otro pedido: el tuyo quedó como ' + item.folio, 'error');
-    erpToast('✓ Pedido ' + item.folio + ' subido', 'ok');
+    if (avisoFolio) erpToast('⚠ El folio ' + avisoFolio + ' ya lo tenía otra cotización: la tuya quedó como ' + item.folio, 'error');
+    erpToast('✓ Cotización ' + item.folio + ' subida · Rafa o Yazmín la confirman y se vuelve pedido', 'ok');
     const mm = document.getElementById('erpModalPedido'); if (mm) mm.remove();
-    erpCargado['pedidos'] = false;
+    erpCargado['pedidos'] = false; erpCargado['cotizaciones'] = false;
     if (tabActiva === 'erp_pedidos') renderERPTab('erp_pedidos', true);
     erpPedidoListo(item);
   } catch(e){
     erpOcupado('');
     erpToast('✗ No se subió: ' + e.message + ' · puedes volver a intentar, no se duplica', 'error');
-    if (btn) { btn.disabled = false; btn.textContent = 'Subir pedido al ERP'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Subir cotización'; }
   } finally { window._erpGuardandoPedido = false; }
 };
 
@@ -11044,7 +11061,7 @@ function erpTimbreHTML(t, uuid, total){
 }
 function erpFechaLarga(s){ const m = String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return String(s||''); const d = new Date(+m[1], +m[2]-1, +m[3]); return d.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'}); }
 function erpBuscarDoc(tabla, id){
-  const arr = tabla === 'facturas' ? erpData.facturas : (tabla === 'remisiones' ? erpData.remisiones : erpData.pedidos);
+  const arr = tabla === 'facturas' ? erpData.facturas : (tabla === 'remisiones' ? erpData.remisiones : tabla === 'cotizaciones' ? erpData.cotizaciones : erpData.pedidos); // v1.9.20
   return (arr||[]).find(x => String(x.id) === String(id));
 }
 window.erpImprimirDoc = async function(tabla, id){
@@ -11134,7 +11151,7 @@ function erpPedidoImagen(p){
   x.fillStyle = '#0a0c0f'; x.fillRect(0,0,W,200);
   x.fillStyle = '#ffffff'; x.font = '900 64px Helvetica, Arial, sans-serif'; x.fillText('NUN', pad, 105);
   x.font = '400 24px Helvetica, Arial, sans-serif'; x.fillStyle = 'rgba(255,255,255,0.7)'; x.fillText('Comercializadora Casraf', pad, 150);
-  x.textAlign = 'right'; x.fillStyle = 'rgba(255,255,255,0.6)'; x.font = '600 22px Helvetica, Arial, sans-serif'; x.fillText('PEDIDO', W-pad, 70);
+  x.textAlign = 'right'; x.fillStyle = 'rgba(255,255,255,0.6)'; x.font = '600 22px Helvetica, Arial, sans-serif'; x.fillText(/^C\d/.test(String(p.folio||'')) ? 'COTIZACIÓN' : 'PEDIDO', W-pad, 70);
   x.fillStyle = '#ffffff'; x.font = '700 48px Courier New, monospace'; x.fillText(String(p.folio||''), W-pad, 125);
   x.font = '400 22px Helvetica, Arial, sans-serif'; x.fillStyle = 'rgba(255,255,255,0.75)'; x.fillText(erpFechaLarga(p.fecha), W-pad, 165);
   x.textAlign = 'left'; x.fillStyle = '#8a8d94'; x.font = '700 20px Helvetica, Arial, sans-serif'; x.fillText('CLIENTE', pad, 245); x.fillText('VENDEDOR', W/2+40, 245);
@@ -11161,10 +11178,11 @@ function erpPedidoImagen(p){
   return new Promise(res => c.toBlob(b => res(b), 'image/png'));
 }
 window.erpWhatsAppPedido = async function(id){
-  const p = erpBuscarDoc('pedidos', id) || (window._erpUltimoPedido && String(window._erpUltimoPedido.id) === String(id) ? window._erpUltimoPedido : null);
+  const p = erpBuscarDoc('pedidos', id) || erpBuscarDoc('cotizaciones', id) || (window._erpUltimoPedido && String(window._erpUltimoPedido.id) === String(id) ? window._erpUltimoPedido : null);
   if (!p) { erpToast('No encontré el pedido', 'error'); return; }
   const piezas = erpItemsDe(p).reduce((s,it)=>s+(+it.cantidad||0),0);
-  const texto = `🧳 *Pedido ${p.folio}* · ${p.cliente}\n${piezas} piezas · Total ${erpFmt(p.total)}\nVendedor: ${p.vendedor||''}\nYa está dado de alta en el sistema.`;
+  const _esCot = /^C\d/.test(String(p.folio||'')); // v1.9.20
+  const texto = _esCot ? `🧳 *Cotización ${p.folio}* · ${p.cliente}\n${piezas} piezas · Total ${erpFmt(p.total)}\nVendedor: ${p.vendedor||''}` : `🧳 *Pedido ${p.folio}* · ${p.cliente}\n${piezas} piezas · Total ${erpFmt(p.total)}\nVendedor: ${p.vendedor||''}\nYa está dado de alta en el sistema.`;
   try {
     const blob = await erpPedidoImagen(p);
     const file = new File([blob], 'Pedido_' + (p.folio||'') + '.png', { type:'image/png' });
@@ -11179,7 +11197,7 @@ function erpPedidoListo(item){
   erpModalBase(`
     <div style="text-align:center;padding:10px 4px">
       <div style="font-size:40px">✅</div>
-      <h3 style="margin:8px 0 4px">Pedido ${erpEsc(item.folio)} dado de alta</h3>
+      <h3 style="margin:8px 0 4px">${/^C\d/.test(String(item.folio||'')) ? 'Cotización ' + erpEsc(item.folio) + ' subida' : 'Pedido ' + erpEsc(item.folio) + ' dado de alta'}</h3>${/^C\d/.test(String(item.folio||'')) ? '<div style="font-size:12.5px;margin-bottom:6px">Rafa o Yazmín la confirman y se vuelve pedido.</div>' : ''}
       <div style="color:var(--mute);font-size:13px;margin-bottom:18px">${erpEsc(item.cliente)} · ${erpFmt(item.total)}</div>
       <button class="btn primary" style="width:100%;padding:13px;font-weight:700;margin-bottom:8px" onclick="erpWhatsAppPedido(${jsq(item.id)})">📲 Enviar por WhatsApp (con imagen)</button>
       <button class="btn" style="width:100%;padding:10px" onclick="document.getElementById('erpModalDetalle').remove()">Listo</button>
@@ -11187,7 +11205,7 @@ function erpPedidoListo(item){
 }
 
 /* ============ v1.9.9 — FOLIOS NUN (P/R/F), SIN DOBLES, COBRANZA AUTOMÁTICA ============ */
-const ERP_PREF_FOLIO = { pedidos:'P', remisiones:'R', facturas:'FT' }; // v1.9.11 facturas FT0001
+const ERP_PREF_FOLIO = { pedidos:'P', remisiones:'R', facturas:'FT', cotizaciones:'C' }; // v1.9.11 facturas FT0001 · v1.9.20 cotizaciones C0001
 function erpEsFolioNUN(tabla, folio){ const p = ERP_PREF_FOLIO[tabla]; return !!p && new RegExp('^' + p + '\\d{4,}$').test(String(folio||'').trim()); }
 async function erpFolioNUN(tabla){
   const pref = ERP_PREF_FOLIO[tabla]; if (!pref) return '';

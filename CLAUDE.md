@@ -28,7 +28,7 @@ Este repo puede ser público: no escribas aquí datos de clientes, montos, RFC n
 - `index.html` — ERP completo (~800 KB, un solo archivo, JS en línea). Publicado en GitHub Pages:
   https://rlc-hash.github.io/nun-erp/ (tarda ~1 min en actualizarse después del push).
 - `crm.html` — app de vendedores (misma base de datos). `importar.html` — importador de XML.
-- Backend: Google Apps Script. Su código está en `backend/Codigo.gs` (v0.9.14: erp_upsert_batch vacía un campo solo con item._vaciar=['campo'] — un '' normal se ignora; en Google ya NO se guarda, solo entrar/usuarios/Facturama/lecturas; en Supabase la propiedad `en_supabase=1` deja todo normal; el usuario RAFA- solo lo ve y cambia Rafa; sin códigos de acceso: el maestro va en
+- Backend: Google Apps Script. Su código está en `backend/Codigo.gs` (v0.9.15: flujo cotización→pedido; bitácora/inventario guardan solo el inicio del código (RAFA-…), nunca el código completo; v0.9.14: erp_upsert_batch vacía un campo solo con item._vaciar=['campo'] — un '' normal se ignora; en Google ya NO se guarda, solo entrar/usuarios/Facturama/lecturas; en Supabase la propiedad `en_supabase=1` deja todo normal; el usuario RAFA- solo lo ve y cambia Rafa; sin códigos de acceso: el maestro va en
   Propiedades del script → `codigo_maestro`). Claude NO puede publicarlo: Rafa lo pega en el editor de Apps Script y hace
   Implementar → Administrar implementaciones → editar la activa (…Dt2A) → Versión nueva (la URL no cambia).
   Prueba: `node pruebas/prueba_backend_v099.js` (hoja simulada). Nunca usar el backend viejo `AKfycbz9oHW…`.
@@ -69,6 +69,16 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - `convertir_documento` del servidor crea el documento SIN productos y con su propio folio (FAC-2026-…): el sistema
   copia productos y renombra el cobro (v3.78/v3.79).
 - ERP y app comparten localStorage `nun_cache_*` con formas distintas: aceptar `{items:[...]}` y arreglo.
+
+## Flujo de venta (desde v4.14 / app v1.9.20 / servidor v0.9.15, decidido por Rafa el 7 oct 2026)
+- El vendedor (app) solo sube **cotizaciones** (folio C0001, estatus enviada): apartan inventario (stock_comprometido).
+- Rafa o Yazmín: **✅ Confirmar → Pedido** (`confirmar_cotizacion`): nace el pedido (P…, confirmado), se libera lo apartado, se
+  descuenta el inventario (MovInventario salida) y nace UN cobro en Cobranza: id `cob_<pedidoId>`, tipo `Pedido`, `factura_origen` = id del pedido.
+  Ese pedido es la venta del mes (tablero) y cuenta para comisiones por lo cobrado.
+- Si piden factura: **🧾 Hacer factura** desde el pedido; la factura NO crea cobro: lleva en notas `Cobro en P0001 (id cob_…)` y se cobra en el del pedido.
+- Las remisiones ya no se usan (quedan como historial). Pedido capturado directo en borrador → **✅ Confirmar pedido** (`activar_pedido`).
+- Cancelar un pedido-venta: `cancelar_pedido_venta` (no si tiene pagos o factura viva); cancela su cobro y regresa el inventario.
+- Lo anterior (Bind, remisiones y facturas con su propio cobro) se queda igual.
 
 ## Convenciones de datos
 - Folios NUN: Pedido P0001, Remisión R0001, Factura FT0001 (Serie FT), complemento de pago CP0001 (Serie CP),

@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.14 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.15 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -8776,6 +8776,15 @@ async function guardarDoc(tabla, id, opts) {
     if (_dup && !(await confirmDialog({ title:'¿Es otra venta?', message:'Ya existe ' + (tabla === 'facturas' ? 'la factura ' : 'la remisión ') + _dup.folio + ' de ' + (_dup.cliente||'') + ' por ' + fmtFull(_dup.total) + ' del ' + fmtFecha(_dup.fecha) + '. Si es la misma venta, no la hagas otra vez (si tarda, espera a que termine). ¿Crear otra de todos modos?', ok:'Sí, es otra venta' }))) { nunOcupado(''); return; }
   }
 
+  // v4.15 — un pedido con piezas que YA salieron (factura/remisión) no se puede editar quitando o bajando esas piezas
+  // (pasó con el 1332 de Dulce: se guardó solo con lo pendiente y el pedido "desapareció" de $8,250 a $3,000)
+  if (tabla === 'pedidos' && _previo && item.items_json !== undefined && !/cancel/i.test(item.estatus||'')) {
+    let _nuevos = []; try { _nuevos = JSON.parse(item.items_json||'[]'); } catch(e){}
+    const _cant = {}; _nuevos.forEach(it => { const k = String(it.sku||it.descripcion||'').toUpperCase(); _cant[k] = (_cant[k]||0) + (+it.cantidad||0); });
+    const _sur = nunPedidoSurtido(_previo, (State.data.remisiones||[]).concat(State.data.facturas||[]));
+    const _malos = Object.keys(_sur).filter(k => _sur[k] > 0 && (_cant[k]||0) < _sur[k] - 0.0001);
+    if (_malos.length) { toast('✗ No se guardó: ya salieron ' + _malos.map(k => _sur[k] + ' ' + k).join(', ') + ' de este pedido (en su factura o remisión). Esas piezas no se pueden quitar del pedido. Lo pendiente se ajusta al hacer la factura.', { type:'error', duration:14000 }); return; }
+  }
   // v4.14 — cancelar un pedido que ya es venta: el servidor revisa que no tenga pagos ni factura viva, regresa el inventario y cancela su cobro
   if (tabla === 'pedidos' && _previo && /cancel/i.test(item.estatus||'') && !/cancel/i.test(_previo.estatus||'') && !(await nunCancelarPedidoVentaSiAplica(_previo))) return;
   // v4.14 — cotización rechazada o cancelada: regresa lo apartado del inventario

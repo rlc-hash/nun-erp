@@ -119,6 +119,8 @@ Deno.serve(async (req) => {
     const texto = await req.text();
     let body: any; try { body = JSON.parse(texto); } catch(e){ return json({ ok: false, error: 'Petición inválida' }); }
     accion = String(body.accion || '');
+    // en el registro: también qué tabla y qué documentos (para saber quién cambió qué y cuándo)
+    const _det = (body.tabla ? ' ' + body.tabla : '') + (Array.isArray(body.items) ? ' ' + body.items.slice(0, 4).map((i: any) => String((i && i.id) || '').slice(0, 26)).join(',') : (body.item && body.item.id) ? ' ' + String(body.item.id).slice(0, 26) : body.id ? ' ' + String(body.id).slice(0, 26) : '');
     if (A_GOOGLE.test(accion)){
       // timbrar/cancelar NO se reintentan (no timbrar dos veces); lo demás sí
       const r = await google(body, /^facturama_(timbrar|cancelar)$/.test(accion) ? 1 : 3);
@@ -134,6 +136,7 @@ Deno.serve(async (req) => {
     const m = new Map();
     for (const c of new Set([body.codigo, body.codigo_usuario, body.codigo_admin].map(norm).filter(Boolean))) m.set(c, await sesion(c, necesitaAdmin));
     const out = await ejecutar('post', texto, body, m, !A_LECTURA.test(accion));
+    if (!A_LECTURA.test(accion)) accion += _det;
     try { const j = JSON.parse(out); ok = !!j.ok; if (!ok) err = String(j.error || '').substring(0, 200); } catch(e){}
     return json(out);
   } catch(e){

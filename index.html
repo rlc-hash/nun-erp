@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.16 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.17 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -6923,6 +6923,7 @@ function renderDocOperativo(tabla) {
         ${(tabla === 'remisiones' || tabla === 'facturas') && nunEsAdmin() && nunFoliosServidor(tabla).length ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunRevisarFoliosServidor('${tabla}')">🧹 Folios REM/FAC (${nunFoliosServidor(tabla).length})</button>` : ''}
         ${tabla === 'remisiones' && nunEsAdmin() ? `<button class="btn btn-secondary" onclick="nunRemMarcarFacturadas()" title="Remisiones canceladas en Bind que sí se facturaron">🔎 Canceladas que se facturaron</button>` : ''}
         ${nunEsAdmin() && (() => { try { return rows.some(r => !/cancel/i.test(r.estatus||'') && String(r.cliente||'').trim() && !NUN_VENDEDORES_VALIDOS.includes(String(r.vendedor||'').toUpperCase().trim())); } catch(e){ return false; } })() ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunVendedoresACorregir()" title="Documentos con YASMIN, sin vendedor u otro que no es vendedor">👤 Vendedores a corregir</button>` : ''}
+        ${tabla === 'pedidos' && nunPuedeLigar() ? `<button class="btn btn-secondary" onclick="nunRelacionesModal()" title="Clientes que facturan a nombre de otra persona o empresa">👥 A nombre de quién factura</button>` : ''}
         ${tabla === 'pedidos' && nunPuedeLigar() ? `<button class="btn btn-secondary" onclick="nunAuditoriaPedidos()" title="Revisa que cada remisión y factura ligada a un pedido sea del mismo cliente y de esos productos">🔎 Auditoría de ligas</button>` : ''}
         <button class="btn btn-secondary" onclick="exportarTabla('${tabla}')">Exportar</button>
         <button class="btn btn-primary" onclick="abrirDoc('${tabla}')">+ Nueva ${escapeHTML(def.singular)}</button>
@@ -8043,7 +8044,7 @@ function nunPuedeLigar(){
 function nunLigarCandidatos(ped){
   const cli = String(ped.cliente||'').trim().toUpperCase(), pedFol = new Set((State.data.pedidos||[]).map(p => nunFolioStr(p)).filter(Boolean));
   const mio = nunPedClaves(ped);
-  return ['remisiones','facturas'].flatMap(t => (State.data[t]||[]).filter(d => String(d.cliente||'').trim().toUpperCase() === cli && !/cancel/i.test(d.estatus||'')
+  return ['remisiones','facturas'].flatMap(t => (State.data[t]||[]).filter(d => (String(d.cliente||'').trim().toUpperCase() === cli || nunClientesRelacionados(d.cliente, ped.cliente)) && !/cancel/i.test(d.estatus||'') // v4.17 también clientes relacionados
       && !(t === 'facturas' && nunEsDeRemision(d)))
     .map(d => { const po = String(d.pedido_origen||'').trim(); return { t, d, po, ya: mio.includes(po), otro: po && !mio.includes(po) && pedFol.has(po) }; }))
     .sort((a, b) => String(a.d.fecha||'').localeCompare(String(b.d.fecha||'')));
@@ -8092,7 +8093,7 @@ async function nunLigarDocAPedido(tabla, id){
   await Promise.all(['pedidos', tabla].map(t => cargarTabla(t)));
   const doc = (State.data[tabla]||[]).find(d => d.id === id); if (!doc) return;
   const cli = String(doc.cliente||'').trim().toUpperCase(), po = String(doc.pedido_origen||'').trim();
-  const L = (State.data.pedidos||[]).filter(p => String(p.cliente||'').trim().toUpperCase() === cli && !/cancel/i.test(p.estatus||''))
+  const L = (State.data.pedidos||[]).filter(p => (String(p.cliente||'').trim().toUpperCase() === cli || nunClientesRelacionados(p.cliente, doc.cliente)) && !/cancel/i.test(p.estatus||'')) // v4.17
     .sort((a, b) => String(b.fecha||'').localeCompare(String(a.fecha||'')));
   window._nunLDP = { tabla, doc, L };
   let m = document.getElementById('modalLDP'); if (m) m.remove();
@@ -8155,7 +8156,7 @@ function nunAuditoriaPedidosCalc(){
     if (t === 'facturas' && typeof nunEsDeRemision === 'function' && nunEsDeRemision(d)) return;   // factura de remisión: cuenta la remisión
     String(d.pedido_origen||'').split(/[,;]/).map(x => x.trim()).filter(Boolean).forEach(o => {
       const p = idx.get(o); if (!p) return;
-      if (!nunMismoCliente(p.cliente, d.cliente)) { out.otroCliente.push({ p, d, t }); return; }
+      if (!nunClientesRelacionados(p.cliente, d.cliente)) { out.otroCliente.push({ p, d, t }); return; }
       const pc = nunCantProd(p), dc = nunCantProd(d), fuera = Object.keys(dc).filter(k => Object.keys(pc).length && !(k in pc));
       if (fuera.length) out.productos.push({ p, d, t, fuera });
       if (!/cancel/i.test(p.estatus||'')) { if (!porPed.has(p.id)) porPed.set(p.id, { p, docs: [] }); porPed.get(p.id).docs.push({ d, t }); }
@@ -8211,7 +8212,7 @@ async function nunCandadoLigaOtroCliente(body){
   const malos = [];
   items.forEach(it => { if (!it || !it.pedido_origen) return;
     const cli = it.cliente || ((State.data[body.tabla]||[]).find(d => d.id === it.id) || {}).cliente; if (!cli) return;
-    String(it.pedido_origen).split(/[,;]/).map(x => x.trim()).filter(Boolean).forEach(o => { const p = idx.get(o); if (p && !nunMismoCliente(p.cliente, cli)) malos.push(o + ' es de ' + (p.cliente||'') + ' y el documento es de ' + cli); }); });
+    String(it.pedido_origen).split(/[,;]/).map(x => x.trim()).filter(Boolean).forEach(o => { const p = idx.get(o); if (p && !nunClientesRelacionados(p.cliente, cli)) malos.push(o + ' es de ' + (p.cliente||'') + ' y el documento es de ' + cli); }); });
   if (!malos.length) return true;
   return await confirmDialog({ title:'⚠ ¿Ligar a un pedido de OTRO cliente?', message: malos.slice(0, 5).join('\n') + '\n\nSolo sigue si a propósito se facturó a nombre de otra persona.', ok:'Sí, ligar', danger:true });
 }
@@ -8292,6 +8293,66 @@ async function nunHistorialDoc(id){
   document.body.appendChild(m);
 }
 window.nunHistorialDoc = nunHistorialDoc;
+
+// ============================================================
+// v4.17 — CLIENTES RELACIONADOS: un cliente compra y la factura sale a nombre de otro (ej. Carlos Alarcón → Cinthya Alarcón o
+// Rebeca Gazca; o Público en General). La venta sigue siendo del cliente del pedido. Se guarda compartido (kv nun_relaciones_clientes):
+// [{ principal:'CARLOS ALARCON VELEZ', facturar_a:['CINTHYA KALID ALARCON HERNANDEZ', …] }]. Las ligas, el candado y la auditoría lo aceptan.
+// ============================================================
+const NUN_REL_KEY = 'nun_relaciones_clientes';
+function nunRelaciones(){ try { const a = JSON.parse(localStorage.getItem(NUN_REL_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch(e){ return []; } }
+async function nunGuardarRelaciones(a){
+  try { localStorage.setItem(NUN_REL_KEY, JSON.stringify(a)); } catch(e){}
+  try { const r = await api({ accion:'kv_guardar', pares:{ [NUN_REL_KEY]: JSON.stringify(a) } }); return !!(r && r.ok); } catch(e){ return false; }
+}
+const _nunEsPublico = n => /PUBLICOENGENERAL/.test(String(n||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z]/g, ''));
+const _nunMiembros = g => [g.principal].concat(g.facturar_a || []).filter(Boolean);
+function nunGrupoDe(n){ return nunRelaciones().find(g => _nunMiembros(g).some(x => nunMismoCliente(x, n))) || null; }
+function nunClientesRelacionados(a, b){
+  if (nunMismoCliente(a, b) || _nunEsPublico(a) || _nunEsPublico(b)) return true;
+  const g = nunGrupoDe(a); return !!g && _nunMiembros(g).some(x => nunMismoCliente(x, b));
+}
+function nunFacturarA(cliente){
+  const out = [cliente], g = nunGrupoDe(cliente);
+  if (g) _nunMiembros(g).forEach(x => { if (!out.some(y => nunMismoCliente(y, x))) out.push(x); });
+  if (!out.some(_nunEsPublico)) out.push('Público en General');
+  return out;
+}
+async function nunRelacionAgregar(principal, otro){
+  const a = nunRelaciones(); let g = a.find(x => _nunMiembros(x).some(y => nunMismoCliente(y, principal)));
+  if (!g) { g = { principal, facturar_a: [] }; a.push(g); }
+  if (!_nunMiembros(g).some(y => nunMismoCliente(y, otro)) && !_nunEsPublico(otro)) g.facturar_a.push(otro);
+  const ok = await nunGuardarRelaciones(a); if (ok) toast('Quedó anotado: ' + principal + ' también factura a nombre de ' + otro, { duration:6000 });
+  return ok;
+}
+async function nunRelacionesModal(){
+  try { await cargarTabla('clientes'); } catch(e){}
+  const a = nunRelaciones(); window._nunREL = a;
+  let m = document.getElementById('modalREL'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalREL';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:16px';
+  const lista = `<datalist id="relListaCli">${(State.data.clientes||[]).map(c => `<option value="${escapeHTML(c.razon_social||'')}">`).join('')}</datalist>`;
+  const grupo = (g, i) => `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:8px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="min-width:0">${escapeHTML(g.principal)}</b><span style="color:var(--ink-3);font-size:12px">compra y factura a nombre de:</span></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${(g.facturar_a||[]).map((x, j) => `<span class="tag" style="display:inline-flex;gap:6px;align-items:center">${escapeHTML(x)} <a href="#" onclick="event.preventDefault();nunRelQuitar(${i},${j})" title="Quitar">✕</a></span>`).join('') || '<span style="color:var(--ink-3);font-size:12px">nadie todavía</span>'}<span class="tag">Público en General (siempre)</span></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><input id="relAdd${i}" list="relListaCli" placeholder="Agregar cliente…" style="flex:1;min-width:180px"><button class="btn btn-sm" onclick="nunRelAgregarDe(${i})">Agregar</button></div></div>`;
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:720px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)"><div><h3 style="margin:0">👥 A nombre de quién factura cada cliente</h3>
+      <div style="font-size:12px;color:var(--ink-3)">Al hacer la factura del pedido podrás escoger a estas personas. Las ligas y la auditoría ya no las marcan como "otro cliente".</div></div>
+      <button class="icon-btn" onclick="document.getElementById('modalREL').remove()">✕</button></div>
+    <div style="overflow:auto;padding:12px 18px;display:grid;gap:10px">${lista}${a.map(grupo).join('') || '<div style="color:var(--ink-3)">Todavía no hay clientes relacionados.</div>'}
+      <div style="border-top:1px solid var(--line);padding-top:10px;display:flex;gap:6px;flex-wrap:wrap"><input id="relNuevo" list="relListaCli" placeholder="Cliente que compra (ej. CARLOS ALARCON)" style="flex:1;min-width:200px"><button class="btn btn-primary btn-sm" onclick="nunRelNuevoGrupo()">+ Nuevo cliente</button></div></div></div>`;
+  document.body.appendChild(m);
+}
+async function nunRelAgregarDe(i){ const a = window._nunREL || nunRelaciones(), v = String((document.getElementById('relAdd' + i)||{}).value||'').trim(); if (!v || !a[i]) return;
+  if (!_nunMiembros(a[i]).some(y => nunMismoCliente(y, v))) a[i].facturar_a = (a[i].facturar_a||[]).concat([v]);
+  toast(await nunGuardarRelaciones(a) ? '✓ Guardado' : '✗ No se guardó', {}); nunRelacionesModal(); }
+async function nunRelQuitar(i, j){ const a = window._nunREL || nunRelaciones(); if (!a[i]) return; a[i].facturar_a.splice(j, 1);
+  toast(await nunGuardarRelaciones(a) ? '✓ Quitado' : '✗ No se guardó', {}); nunRelacionesModal(); }
+async function nunRelNuevoGrupo(){ const a = window._nunREL || nunRelaciones(), v = String((document.getElementById('relNuevo')||{}).value||'').trim(); if (!v) return;
+  if (a.some(g => nunMismoCliente(g.principal, v))) { toast('Ese cliente ya está en la lista'); return; }
+  a.push({ principal: v, facturar_a: [] }); toast(await nunGuardarRelaciones(a) ? '✓ Agregado' : '✗ No se guardó', {}); nunRelacionesModal(); }
+window.nunRelacionesModal = nunRelacionesModal; window.nunRelAgregarDe = nunRelAgregarDe; window.nunRelQuitar = nunRelQuitar; window.nunRelNuevoGrupo = nunRelNuevoGrupo;
  window.nunCobrarEnOtraVenta = nunCobrarEnOtraVenta; window.nunCobrarEnOtraVentaGuardar = nunCobrarEnOtraVentaGuardar;
 
 // XML del complemento
@@ -8591,8 +8652,8 @@ function nunPanelDoc(tabla, doc, acciones){
   } catch(e){} }
   const avisoLiga = _remDif ? `<div style="font-size:12px;margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(245,158,11,0.10)">⚠ Esta factura (${fmtFull(doc.total)}) está ligada a la remisión ${escapeHTML(nunFolioStr(_remDif))} de ${fmtFull(_remDif.total)}: no parecen la misma venta. Su cobro va en la factura.</div>` : '';
   // v4.10 — documento ligado a un pedido de OTRO cliente (pasó con datos de Bind, ej. pedido 1109): se avisa en rojo
-  const _otros = tabla === 'pedidos' ? R.remisiones.concat(R.facturas).filter(d => !/cancel/i.test(d.estatus||'') && !nunMismoCliente(d.cliente, doc.cliente))
-    : R.pedidos.filter(p => !nunMismoCliente(p.cliente, doc.cliente));
+  const _otros = tabla === 'pedidos' ? R.remisiones.concat(R.facturas).filter(d => !/cancel/i.test(d.estatus||'') && !nunClientesRelacionados(d.cliente, doc.cliente))
+    : R.pedidos.filter(p => !nunClientesRelacionados(p.cliente, doc.cliente));
   const avisoOtro = _otros.length ? `<div style="font-size:12px;margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(220,38,38,0.10);color:var(--red)">⚠ Ligado a ${tabla === 'pedidos' ? 'documento(s)' : 'pedido'} de OTRO cliente: ${_otros.map(d => escapeHTML(nunFolioStr(d) + ' (' + (d.cliente||'') + ')')).join(', ')}. Revísalo en Pedidos → 🔎 Auditoría de ligas.</div>` : '';
   const pagoVivo = i => !/CANCELADO|DUPLICADO/i.test(String(i.tipo||'')); // v3.92 los cancelados no cuentan
   const vivos = R.pagos.filter(pagoVivo);
@@ -11871,7 +11932,8 @@ const KV_KEYS_COMPARTIDAS = [
   'nun_inv_stock','nun_inv_movements',
   'nun_bank_accounts','nun_bank_statements','nun_bank_statement_lines',
   'nun_requisitions','nun_reservations','nun_pick_lists','nun_shipments',
-  'nun_cfdi_timbres' // v3.48 — timbres compactos (QR) compartidos y persistentes en el backend
+  'nun_cfdi_timbres', // v3.48 — timbres compactos (QR) compartidos y persistentes en el backend
+  'nun_relaciones_clientes' // v4.17 — a nombre de quién se factura cada cliente
 ];
 const _kvSucias = new Set();
 let _kvTimer = null, _kvAplicando = false;
@@ -14774,6 +14836,7 @@ function nunDondeSalio(p, k, docs, facIds){
 }
 async function nunDesdePedidos(idPedido, destino){
   nunOcupado('Revisando pedidos…');
+  try { if (!(State.data.clientes||[]).length) await cargarTabla('clientes'); } catch(e){} // v4.17 para "Facturar a nombre de"
   let peds, rems, facs;
   const _enMem = t => Array.isArray(State.data[t]) && State.data[t].length && State.data[t][0].items_json !== undefined ? State.data[t] : null; // v4.06 — sin esperar al servidor si ya está en pantalla
   try { [peds, rems, facs] = await Promise.all(['pedidos','remisiones','facturas'].map(t => _enMem(t) || nunListarFresco(t))); }
@@ -14815,6 +14878,11 @@ async function nunDesdePedidos(idPedido, destino){
           <option value="mas" ${lista.every(x => !nunEsVerdad(x.p.sin_iva)) ? 'selected' : ''}>NO incluye IVA → la factura suma 16% de IVA</option>
           <option value="incluye">YA incluye IVA → se desglosa (precio ÷ 1.16)</option>
           <option value="sin">Sin IVA (tasa 0)</option></select></div>` : ''}
+      <div class="field full" style="margin-top:10px"><label>Facturar a nombre de</label>
+        <select id="dpFacturarA" onchange="document.getElementById('dpOtroCli').hidden = this.value !== '__otro'">${nunFacturarA(lista[0].p.cliente).map(n => `<option value="${escapeHTML(n)}">${escapeHTML(n)}${nunMismoCliente(n, lista[0].p.cliente) ? ' (cliente del pedido)' : ''}</option>`).join('')}<option value="__otro">Otro cliente…</option></select>
+        <input id="dpOtroCli" list="dpListaCli" hidden placeholder="Escribe el cliente (debe estar dado de alta en Clientes)" style="margin-top:6px">
+        <datalist id="dpListaCli">${(State.data.clientes||[]).map(c => `<option value="${escapeHTML(c.razon_social||'')}">`).join('')}</datalist>
+        <div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">La venta sigue siendo del cliente del pedido; solo la factura sale a nombre de otro (ej. su esposa, su empresa o Público en General). Las relaciones se ven en Pedidos → 👥 A nombre de quién factura.</div></div>
       <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--bg-2)">
         <label style="font-size:12px;flex:1;min-width:220px">¿El cliente pagó otro monto? Escribe el <b>total</b> al que debe quedar (con IVA si es factura)<br>
           <input type="number" id="dpMonto" step="0.01" min="0" placeholder="Ej. 5500" style="width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--line);border-radius:6px"></label>
@@ -14929,6 +14997,12 @@ async function nunDesdePedidosCrear(dest){
   const destino = m._destino; const { lineas, errs, modo, peds } = nunDesdePedidosLineas();
   if (!lineas.length) errs.push('Pon al menos una pieza');
   if (destino === 'facturas' && !modo) errs.push('Elige si el precio incluye IVA o no');
+  // v4.17 — a nombre de quién sale la factura (la venta sigue siendo del cliente del pedido)
+  let _facA = peds.length ? peds[0].cliente : '';
+  const _selA = destino === 'facturas' ? document.getElementById('dpFacturarA') : null;
+  if (_selA) { _facA = _selA.value === '__otro' ? String((document.getElementById('dpOtroCli')||{}).value||'').trim() : _selA.value;
+    if (!_facA) errs.push('Escribe a nombre de quién va la factura');
+    else if (!(State.data.clientes||[]).some(c => nunMismoCliente(c.razon_social, _facA) && String(c.razon_social||'').trim().toUpperCase() === _facA.toUpperCase())) errs.push(_facA + ' no está dado de alta en Clientes (sin su RFC no se puede timbrar)'); }
   if (errs.length) { err.textContent = '⚠ ' + errs.join('\n⚠ '); return; }
   btn.disabled = true; btn.textContent = 'Creando…'; nunOcupado('Creando ' + (destino === 'facturas' ? 'factura' : 'remisión') + '…');
   try {
@@ -14940,7 +15014,7 @@ async function nunDesdePedidosCrear(dest){
     const vends = [...new Set(peds.map(p => String(p.vendedor||'').toUpperCase().trim()).filter(Boolean))];
     let doc = m.dataset.creado === id ? lista.find(d => String(d.id) === id) : null;
     if (!doc && !m.dataset.creado) { // v4.03 — ¿ya hay una igual del cliente? (se duplicaban cuando el servidor tardaba)
-      const _dup = nunDocParecido(destino, peds[0].cliente, t.total, null);
+      const _dup = nunDocParecido(destino, _facA || peds[0].cliente, t.total, null);
       if (_dup && !(await confirmDialog({ title:'¿Es otra venta?', message:'Ya existe ' + (destino === 'facturas' ? 'la factura ' : 'la remisión ') + _dup.folio + ' de ' + (_dup.cliente||'') + ' por ' + fmtFull(_dup.total) + ' del ' + fmtFecha(_dup.fecha) + (_dup.pedido_origen ? ' (pedido ' + _dup.pedido_origen + ')' : ' (sin pedido)') + '. Si es la misma, cancela y usa "🔗 Ligar remisiones" en el pedido. ¿Crear otra de todos modos?', ok:'Sí, es otra venta' }))) {
         nunOcupado(''); btn.disabled = false; btn.textContent = btn.id === 'dpBoton' ? '🧾 Hacer factura' : '📦 Hacer remisión'; return; }
     }
@@ -14949,16 +15023,17 @@ async function nunDesdePedidosCrear(dest){
     const _cobPed = _cobsPed.find(Boolean) || null;
     if (_cobPed && (peds.length > 1)) throw new Error('Este pedido ya es venta: factúralo solo (sin juntarlo con otros pedidos)');
     if (!doc) {
-      const item = { id, folio: nunFolioNUNde(destino, lista), fecha: nunHoy(), cliente: peds[0].cliente, vendedor: vends[0] || '',
+      const item = { id, folio: nunFolioNUNde(destino, lista), fecha: nunHoy(), cliente: _facA || peds[0].cliente, vendedor: vends[0] || '',
         pedido_origen: peds.map(p => String(p.folio || p.id)).join(', '), subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: sinIva || (destino === 'facturas' && modo === 'sin'),
         estatus: destino === 'facturas' ? 'borrador' : 'entregada', items_json: JSON.stringify(lineas.map(l => { const o = Object.assign({}, l); delete o._p; delete o._l; delete o._puOrig; delete o._puNuevo; return o; })),
-        notas: (destino === 'facturas' ? 'Factura' : 'Remisión') + ' de pedido(s) ' + peds.map(p => p.folio||p.id).join(', ') + (vends.length > 1 ? ' · vendedores: ' + vends.join(', ') : '') + (modo === 'incluye' ? ' · precio con IVA incluido' : '') + (_cobPed ? ' · Cobro en ' + (_cobPed.numero||'') + ' (id ' + _cobPed.id + ')' : '') };
+        notas: (destino === 'facturas' ? 'Factura' : 'Remisión') + ' de pedido(s) ' + peds.map(p => p.folio||p.id).join(', ') + (vends.length > 1 ? ' · vendedores: ' + vends.join(', ') : '') + (modo === 'incluye' ? ' · precio con IVA incluido' : '') + (_cobPed ? ' · Cobro en ' + (_cobPed.numero||'') + ' (id ' + _cobPed.id + ')' : '') + (_facA && !nunMismoCliente(_facA, peds[0].cliente) ? ' · Facturada a nombre de ' + _facA + ' (pedido de ' + peds[0].cliente + ')' : '') };
       if (destino === 'remisiones') { item.fecha_entrega = nunHoy(); item.sin_entregar = false; }
       const r = await api({ accion:'erp_crear', tabla: destino, item });
       if (!(r && r.ok)) { const chk = await nunListarFresco(destino); doc = chk.find(d => String(d.id) === id); if (!doc) throw new Error((r && r.error) || 'el servidor no confirmó'); }
       else doc = Object.assign({}, item, (r.item && r.item.folio) ? { folio: r.item.folio } : {});
       m.dataset.creado = id;
     }
+    if (_facA && !nunClientesRelacionados(peds[0].cliente, _facA)) await nunRelacionAgregar(peds[0].cliente, _facA); // v4.17 queda relacionado para la próxima
     if (!_cobPed && await nunAltaCobranza(destino, doc, true) === false) toast('⚠ Se creó ' + doc.folio + ' pero NO su cobro en Cobranza. Revísalo.', { type:'error', duration:12000 });
     if (!m.dataset.compensado) { try { await nunCompensarPedidos(lineas, doc, destino); } catch(e){ toast('⚠ No se pudo compensar el precio en el pedido: ' + e.message, { type:'error', duration:9000 }); } m.dataset.compensado = '1'; } // v4.06
     // estatus de cada pedido: si ya salió todo, entregado/facturado (v4.03 — con lo que ya está en pantalla + el documento nuevo)

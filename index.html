@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.12 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.13 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -8194,7 +8194,7 @@ async function nunQuitarLiga(i){
   const fol = nunFolioStr(x.p), ok = await confirmDialog({ title:'¿Quitar la liga de ' + nunFolioStr(x.d) + ' con el pedido ' + fol + '?',
     message:'El pedido ' + fol + ' es de ' + (x.p.cliente||'') + ' y el documento es de ' + (x.d.cliente||'') + '. El documento se queda igual (con sus pagos); solo deja de decir que salió de ese pedido. Queda anotado en sus notas.', ok:'Quitar liga' });
   if (!ok) return;
-  const bien = await nunGuardarSeguro(x.t, { id: x.d.id, pedido_origen: '', notas: (x.d.notas ? String(x.d.notas) + ' · ' : '') + 'Se quitó la liga con el pedido ' + fol + ' (' + (x.p.cliente||'') + ', otro cliente) el ' + nunHoy() });
+  const bien = await nunGuardarSeguro(x.t, { id: x.d.id, pedido_origen: '', _vaciar: ['pedido_origen'], notas: (x.d.notas ? String(x.d.notas) + ' · ' : '') + 'Se quitó la liga con el pedido ' + fol + ' (' + (x.p.cliente||'') + ', otro cliente) el ' + nunHoy() });
   toast(bien ? '✓ Liga quitada' : '✗ No se guardó. Inténtalo de nuevo.', { type: bien ? 'success' : 'error' });
   if (bien) { await cargarTabla(x.t); nunAuditoriaPedidos(); }
 }

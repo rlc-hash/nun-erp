@@ -17,6 +17,7 @@
 //  · Bind apagado (ya no se usa desde el 29-sep-2026): sincronización y proxy desactivados; el
 //    activador automático se borra solo si llega a correr.
 //
+// v0.9.14 (7-oct-2026) — erp_upsert_batch puede VACIAR campos a propósito: item._vaciar = ['pedido_origen'] (un '' normal se sigue ignorando).
 // v0.9.13 (6-oct-2026) — los datos viven en Supabase: este servidor de Google ya NO guarda (una página vieja abierta recibe "recarga la página").
 //  Aquí solo se entra, se manejan usuarios y se timbra (Supabase se lo pide). En Supabase la propiedad en_supabase=1 deja todo igual que antes.
 // v0.9.12 (6-oct-2026) — listas en memoria rápida de Google (CacheService) hasta que haya un cambio: el sistema carga mucho más rápido.
@@ -25,7 +26,7 @@
 //  Nadie más puede crear códigos de dueño (RAFA-, YADAH-, MASTER-NUN-), porque esos dan permisos de dueño.
 // ============================================================
 
-const VERSION_ERP = 'v0.9.13';
+const VERSION_ERP = 'v0.9.14';
 
 // v0.9.2 — Mapeo de tablas que el CRM pide por nombre "corto" a la hoja real del ERP.
 // El CRM usa 'clientes' para su catálogo de vendedores (NO el catálogo fiscal 'clientes' del ERP).
@@ -2492,7 +2493,8 @@ function _crmUpsertBatch(tabla, items, claveMatch) {
       if (k && mapa[k] !== undefined) {
         const i = mapa[k];
         const filaVieja = S.filas[i];
-        const filaNueva = S.headers.map((h, j) => (item[h] !== undefined && item[h] !== null && item[h] !== '') ? item[h] : filaVieja[j]);
+        const vaciar = Array.isArray(item._vaciar) ? item._vaciar : []; // v0.9.14
+        const filaNueva = S.headers.map((h, j) => vaciar.indexOf(h) >= 0 ? '' : (item[h] !== undefined && item[h] !== null && item[h] !== '') ? item[h] : filaVieja[j]);
         let cambio = false;
         for (let j = 0; j < S.headers.length; j++) { if (String(filaNueva[j]) !== String(filaVieja[j])) { cambio = true; break; } }
         if (cambio) { S.hoja.getRange(i+1, 1, 1, S.headers.length).setValues([filaNueva]); res.actualizados++; }

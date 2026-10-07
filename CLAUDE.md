@@ -28,7 +28,7 @@ Este repo puede ser público: no escribas aquí datos de clientes, montos, RFC n
 - `index.html` — ERP completo (~800 KB, un solo archivo, JS en línea). Publicado en GitHub Pages:
   https://rlc-hash.github.io/nun-erp/ (tarda ~1 min en actualizarse después del push).
 - `crm.html` — app de vendedores (misma base de datos). `importar.html` — importador de XML.
-- Backend: Google Apps Script. Su código está en `backend/Codigo.gs` (v0.9.13: en Google ya NO se guarda, solo entrar/usuarios/Facturama/lecturas; en Supabase la propiedad `en_supabase=1` deja todo normal; el usuario RAFA- solo lo ve y cambia Rafa; sin códigos de acceso: el maestro va en
+- Backend: Google Apps Script. Su código está en `backend/Codigo.gs` (v0.9.14: erp_upsert_batch vacía un campo solo con item._vaciar=['campo'] — un '' normal se ignora; en Google ya NO se guarda, solo entrar/usuarios/Facturama/lecturas; en Supabase la propiedad `en_supabase=1` deja todo normal; el usuario RAFA- solo lo ve y cambia Rafa; sin códigos de acceso: el maestro va en
   Propiedades del script → `codigo_maestro`). Claude NO puede publicarlo: Rafa lo pega en el editor de Apps Script y hace
   Implementar → Administrar implementaciones → editar la activa (…Dt2A) → Versión nueva (la URL no cambia).
   Prueba: `node pruebas/prueba_backend_v099.js` (hoja simulada). Nunca usar el backend viejo `AKfycbz9oHW…`.

@@ -17,7 +17,7 @@ const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),
   w.fetch=async(u,o)=>{ const b=o&&o.body?JSON.parse(o.body):{}; await new Promise(z=>setTimeout(z,5)); const J=x=>({json:async()=>JSON.parse(JSON.stringify(x))});
    if(!o||!o.body) return J({ok:true,mensaje:'NUN ERP backend v0.9.12'});
    if(b.accion==='erp_listar') return J({ok:true,items:DB[b.tabla]||[]});
-   if(b.accion==='erp_upsert_batch'){ for(const x of b.items){ const y=(DB[b.tabla]=DB[b.tabla]||[]).find(r=>r.id===x.id); if(y) Object.assign(y,x); else DB[b.tabla].push(x);} return J({ok:true}); }
+   if(b.accion==='erp_upsert_batch'){ for(const x of b.items){ const y=(DB[b.tabla]=DB[b.tabla]||[]).find(r=>r.id===x.id); const vac=x._vaciar||[]; if(y){ for(const k of Object.keys(x)){ if(k==='_vaciar') continue; if(x[k]!==''&&x[k]!=null) y[k]=x[k]; } vac.forEach(k=>y[k]=''); } else DB[b.tabla].push(x);} return J({ok:true}); } // igual que el servidor: '' se ignora salvo _vaciar
    return J({ok:true,items:[]}); };
   w.HTMLCanvasElement.prototype.getContext=()=>new Proxy({}, {get:()=>()=>({})});
  }});

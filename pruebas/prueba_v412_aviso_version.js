@@ -17,8 +17,10 @@ function probar(archivo, ver, subir){
   });
 }
 (async()=>{ const r={fallas:[]};
-  r.erp=await probar('index.html','v4.12 · Sistema','v4.13 · Sistema');
-  r.app=await probar('crm.html','v1.9.19</span>','v1.9.20</span>');
-  if(!r.erp.mismaVersion||!/versión nueva del sistema \(v4\.13\)/.test(r.erp.aviso)) r.fallas.push('erp');
-  if(!r.app.mismaVersion||!/versión nueva del sistema \(v1\.9\.20\)/.test(r.app.aviso)) r.fallas.push('app');
+  const v=fs.readFileSync('index.html','utf8').match(/rwd-version">v4\.(\d+) · Sistema/)[1]; r.subida='v4.'+(+v+1); // la versión que haya
+  r.erp=await probar('index.html','v4.'+v+' · Sistema','v4.'+(+v+1)+' · Sistema');
+  const va=fs.readFileSync('crm.html','utf8').match(/letter-spacing:0\.05em">v1\.9\.(\d+)<\/span>/)[1]; r.subidaApp='v1.9.'+(+va+1);
+  r.app=await probar('crm.html','v1.9.'+va+'</span>','v1.9.'+(+va+1)+'</span>');
+  if(!r.erp.mismaVersion||r.erp.aviso.indexOf('versión nueva del sistema ('+r.subida+')')<0) r.fallas.push('erp');
+  if(!r.app.mismaVersion||r.app.aviso.indexOf('versión nueva del sistema ('+r.subidaApp+')')<0) r.fallas.push('app');
   console.log(JSON.stringify(r,null,1)); })();

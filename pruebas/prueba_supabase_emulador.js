@@ -35,6 +35,13 @@ const fs = require('fs'), path = require('path');
   const fa = (await llamar({ accion: 'erp_listar', tabla: 'facturas', codigo: C })).items.find(x => x.id === 'fa');
   r.upsert = { pedido_origen: fa.pedido_origen, cliente: fa.cliente, total: fa.total };
   ok('upsert', fa.pedido_origen === '1244' && fa.cliente === 'X' && fa.total === 1);
+  // v0.9.14 — un '' se ignora; con _vaciar sí se borra el campo
+  await llamar({ accion: 'erp_upsert_batch', tabla: 'facturas', items: [{ id: 'fa', pedido_origen: '' }], codigo: C });
+  const fa2 = (await llamar({ accion: 'erp_listar', tabla: 'facturas', codigo: C })).items.find(x => x.id === 'fa');
+  await llamar({ accion: 'erp_upsert_batch', tabla: 'facturas', items: [{ id: 'fa', pedido_origen: '', _vaciar: ['pedido_origen'] }], codigo: C });
+  const fa3 = (await llamar({ accion: 'erp_listar', tabla: 'facturas', codigo: C })).items.find(x => x.id === 'fa');
+  r.vaciar = { vacioSeIgnora: fa2.pedido_origen, conVaciar: fa3.pedido_origen, clienteSigue: fa3.cliente };
+  ok('vaciar', fa2.pedido_origen === '1244' && fa3.pedido_origen === '' && fa3.cliente === 'X');
   // cobranza + pago + anular pago (nada se borra)
   await llamar({ accion: 'erp_crear', tabla: 'cobranza', item: { id: 'c1', numero: 'R0001', cliente: 'X', total: 100, cobrado: 0, pendiente: 100 }, codigo: C });
   const pg = await llamar({ accion: 'capturar_pago_cliente', id_doc: 'c1', monto: 40, fecha: '2026-09-30', cuenta: 'BBVA', codigo_usuario: C, codigo: C });

@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.18 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.19 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -6923,6 +6923,7 @@ function renderDocOperativo(tabla) {
         ${(tabla === 'remisiones' || tabla === 'facturas') && nunEsAdmin() && nunFoliosServidor(tabla).length ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunRevisarFoliosServidor('${tabla}')">🧹 Folios REM/FAC (${nunFoliosServidor(tabla).length})</button>` : ''}
         ${tabla === 'remisiones' && nunEsAdmin() ? `<button class="btn btn-secondary" onclick="nunRemMarcarFacturadas()" title="Remisiones canceladas en Bind que sí se facturaron">🔎 Canceladas que se facturaron</button>` : ''}
         ${nunEsAdmin() && (() => { try { return rows.some(r => !/cancel/i.test(r.estatus||'') && String(r.cliente||'').trim() && !NUN_VENDEDORES_VALIDOS.includes(String(r.vendedor||'').toUpperCase().trim())); } catch(e){ return false; } })() ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunVendedoresACorregir()" title="Documentos con YASMIN, sin vendedor u otro que no es vendedor">👤 Vendedores a corregir</button>` : ''}
+        ${tabla === 'pedidos' && nunPuedeLigar() ? `<button class="btn btn-primary" onclick="nunCuadrarClientes()" title="Pedidos que no cuadran y sus remisiones/facturas sueltas, cliente por cliente">🧩 Cuadrar por cliente</button>` : ''}
         ${tabla === 'pedidos' && nunPuedeLigar() ? `<button class="btn btn-secondary" onclick="nunRelacionesModal()" title="Clientes que facturan a nombre de otra persona o empresa">👥 A nombre de quién factura</button>` : ''}
         ${tabla === 'pedidos' && nunPuedeLigar() ? `<button class="btn btn-secondary" onclick="nunAuditoriaPedidos()" title="Revisa que cada remisión y factura ligada a un pedido sea del mismo cliente y de esos productos">🔎 Auditoría de ligas</button>` : ''}
         <button class="btn btn-secondary" onclick="exportarTabla('${tabla}')">Exportar</button>
@@ -8353,6 +8354,128 @@ async function nunRelNuevoGrupo(){ const a = window._nunREL || nunRelaciones(), 
   if (a.some(g => nunMismoCliente(g.principal, v))) { toast('Ese cliente ya está en la lista'); return; }
   a.push({ principal: v, facturar_a: [] }); toast(await nunGuardarRelaciones(a) ? '✓ Agregado' : '✗ No se guardó', {}); nunRelacionesModal(); }
 window.nunRelacionesModal = nunRelacionesModal; window.nunRelAgregarDe = nunRelAgregarDe; window.nunRelQuitar = nunRelQuitar; window.nunRelNuevoGrupo = nunRelNuevoGrupo;
+// ============================================================
+// v4.19 — 🧩 CUADRAR POR CLIENTE: en una sola pantalla, los pedidos de un cliente que no cuadran (sin documento, parciales,
+// ligados a otro cliente o con más de lo pedido) y sus remisiones/facturas sueltas (sin pedido). Se liga con clics.
+// Acciones: Ligar lo marcado al pedido · ✓ Cuadra (queda "[revisado …]") · Duplicado de… · Cancelar (nunca se surtió) · Venta directa.
+// Nada se borra: todo queda con nota. Lo de prueba (RAFAEL LANIADO) y los pedidos-venta del flujo nuevo no salen.
+// ============================================================
+const _nunEsPrueba = n => /LANIADO/i.test(String(n||''));
+const _nunRevisado = d => /\[(revisado|venta directa)/i.test(String(d.notas||''));
+function _nunMismoGrupo(a, b){ if (nunMismoCliente(a, b)) return true; const g = nunGrupoDe(a); return !!g && _nunMiembros(g).some(x => nunMismoCliente(x, b)); }
+function nunCuadreCalc(){
+  const D = State.data, docs = [];
+  ['remisiones','facturas'].forEach(t => (D[t]||[]).forEach(d => { if (!/cancel/i.test(d.estatus||'') && !(t === 'facturas' && nunEsDeRemision(d))) docs.push({ t, d }); }));
+  const idx = new Map(); (D.pedidos||[]).forEach(p => nunPedClaves(p).forEach(k => idx.set(k, p)));
+  const deP = new Map(), sueltos = [];
+  docs.forEach(x => { const os = String(x.d.pedido_origen||'').split(/[,;]/).map(s => s.trim()).filter(s => idx.has(s));
+    if (!os.length) { if (!_nunEsPrueba(x.d.cliente) && !_nunRevisado(x.d)) sueltos.push(x); return; }
+    os.forEach(o => { const p = idx.get(o); if (!deP.has(p.id)) deP.set(p.id, []); deP.get(p.id).push(x); }); });
+  const malos = [];
+  (D.pedidos||[]).forEach(p => {
+    if (/cancel|duplic/i.test(p.estatus||'') || _nunEsPrueba(p.cliente) || nunCobroPropioPedido(p) || _nunRevisado(p)) return;
+    const ds = deP.get(p.id) || [], tot = +p.total||0, suma = nunR2(ds.reduce((a, x) => a + (+x.d.total||0), 0));
+    const otro = ds.filter(x => !nunClientesRelacionados(x.d.cliente, p.cliente));
+    let prob = '';
+    if (otro.length) prob = 'Ligado a documento de otro cliente: ' + otro.map(x => (x.t === 'facturas' ? 'F ' : 'R ') + nunFolioStr(x.d) + ' (' + x.d.cliente + ')').join(', ');
+    else if (!ds.length) prob = 'Sin remisión ni factura';
+    else if (suma < tot - 1) prob = 'Salió una parte: faltan ' + fmtFull(tot - suma);
+    else if (suma > tot * 1.17 + 1) prob = 'Salió más de lo pedido (' + fmtFull(suma) + ')';
+    if (prob) malos.push({ p, ds, suma, prob });
+  });
+  const clientes = new Map();
+  const clave = n => { const g = nunGrupoDe(n); return g ? 'G:' + g.principal.toUpperCase() : String(n||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9]/g, ''); };
+  malos.forEach(m => { const k = clave(m.p.cliente); if (!clientes.has(k)) clientes.set(k, { nombre: (nunGrupoDe(m.p.cliente)||{}).principal || m.p.cliente, pedidos: [], sueltos: [] }); clientes.get(k).pedidos.push(m); });
+  // también clientes que solo tienen remisiones/facturas sueltas (para marcarlas como venta directa o ligarlas)
+  sueltos.forEach(x => { const k = clave(x.d.cliente); if (!clientes.has(k)) clientes.set(k, { nombre: (nunGrupoDe(x.d.cliente)||{}).principal || x.d.cliente, pedidos: [], sueltos: [] }); });
+  clientes.forEach((c, k) => { c.sueltos = sueltos.filter(x => clave(x.d.cliente) === k || c.pedidos.some(m => _nunMismoGrupo(m.p.cliente, x.d.cliente))); c.monto = c.pedidos.reduce((a, m) => a + (+m.p.total||0), 0) + c.sueltos.reduce((a, x) => a + (+x.d.total||0), 0); });
+  return [...clientes.values()].sort((a, b) => b.monto - a.monto);
+}
+async function nunCuadrarClientes(sel){
+  nunOcupado('Revisando pedidos…');
+  try { await Promise.all(['pedidos','remisiones','facturas','cobranza'].map(t => cargarTabla(t))); } finally { nunOcupado(''); }
+  const L = nunCuadreCalc(); window._nunCQ = { L, sel: sel != null ? sel : (window._nunCQ && window._nunCQ.selNombre ? L.findIndex(c => c.nombre === window._nunCQ.selNombre) : 0) };
+  if (window._nunCQ.sel < 0) window._nunCQ.sel = 0;
+  let m = document.getElementById('modalCQ'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalCQ';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:130;display:flex;align-items:center;justify-content:center;padding:12px';
+  const c = L[window._nunCQ.sel]; window._nunCQ.selNombre = c ? c.nombre : '';
+  const T = x => (x.t === 'facturas' ? 'F ' : 'R ') + escapeHTML(nunFolioStr(x.d));
+  const prods = d => { try { return JSON.parse(d.items_json||'[]').map(i => (+i.cantidad||0) + ' ' + String(i.sku||i.descripcion||'').substring(0, 12)).join(', ').substring(0, 90); } catch(e){ return ''; } };
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:1100px;width:100%;height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap">
+      <div><h3 style="margin:0">🧩 Cuadrar por cliente</h3><div style="font-size:12px;color:var(--ink-3)">${L.length} clientes · ${L.reduce((a, x) => a + x.pedidos.length, 0)} pedidos por cuadrar · ${L.reduce((a, x) => a + x.sueltos.length, 0)} remisiones/facturas sueltas</div></div>
+      <div style="display:flex;gap:8px;align-items:center"><select id="cqCliente" onchange="nunCuadrarClientes(+this.value)" style="max-width:420px">${L.map((x, i) => `<option value="${i}" ${i === window._nunCQ.sel ? 'selected' : ''}>${escapeHTML(x.nombre)} · ${x.pedidos.length} pedido(s) · ${x.sueltos.length} suelto(s)</option>`).join('')}</select>
+      <button class="icon-btn" onclick="document.getElementById('modalCQ').remove()">✕</button></div></div>
+    ${!c ? '<div style="padding:40px;text-align:center;color:var(--green)">✓ Todos los pedidos cuadran</div>' : `
+    <div style="flex:1;overflow:auto;padding:12px 18px;display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));align-items:start">
+      <div style="min-width:0"><h4 style="margin:0 0 6px">Pedidos que no cuadran <span style="font-weight:400;color:var(--ink-3);font-size:12px">· escoge uno</span></h4>
+        ${c.pedidos.length ? '' : '<div style="color:var(--green);font-size:13px">✓ Sus pedidos ya cuadran. Solo falta decir qué son sus documentos sueltos.</div>'}
+        ${c.pedidos.map((x, i) => `<label style="display:block;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;cursor:pointer">
+          <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><input type="radio" name="cqPed" value="${i}" ${i === 0 ? 'checked' : ''}><b class="mono">${escapeHTML(nunFolioStr(x.p))}</b><span>${fmtFecha(x.p.fecha)}</span><b style="margin-left:auto">${fmtFull(x.p.total)}</b></div>
+          <div style="font-size:12px;color:var(--ink-3)">${escapeHTML(x.p.cliente)} · ${escapeHTML(x.p.estatus||'')} · ${escapeHTML(prods(x.p))}</div>
+          <div style="font-size:12px;color:var(--amber,#b45309)">⚠ ${escapeHTML(x.prob)}${x.ds.length ? ' · ya ligado: ' + x.ds.map(T).join(', ') : ''}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+            <button class="btn btn-sm" onclick="event.preventDefault();nunCQRevisado(${i})">✓ Cuadra así</button>
+            <button class="btn btn-sm" onclick="event.preventDefault();nunCQDuplicado(${i})">Duplicado de…</button>
+            <button class="btn btn-sm" style="color:var(--red)" onclick="event.preventDefault();nunCQCancelar(${i})">Cancelar (nunca se surtió)</button></div></label>`).join('')}</div>
+      <div style="min-width:0"><h4 style="margin:0 0 6px">Remisiones y facturas sueltas <span style="font-weight:400;color:var(--ink-3);font-size:12px">· sin pedido</span></h4>
+        ${c.sueltos.length ? c.sueltos.map((x, j) => `<label style="display:block;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;cursor:pointer">
+          <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><input type="checkbox" class="cqDoc" value="${j}"><b class="mono">${T(x)}</b><span>${fmtFecha(x.d.fecha)}</span><b style="margin-left:auto">${fmtFull(x.d.total)}</b></div>
+          <div style="font-size:12px;color:var(--ink-3)">${escapeHTML(x.d.cliente)} · ${escapeHTML(x.d.estatus||'')} · ${escapeHTML(prods(x.d))}</div>
+          <div style="margin-top:6px"><button class="btn btn-sm" onclick="event.preventDefault();nunCQDirecta(${j})">Es venta directa (sin pedido)</button></div></label>`).join('')
+          : '<div style="color:var(--ink-3);font-size:13px">Este cliente no tiene remisiones ni facturas sueltas.</div>'}</div></div>
+    <div style="display:flex;justify-content:space-between;gap:8px;padding:12px 18px;border-top:1px solid var(--line);flex-wrap:wrap;align-items:center">
+      <span style="font-size:12px;color:var(--ink-3)">Marca a la derecha las que salieron del pedido escogido y dale Ligar. Nada se borra; todo queda con nota.</span>
+      <button class="btn btn-primary" onclick="nunCQLigar()">🔗 Ligar lo marcado al pedido escogido</button></div>`}</div>`;
+  document.body.appendChild(m);
+}
+function _nunCQPed(i){ const S = window._nunCQ, c = S && S.L[S.sel]; return c && c.pedidos[i]; }
+const _nunNota = (d, t) => (d.notas ? String(d.notas) + ' · ' : '') + t + ' (' + nunHoy() + (_nunQuienSoy() ? ', ' + _nunQuienSoy() : '') + ')';
+async function nunCQLigar(){
+  const S = window._nunCQ, c = S && S.L[S.sel]; if (!c) return;
+  const r = document.querySelector('#modalCQ input[name=cqPed]:checked'); if (!r) { toast('Escoge el pedido', { type:'error' }); return; }
+  const x = c.pedidos[+r.value], marcados = [...document.querySelectorAll('#modalCQ .cqDoc:checked')].map(e => c.sueltos[+e.value]);
+  if (!marcados.length) { toast('Marca las remisiones o facturas que salieron de ese pedido', { type:'error' }); return; }
+  const fol = nunFolioStr(x.p) || x.p.id, suma = nunR2(marcados.reduce((a, y) => a + (+y.d.total||0), 0) + x.suma);
+  if (!(await confirmDialog({ title:'¿Ligar ' + marcados.length + ' documento(s) al pedido ' + fol + '?', message: marcados.map(y => (y.t === 'facturas' ? 'F ' : 'R ') + nunFolioStr(y.d) + ' ' + fmtFull(y.d.total)).join(', ') + '\nCon esto el pedido queda en ' + fmtFull(suma) + ' de ' + fmtFull(x.p.total) + '.', ok:'Ligar' }))) return;
+  let mal = 0;
+  for (const y of marcados) if (!(await nunGuardarSeguro(y.t, { id: y.d.id, pedido_origen: fol, notas: _nunNota(y.d, 'Ligada al pedido ' + fol + ' en Cuadrar por cliente') }))) mal++;
+  toast(mal ? '⚠ ' + mal + ' no se guardaron; vuelve a intentar' : '✓ Ligado al pedido ' + fol, { type: mal ? 'error' : 'success' });
+  nunCuadrarClientes();
+}
+async function nunCQRevisado(i){
+  const x = _nunCQPed(i); if (!x) return;
+  if (!(await confirmDialog({ title:'¿El pedido ' + nunFolioStr(x.p) + ' cuadra así?', message:'Ya no saldrá en esta lista. Queda anotado en sus notas.', ok:'Sí, cuadra' }))) return;
+  const ok = await nunGuardarSeguro('pedidos', { id: x.p.id, notas: _nunNota(x.p, '[revisado ✓ cuadra]') });
+  toast(ok ? '✓ Marcado como revisado' : '✗ No se guardó', { type: ok ? 'success' : 'error' }); nunCuadrarClientes();
+}
+async function nunCQDuplicado(i){
+  const x = _nunCQPed(i); if (!x) return;
+  const otros = (State.data.pedidos||[]).filter(p => p.id !== x.p.id && !/cancel/i.test(p.estatus||'') && _nunMismoGrupo(p.cliente, x.p.cliente));
+  const fol = String(prompt('¿De qué pedido es duplicado el ' + nunFolioStr(x.p) + '? Escribe el folio del bueno:\n' + otros.map(p => nunFolioStr(p) + ' · ' + fmtFull(p.total)).join('\n')) || '').trim();
+  if (!fol) return;
+  if (!otros.some(p => nunFolioStr(p) === fol)) { toast('No encontré el pedido ' + fol + ' de este cliente', { type:'error' }); return; }
+  if (!(await confirmDialog({ title:'¿Marcar el ' + nunFolioStr(x.p) + ' como DUPLICADO del ' + fol + '?', message:'Queda cancelado con la nota "DUPLICADO del pedido ' + fol + '". No se borra.', ok:'Marcar duplicado', danger:true }))) return;
+  const ok = await nunGuardarSeguro('pedidos', { id: x.p.id, estatus:'cancelado', notas: _nunNota(x.p, 'DUPLICADO del pedido ' + fol) });
+  if (ok) await nunLiberarApartado(x.p.id);
+  toast(ok ? '✓ Marcado como duplicado' : '✗ No se guardó', { type: ok ? 'success' : 'error' }); nunCuadrarClientes();
+}
+async function nunCQCancelar(i){
+  const x = _nunCQPed(i); if (!x) return;
+  if (x.ds.length) { toast('Este pedido ya tiene documentos ligados (' + x.ds.map(y => nunFolioStr(y.d)).join(', ') + '): revísalo antes de cancelarlo', { type:'error', duration:8000 }); return; }
+  if (!(await confirmDialog({ title:'¿Cancelar el pedido ' + nunFolioStr(x.p) + '?', message:'Se marca cancelado porque nunca se surtió. Queda anotado. No se borra.', ok:'Cancelar pedido', danger:true }))) return;
+  const ok = await nunGuardarSeguro('pedidos', { id: x.p.id, estatus:'cancelado', notas: _nunNota(x.p, 'Cancelado: nunca se surtió (Cuadrar por cliente)') });
+  if (ok) await nunLiberarApartado(x.p.id);
+  toast(ok ? '✓ Pedido cancelado' : '✗ No se guardó', { type: ok ? 'success' : 'error' }); nunCuadrarClientes();
+}
+async function nunCQDirecta(j){
+  const S = window._nunCQ, c = S && S.L[S.sel], y = c && c.sueltos[j]; if (!y) return;
+  if (!(await confirmDialog({ title:'¿' + (y.t === 'facturas' ? 'La factura ' : 'La remisión ') + nunFolioStr(y.d) + ' fue venta directa?', message:'Es decir, no salió de ningún pedido. Ya no saldrá en esta lista.', ok:'Sí, venta directa' }))) return;
+  const ok = await nunGuardarSeguro(y.t, { id: y.d.id, notas: _nunNota(y.d, '[venta directa, sin pedido]') });
+  toast(ok ? '✓ Anotado' : '✗ No se guardó', { type: ok ? 'success' : 'error' }); nunCuadrarClientes();
+}
+window.nunCuadrarClientes = nunCuadrarClientes; window.nunCQLigar = nunCQLigar; window.nunCQRevisado = nunCQRevisado; window.nunCQDuplicado = nunCQDuplicado; window.nunCQCancelar = nunCQCancelar; window.nunCQDirecta = nunCQDirecta;
  window.nunCobrarEnOtraVenta = nunCobrarEnOtraVenta; window.nunCobrarEnOtraVentaGuardar = nunCobrarEnOtraVentaGuardar;
 
 // XML del complemento

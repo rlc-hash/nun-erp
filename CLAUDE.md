@@ -68,6 +68,8 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - UUIDs: Facturama los da en minúsculas, Bind en mayúsculas; `cfdi_xml_get` se prueba con ambas.
 - `convertir_documento` del servidor crea el documento SIN productos y con su propio folio (FAC-2026-…): el sistema
   copia productos y renombra el cobro (v3.78/v3.79).
+- Las hojas de Google EmpresaConfig y Cuentas tenían columnas con nombre repetido: `erp_listar` las daba vacías y la copia a Supabase
+  (6 oct) perdió RFC/CP de la empresa y tipo/activa de cuentas. Reparado el 8 oct desde `obtener_empresa`/`listar_cuentas`.
 - ERP y app comparten localStorage `nun_cache_*` con formas distintas: aceptar `{items:[...]}` y arreglo.
 
 ## Flujo de venta (desde v4.14 / app v1.9.20 / servidor v0.9.15, decidido por Rafa el 7 oct 2026)

@@ -10,9 +10,35 @@ import postgres from 'npm:postgres@3.4.5';
 import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 
-const VERSION = 'supabase-1.0';
+const VERSION = 'supabase-1.1';
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
-const sql = postgres(Deno.env.get('SUPABASE_DB_URL')!, { max: 4, prepare: false, idle_timeout: 20 });
+// v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
+// Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
+const DB_DIRECTA = Deno.env.get('SUPABASE_DB_URL')!;
+function urlPooler(){
+  try { const u = new URL(DB_DIRECTA); if (/pooler\.supabase\.com$/.test(u.hostname)) return DB_DIRECTA;
+    const ref = (u.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/) || [])[1] || 'vlqbzfotjltarelwenvu';
+    if (u.username === 'postgres') u.username = 'postgres.' + ref;
+    u.hostname = 'aws-0-us-east-2.pooler.supabase.com'; u.port = '6543'; return u.toString(); } catch(e){ return DB_DIRECTA; }
+}
+let MODO_DB = 'pooler';
+let sql: any = postgres(urlPooler(), { max: 3, prepare: false, idle_timeout: 5, connect_timeout: 8 });
+let _dbProbada: Promise<void> | null = null;
+function dbLista(){
+  if (!_dbProbada) _dbProbada = (async () => {
+    try { await sql`select 1`; }
+    catch(e){ try { await sql.end({ timeout: 1 }); } catch(_){} MODO_DB = 'directa'; sql = postgres(DB_DIRECTA, { max: 1, prepare: false, idle_timeout: 3, connect_timeout: 8 }); }
+  })();
+  return _dbProbada;
+}
+const esErrorConexion = (e: unknown) => /connection slots|too many (clients|connections)|ECONNRESET|CONNECT_TIMEOUT|CONNECTION_(CLOSED|ENDED|DESTROYED)|Max client connections|terminating connection/i.test(String(e));
+// Reintenta lo que falló por falta de conexión (en ese punto no se guardó nada: la transacción no llegó a confirmarse).
+async function conReintento<T>(f: () => Promise<T>): Promise<T> {
+  for (let i = 0; ; i++) {
+    try { return await f(); }
+    catch(e){ if (i >= 4 || !esErrorConexion(e)) throw e; await new Promise(r => setTimeout(r, 250 * (i + 1) + Math.random() * 200)); }
+  }
+}
 const fn = compilar(CODIGO);
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 const json = (o: unknown, extra: Record<string,string> = {}) => new Response(typeof o === 'string' ? o : JSON.stringify(o), { headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8', ...extra } });
@@ -105,6 +131,7 @@ async function ejecutar(tipo: 'post'|'get', payload: string|Record<string,string
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  await dbLista();
   const t0 = Date.now();
   let accion = '', ok = true, err = '', quien = '';
   try {
@@ -112,9 +139,9 @@ Deno.serve(async (req) => {
     if (req.method === 'GET'){
       const p = Object.fromEntries(url.searchParams.entries());
       accion = 'GET ' + (p.tabla || '');
-      if (!p.tabla) return json({ ok: true, mensaje: 'NUN ERP backend ' + VERSION });
-      const c = norm(p.codigo), m = new Map(); if (c) m.set(c, await sesion(c, false));
-      return json(await ejecutar('get', p, null, m, false));
+      if (!p.tabla) return json({ ok: true, mensaje: 'NUN ERP backend ' + VERSION, db: MODO_DB });
+      const c = norm(p.codigo), m = new Map(); if (c) m.set(c, await conReintento(() => sesion(c, false)));
+      return json(await conReintento(() => ejecutar('get', p, null, m, false)));
     }
     const texto = await req.text();
     let body: any; try { body = JSON.parse(texto); } catch(e){ return json({ ok: false, error: 'Petición inválida' }); }
@@ -146,9 +173,9 @@ Deno.serve(async (req) => {
     }
     const necesitaAdmin = A_ADMIN.test(accion);
     const m = new Map();
-    for (const c of new Set([body.codigo, body.codigo_usuario, body.codigo_admin].map(norm).filter(Boolean))) m.set(c, await sesion(c, necesitaAdmin));
+    for (const c of new Set([body.codigo, body.codigo_usuario, body.codigo_admin].map(norm).filter(Boolean))) m.set(c, await conReintento(() => sesion(c, necesitaAdmin)));
     quien = ((m.get(norm(body.codigo || body.codigo_usuario || body.codigo_admin)) || {}).nombre) || String(body._quien || '').slice(0, 60);
-    const out = await ejecutar('post', texto, body, m, !A_LECTURA.test(accion));
+    const out = await conReintento(() => ejecutar('post', texto, body, m, !A_LECTURA.test(accion)));
     if (!A_LECTURA.test(accion)) accion += _det;
     try { const j = JSON.parse(out); ok = !!j.ok; if (!ok) err = String(j.error || '').substring(0, 200); } catch(e){}
     return json(out);

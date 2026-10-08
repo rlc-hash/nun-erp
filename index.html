@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.17 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.18 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -11597,7 +11597,7 @@ function nunAvisoCopia(){
   if (!malas.length) { if (el) el.remove(); return; }
   if (!el) { el = document.createElement('div'); el.id = 'nunAvisoCopia'; el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:14px;z-index:300;background:#7a4b00;color:#fff;font-size:12.5px;padding:8px 14px;border-radius:20px;box-shadow:0 6px 18px rgba(0,0,0,.25);cursor:pointer'; el.onclick = () => { malas.forEach(t => cargarTabla(t)); }; document.body.appendChild(el); }
   const hh = State._copiaHora ? ' de las ' + new Date(State._copiaHora).toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' }) : '';
-  el.textContent = '⚠ Google no respondió: estás viendo la última copia' + hh + (malas.length > 3 ? ' (' + malas.length + ' listas)' : ' (' + malas.join(', ') + ')') + '. Toca para reintentar.';
+  el.textContent = '⚠ El servidor no respondió: estás viendo la última copia' + hh + (malas.length > 3 ? ' (' + malas.length + ' listas)' : ' (' + malas.join(', ') + ')') + '. Toca para reintentar.';
 }
 async function cargarTabla(tabla, opts) {
   opts = opts || {};

@@ -736,6 +736,9 @@ body.sidenav-collapsed .rwd-sidenav-toggle svg {
 /* v3.44 — drawer ancho para documentos (factura/pedido/remisión) */
 .drawer.wide { width: 860px; }
 @media (max-width: 900px) { .drawer.wide { width: 100vw; } }
+/* v4.21 — ficha del cliente casi a pantalla completa */
+.drawer.xwide { width: min(1280px, 96vw); }
+@media (max-width: 900px) { .drawer.xwide { width: 100vw; } }
 /* v3.45 — Autocompletado profesional (cliente / producto) */
 .ac-dropdown {
   position: fixed; z-index: 200; background: #fff;
@@ -1693,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.20 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.21 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2774,6 +2777,7 @@ function abrirDrawer(opts) {
     $('#drawerFooter').classList.add('hidden');
   }
   $('#drawer').classList.toggle('wide', !!opts.wide); // v3.44 — drawer ancho opcional
+  $('#drawer').classList.toggle('xwide', !!opts.xwide); // v4.21 — casi pantalla completa (ficha del cliente)
   $('#drawerBackdrop').classList.add('show');
   $('#drawer').classList.add('show');
 }
@@ -3872,7 +3876,7 @@ function abrirDetalleCliente(id) {
       { key:'crm', label:`CRM (${contactos.length})`, body: tabCRM },
       { key:'acciones', label:'Acciones', body: tabAcciones }
     ].concat(nunEsAdmin() ? [{ key:'cuadre', label:'🧮 Cuadre', body: `<div id="nunCuadreCliMount">${nunCuadreClienteHTML(cli)}</div>` }] : []), // v3.84
-    footer
+    footer, xwide: true // v4.21 — más grande
   });
   // v4.20 — si las listas no estaban cargadas, se cargan y se vuelve a pintar la tabla de documentos
   if (['pedidos','remisiones','facturas','cotizaciones','notascredito'].some(t => !Array.isArray(State.data[t]))) {
@@ -3885,13 +3889,14 @@ function abrirDetalleCliente(id) {
 // ============================================================
 function nunDocsClienteHTML(cli){
   const nom = cli.razon_social || cli.nombre_comercial || '';
-  const es = d => nunMismoCliente(d.cliente, nom) || (cli.nombre_comercial && nunMismoCliente(d.cliente, cli.nombre_comercial));
+  // v4.21 — el documento debe traer nombre (las notas de crédito de Bind lo traen en "contraparte"); sin nombre no es de nadie
+  const es = d => { const n = String(d.cliente || d.contraparte || '').trim(); return !!n && (nunMismoCliente(n, nom) || (!!cli.nombre_comercial && nunMismoCliente(n, cli.nombre_comercial))); };
   const T = [['pedidos','Pedido','blue'],['remisiones','Remisión','amber'],['facturas','Factura','green'],['cotizaciones','Cotización',''],['notascredito','Nota de crédito','purple']];
   const filas = [];
   T.forEach(([t, nomT, color]) => (State.data[t]||[]).filter(es).forEach(d => filas.push({ t, nomT, color, d })));
   filas.sort((a, b) => String(b.d.fecha||'').localeCompare(String(a.d.fecha||'')));
-  const cuenta = t => filas.filter(x => !t || x.t === t).length;
   const filtro = window._nunDocsCliFiltro || '', sinCanc = window._nunDocsCliSinCanc !== false;
+  const cuenta = t => filas.filter(x => (!t || x.t === t) && (!sinCanc || !/cancel|duplic/i.test(x.d.estatus||''))).length; // v4.21 — cuenta lo mismo que se ve
   const ver = filas.filter(x => (!filtro || x.t === filtro) && (!sinCanc || !/cancel|duplic/i.test(x.d.estatus||'')));
   const chip = (t, l) => `<button class="btn btn-sm ${filtro === t ? 'btn-primary' : 'btn-secondary'}" onclick="window._nunDocsCliFiltro='${t}';nunDocsClienteRepintar()">${l} (${cuenta(t)})</button>`;
   const liga = x => { try {
@@ -3906,13 +3911,41 @@ function nunDocsClienteHTML(cli){
       <thead><tr><th>Tipo</th><th>Folio</th><th>Fecha</th><th class="right">Total</th><th>Estatus</th><th>Ligado a</th><th></th></tr></thead><tbody>
       ${ver.map(x => { const idJs = escapeHTML(JSON.stringify(String(x.d.id||''))); return `<tr style="${/cancel|duplic/i.test(x.d.estatus||'') ? 'opacity:.55' : ''}">
         <td><span class="tag ${x.color}">${x.nomT}</span></td><td class="mono"><b>${escapeHTML(nunFolioStr(x.d))}</b></td><td>${fmtFecha(x.d.fecha)}</td>
-        <td class="right mono">${fmtFull(x.d.total)}</td><td><span class="tag">${escapeHTML(x.d.estatus||'')}</span></td><td>${liga(x)}</td>
-        <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="cerrarDrawer();setTimeout(()=>{navegar('${x.t}');setTimeout(()=>abrirDoc('${x.t}',${idJs}),60)},100)">🔎 Ver</button></td></tr>`; }).join('')}
+        <td class="right mono">${fmtFull(x.d.total)}</td><td><span class="tag ${nunColorEstatus(x.d.estatus)}">${escapeHTML(x.d.estatus||'')}</span></td><td>${liga(x)}</td>
+        <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="cerrarDrawer();setTimeout(()=>{navegar('${x.t}');setTimeout(()=>abrirDoc('${x.t}',${idJs}),60)},100)">🔎 Ver</button>${x.t === 'pedidos' && nunEsDueno() && !/cancel|duplic/i.test(x.d.estatus||'') ? ` <button class="btn btn-sm btn-danger" onclick="nunDocsCliCancelar(${idJs})">✕ Cancelar</button>` : ''}</td></tr>`; }).join('')}
       </tbody></table></div>` : '<div style="padding:24px;text-align:center;color:var(--mute);font-size:13px">No hay documentos con este filtro</div>'}
     <div style="font-size:11.5px;color:var(--ink-3);margin-top:6px">Folios repetidos (ej. dos 1161) vienen así de Bind: el cancelado es el duplicado.</div>`;
 }
 function nunDocsClienteRepintar(){ const mm = document.getElementById('nunDocsCliMount'); if (!mm) return; const cli = (State.data.clientes||[]).find(c => String(c.id) === mm.dataset.id); if (cli) mm.innerHTML = nunDocsClienteHTML(cli); }
 window.nunDocsClienteRepintar = nunDocsClienteRepintar;
+// v4.21 — color del estatus: cancelado rojo, facturado/entregado verde, confirmado azul, activo/borrador/enviada amarillo
+function nunColorEstatus(e){
+  e = String(e||'').toLowerCase();
+  if (/cancel|duplic/.test(e)) return 'red';
+  if (/factur|timbr|pagad|entreg|surtid|cobrad/.test(e)) return 'green';
+  if (/confirm/.test(e)) return 'blue';
+  return e ? 'amber' : '';
+}
+// v4.21 — cancelar un pedido desde la ficha del cliente: SOLO Rafa (dueño). No se borra: queda cancelado y anotado.
+async function nunDocsCliCancelar(id){
+  if (!nunEsDueno()) { toast('Solo Rafa puede cancelar desde aquí', { type:'error' }); return; }
+  const p = (State.data.pedidos||[]).find(x => String(x.id) === String(id)); if (!p) return;
+  // ¿tiene remisión o factura viva? (si el folio está repetido y el otro pedido vivo es el que la trae, no cuenta)
+  const I = nunSituacionIdx();
+  const gemelo = (State.data.pedidos||[]).some(o => o !== p && String(o.folio||'').trim() && String(o.folio).trim() === String(p.folio||'').trim() && !/cancel|duplic/i.test(o.estatus||''));
+  const vivos = nunPedClaves(p).flatMap(k => I.porPedido.get(k) || []).filter(x => !/cancel/i.test(x.d.estatus||'') && (!gemelo || String(x.d.pedido_origen||'').trim() === String(p.id)));
+  if (vivos.length) { toast('El pedido ' + nunFolioStr(p) + ' tiene ' + vivos.map(x => (x.t === 'R' ? 'R ' : 'F ') + nunFolioStr(x.d)).join(', ') + ' sin cancelar: primero cancela o quita la liga de eso.', { type:'error', duration:10000 }); return; }
+  if (nunCobroPropioPedido(p)) { if (!(await nunCancelarPedidoVentaSiAplica(p))) return; }
+  else if (!(await confirmDialog({ title:'¿Cancelar el pedido ' + nunFolioStr(p) + '?', message:'Queda marcado como cancelado y anotado. No se borra.', ok:'Cancelar pedido', danger:true }))) return;
+  try { await cargarTabla('pedidos'); } catch(e){}
+  const p2 = (State.data.pedidos||[]).find(x => String(x.id) === String(id)) || p; // notas al día (el servidor pudo anotar)
+  const ok = await nunGuardarSeguro('pedidos', { id: p.id, estatus:'cancelado', notas: _nunNota(p2, 'Cancelado por Rafa (Clientes → Documentos)') });
+  if (ok) { try { await nunLiberarApartado(p.id); } catch(e){} }
+  try { await cargarTabla('pedidos'); } catch(e){}
+  toast(ok ? '✓ Pedido ' + nunFolioStr(p) + ' cancelado' : '✗ No se guardó', { type: ok ? 'success' : 'error' });
+  nunDocsClienteRepintar();
+}
+window.nunDocsCliCancelar = nunDocsCliCancelar;
 // ============================================================
 // v3.84 — CUADRE POR CLIENTE: lo cobrado en cada documento contra los pagos que de verdad hay en Ingresos,
 // y el vendedor de todos sus documentos. Todo se muestra primero; solo se cambia lo que Rafa confirme.

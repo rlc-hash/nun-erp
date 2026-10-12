@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.26 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.27 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3897,6 +3897,12 @@ function nunDocsClienteHTML(cli){
   const T = [['pedidos','Pedido','blue'],['remisiones','Remisión','amber'],['facturas','Factura','green'],['cotizaciones','Cotización',''],['notascredito','Nota de crédito','purple']];
   const filas = [];
   T.forEach(([t, nomT, color]) => (State.data[t]||[]).filter(es).forEach(d => filas.push({ t, nomT, color, d })));
+  // v4.27 — cliente de factura: remisiones/facturas a nombre de otro (relacionado) que salieron de SUS pedidos también salen aquí
+  const misPed = new Set((State.data.pedidos||[]).filter(es).filter(p => !/cancel|duplic/i.test(p.estatus||'')).flatMap(p => nunPedClaves(p)));
+  if (misPed.size) T.slice(1, 3).forEach(([t, nomT, color]) => (State.data[t]||[]).forEach(d => {
+    if (es(d) || !String(d.cliente||'').trim() || !nunClientesRelacionados(d.cliente, nom)) return;
+    if (String(d.pedido_origen||'').split(/[,;]/).map(x => x.trim()).some(k => misPed.has(k))) filas.push({ t, nomT, color, d, aNombre: d.cliente });
+  }));
   filas.sort((a, b) => String(b.d.fecha||'').localeCompare(String(a.d.fecha||'')));
   const filtro = window._nunDocsCliFiltro || '', sinCanc = window._nunDocsCliSinCanc !== false;
   const cuenta = t => filas.filter(x => (!t || x.t === t) && (!sinCanc || !/cancel|duplic/i.test(x.d.estatus||''))).length; // v4.21 — cuenta lo mismo que se ve
@@ -3906,14 +3912,17 @@ function nunDocsClienteHTML(cli){
       if (x.t === 'pedidos') return nunSituacionHTML('pedidos', x.d);
       if (x.t === 'notascredito') return escapeHTML(x.d.documento_origen ? 'de ' + x.d.documento_origen : '—');
       if (x.t === 'cotizaciones') { const m = String(x.d.notas||'').match(/pedido (P\d{4,})/); return m ? '→ pedido ' + escapeHTML(m[1]) : '—'; }
-      const po = String(x.d.pedido_origen||'').trim(); return po ? 'pedido ' + escapeHTML(po) : (/\[venta directa/i.test(String(x.d.notas||'')) ? '<span style="color:var(--ink-3)">venta directa</span>' : '<span class="tag amber">sin pedido</span>');
+      const po = String(x.d.pedido_origen||'').trim();
+      if (po) { const pp = (State.data.pedidos||[]).filter(p => nunPedClaves(p).includes(po)); const vivo = pp.find(p => !/cancel|duplic/i.test(p.estatus||'')) || pp[0]; // v4.27 de quién es el pedido
+        return 'pedido ' + escapeHTML(po) + (vivo && !es(vivo) ? ' <span style="color:var(--ink-3)">· de ' + escapeHTML(vivo.cliente||'') + '</span>' : ''); }
+      return (/\[venta directa/i.test(String(x.d.notas||'')) ? '<span style="color:var(--ink-3)">venta directa</span>' : '<span class="tag amber">sin pedido</span>');
     } catch(e){ return ''; } };
   return `<div class="nunCuadrePendMount" data-id="${escapeHTML(String(cli.id))}">${nunCuadrePendHTML(cli)}</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chip('', 'Todos')}${chip('pedidos','Pedidos')}${chip('remisiones','Remisiones')}${chip('facturas','Facturas')}${chip('cotizaciones','Cotizaciones')}${chip('notascredito','Notas')}
       <label style="font-size:12px;display:flex;gap:4px;align-items:center;margin-left:auto"><input type="checkbox" ${sinCanc ? 'checked' : ''} onchange="window._nunDocsCliSinCanc=this.checked;nunDocsClienteRepintar()"> ocultar cancelados</label></div>
     ${ver.length ? `<div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px"><table class="dt" style="font-size:12px">
       <thead><tr><th>Tipo</th><th>Folio</th><th>Fecha</th><th class="right">Total</th><th>Estatus</th><th>Ligado a</th><th></th></tr></thead><tbody>
       ${ver.map(x => { const idJs = escapeHTML(JSON.stringify(String(x.d.id||''))); return `<tr style="${/cancel|duplic/i.test(x.d.estatus||'') ? 'opacity:.55' : ''}">
-        <td><span class="tag ${x.color}">${x.nomT}</span></td><td class="mono"><b>${escapeHTML(nunFolioStr(x.d))}</b></td><td>${fmtFecha(x.d.fecha)}</td>
+        <td><span class="tag ${x.color}">${x.nomT}</span></td><td class="mono"><b>${escapeHTML(nunFolioStr(x.d))}</b>${x.aNombre ? `<div style="font-family:inherit;font-size:11px;color:var(--ink-3)">🤝 a nombre de ${escapeHTML(x.aNombre)}</div>` : ''}</td><td>${fmtFecha(x.d.fecha)}</td>
         <td class="right mono">${fmtFull(x.d.total)}</td><td><span class="tag ${nunColorEstatus(x.d.estatus)}">${escapeHTML(x.d.estatus||'')}</span></td><td>${liga(x)}</td>
         <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="cerrarDrawer();setTimeout(()=>{navegar('${x.t}');setTimeout(()=>abrirDoc('${x.t}',${idJs}),60)},100)">🔎 Ver</button>${x.t === 'pedidos' && nunEsDueno() && !/cancel|duplic/i.test(x.d.estatus||'') ? ` <button class="btn btn-sm btn-danger" onclick="nunDocsCliCancelar(${idJs})">✕ Cancelar</button>` : ''}${(x.t === 'remisiones' || x.t === 'facturas') && nunEsAdmin() && !String(x.d.pedido_origen||'').trim() && !/cancel/i.test(x.d.estatus||'') && !(x.t === 'facturas' && nunEsDeRemision(x.d)) ? ` <button class="btn btn-sm btn-primary" onclick="nunDocsCliCrearPedido('${x.t}',${idJs})">📦 Crear pedido</button>` : ''}</td></tr>`; }).join('')}
       </tbody></table></div>` : '<div style="padding:24px;text-align:center;color:var(--mute);font-size:13px">No hay documentos con este filtro</div>'}

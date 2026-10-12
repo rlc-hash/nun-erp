@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.28 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.29 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -8956,6 +8956,8 @@ function nunRelDoc(tabla, doc){
   const out = { pedidos:[], remisiones:[], facturas:[], reps:[], ncs:[], pagos:[], cobro:null };
   const add = (arr, x) => { if (x && !arr.some(y => y.id === x.id)) arr.push(x); };
   const clavesPed = p => [nunFolioStr(p), String(p.id)].filter(Boolean);
+  // v4.29 — folio repetido de Bind (ej. cinco pedidos 1070, cuatro cancelados): si hay uno vivo, solo ese; los cancelados no se enseñan
+  const pedsDe = po => { const L = peds.filter(p => clavesPed(p).includes(po)), v = L.filter(p => !/cancel|duplic/i.test(p.estatus||'')); return v.length ? v : L; };
   const facturasDeRem = r => facs.filter(f => nunEsDeRemision(f) && nunRemFolioDeFactura(f) === nunFolioStr(r) && nunRemDeFactura(f) === r); // v3.96 folios repetidos
   if (tabla === 'pedidos') {
     add(out.pedidos, doc);
@@ -8966,16 +8968,16 @@ function nunRelDoc(tabla, doc){
   } else if (tabla === 'remisiones') {
     add(out.remisiones, doc);
     const po = String(doc.pedido_origen||'').trim();
-    if (po) peds.filter(p => clavesPed(p).includes(po)).forEach(p => add(out.pedidos, p));
+    if (po) pedsDe(po).forEach(p => add(out.pedidos, p));
     facturasDeRem(doc).forEach(f => add(out.facturas, f));
   } else if (tabla === 'facturas') {
     add(out.facturas, doc);
     if (nunEsDeRemision(doc)) {
       const r = nunRemDeFactura(doc); // v3.96
-      if (r) { add(out.remisiones, r); const po = String(r.pedido_origen||'').trim(); if (po) peds.filter(p => clavesPed(p).includes(po)).forEach(p => add(out.pedidos, p)); }
+      if (r) { add(out.remisiones, r); const po = String(r.pedido_origen||'').trim(); if (po) pedsDe(po).forEach(p => add(out.pedidos, p)); }
     } else {
       const po = String(doc.pedido_origen||'').trim();
-      if (po) peds.filter(p => clavesPed(p).includes(po)).forEach(p => add(out.pedidos, p));
+      if (po) pedsDe(po).forEach(p => add(out.pedidos, p));
     }
   }
   // Complementos de pago de las facturas

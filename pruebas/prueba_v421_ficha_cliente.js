@@ -54,7 +54,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   // v4.21
   r.xwide=d.getElementById('drawer').classList.contains('xwide');
   w.eval("window._nunDocsCliFiltro='';window._nunDocsCliSinCanc=true;nunDocsClienteRepintar()");
-  r.chips421=[...d.querySelectorAll('#nunDocsCliMount button.btn')].filter(b=>!/Ver|Cancelar|Crear pedido/.test(b.textContent)).map(b=>txt(b));
+  r.chips421=[...d.querySelectorAll('#nunDocsCliMount button.btn')].filter(b=>!/Ver|Cancelar|Crear pedido|Arreglar/.test(b.textContent)).map(b=>txt(b));
   r.colores=[...d.querySelectorAll('#nunDocsCliMount tbody tr')].map(tr=>txt(tr.children[4])+':'+tr.children[4].querySelector('.tag').className.replace('tag','').trim());
   r.botonesCancelar=d.querySelectorAll('#nunDocsCliMount button.btn-danger').length;
   // cancelar 1170: tiene R410 viva → no deja

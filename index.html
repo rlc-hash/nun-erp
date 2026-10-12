@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.24 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.25 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3731,7 +3731,7 @@ function abrirDetalleCliente(id) {
   const contactos = (State.data.contactoscrm||[]).filter(c => (c.cliente||'').trim() === (cli.razon_social||'').trim());
   const recordatorios = (State.data.recordatorios||[]).filter(r => (r.cliente||'').trim() === (cli.razon_social||'').trim());
 
-  const tabResumen = `
+  const tabResumen = `<div class="nunCuadrePendMount" data-id="${escapeHTML(String(id))}">${nunCuadrePendHTML(cli)}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
       <div class="kpi" style="padding:12px"><div class="kpi-label">Facturado</div><div class="kpi-value" style="font-size:18px">${fmt(facturado)}</div></div>
       <div class="kpi" style="padding:12px"><div class="kpi-label">Pendiente</div><div class="kpi-value red" style="font-size:18px">${fmt(pendiente)}</div></div>
@@ -3880,7 +3880,7 @@ function abrirDetalleCliente(id) {
   });
   // v4.20 — si las listas no estaban cargadas, se cargan y se vuelve a pintar la tabla de documentos
   if (['pedidos','remisiones','facturas','cotizaciones','notascredito'].some(t => !Array.isArray(State.data[t]))) {
-    Promise.all(['pedidos','remisiones','facturas','cotizaciones','notascredito','cobranza'].map(t => cargarTabla(t).catch(()=>{}))).then(() => { const mm = document.getElementById('nunDocsCliMount'); if (mm && mm.dataset.id === String(id)) mm.innerHTML = nunDocsClienteHTML(cli); });
+    Promise.all(['pedidos','remisiones','facturas','cotizaciones','notascredito','cobranza'].map(t => cargarTabla(t).catch(()=>{}))).then(() => { const mm = document.getElementById('nunDocsCliMount'); if (mm && mm.dataset.id === String(id)) mm.innerHTML = nunDocsClienteHTML(cli); document.querySelectorAll('.nunCuadrePendMount').forEach(x => { if (x.dataset.id === String(id)) x.innerHTML = nunCuadrePendHTML(cli); }); });
   }
 }
 // ============================================================
@@ -3908,7 +3908,7 @@ function nunDocsClienteHTML(cli){
       if (x.t === 'cotizaciones') { const m = String(x.d.notas||'').match(/pedido (P\d{4,})/); return m ? '→ pedido ' + escapeHTML(m[1]) : '—'; }
       const po = String(x.d.pedido_origen||'').trim(); return po ? 'pedido ' + escapeHTML(po) : (/\[venta directa/i.test(String(x.d.notas||'')) ? '<span style="color:var(--ink-3)">venta directa</span>' : '<span class="tag amber">sin pedido</span>');
     } catch(e){ return ''; } };
-  return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chip('', 'Todos')}${chip('pedidos','Pedidos')}${chip('remisiones','Remisiones')}${chip('facturas','Facturas')}${chip('cotizaciones','Cotizaciones')}${chip('notascredito','Notas')}
+  return `<div class="nunCuadrePendMount" data-id="${escapeHTML(String(cli.id))}">${nunCuadrePendHTML(cli)}</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chip('', 'Todos')}${chip('pedidos','Pedidos')}${chip('remisiones','Remisiones')}${chip('facturas','Facturas')}${chip('cotizaciones','Cotizaciones')}${chip('notascredito','Notas')}
       <label style="font-size:12px;display:flex;gap:4px;align-items:center;margin-left:auto"><input type="checkbox" ${sinCanc ? 'checked' : ''} onchange="window._nunDocsCliSinCanc=this.checked;nunDocsClienteRepintar()"> ocultar cancelados</label></div>
     ${ver.length ? `<div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px"><table class="dt" style="font-size:12px">
       <thead><tr><th>Tipo</th><th>Folio</th><th>Fecha</th><th class="right">Total</th><th>Estatus</th><th>Ligado a</th><th></th></tr></thead><tbody>
@@ -3920,8 +3920,34 @@ function nunDocsClienteHTML(cli){
     ${parecidos.size ? `<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8;font-size:12.5px">⚠️ <b>Nombre casi igual (¿error de letra?)</b> — no se cuentan aquí hasta que lo revises:<br>${[...parecidos].map(([n, L]) => '· <b>' + escapeHTML(n) + '</b>: ' + escapeHTML(L.join(', '))).join('<br>')}</div>` : ''}
     <div style="font-size:11.5px;color:var(--ink-3);margin-top:6px">Folios repetidos (ej. dos 1161) vienen así de Bind: el cancelado es el duplicado. Aquí solo salen los documentos con el nombre completo del cliente.</div>`;
 }
-function nunDocsClienteRepintar(){ const mm = document.getElementById('nunDocsCliMount'); if (!mm) return; const cli = (State.data.clientes||[]).find(c => String(c.id) === mm.dataset.id); if (cli) mm.innerHTML = nunDocsClienteHTML(cli); }
+function nunDocsClienteRepintar(){ const mm = document.getElementById('nunDocsCliMount'); if (!mm) return; const cli = (State.data.clientes||[]).find(c => String(c.id) === mm.dataset.id); if (cli) { mm.innerHTML = nunDocsClienteHTML(cli); document.querySelectorAll('.nunCuadrePendMount').forEach(x => { if (x.dataset.id === String(cli.id) && !mm.contains(x)) x.innerHTML = nunCuadrePendHTML(cli); }); } }
 window.nunDocsClienteRepintar = nunDocsClienteRepintar;
+// v4.25 — FALTA CUADRAR de este cliente (lo mismo que Cuadrar por cliente, pero solo lo suyo), arriba en Resumen y Documentos
+function nunCuadrePendCalc(cli){
+  const nom = cli.razon_social || cli.nombre_comercial || '';
+  const es = n => nunCliExacto(n, nom) || (!!cli.nombre_comercial && nunCliExacto(n, cli.nombre_comercial));
+  const T = x => (x.t === 'facturas' ? 'F ' : 'R ') + nunFolioStr(x.d);
+  const out = [], vistos = new Set(); let L = []; try { L = nunCuadreCalc(); } catch(e){ return { L, out, idx:-1 }; }
+  let idx = -1;
+  L.forEach((c, i) => {
+    c.pedidos.forEach(m => {
+      if (es(m.p.cliente)) { if (!vistos.has(m.p.id)) { vistos.add(m.p.id); out.push('Pedido ' + nunFolioStr(m.p) + ' (' + fmtFull(m.p.total) + '): ' + m.prob); } if (idx < 0) idx = i; }
+      else m.ds.filter(x => es(x.d.cliente)).forEach(x => { if (!vistos.has(x.d.id)) { vistos.add(x.d.id); out.push(T(x) + ' (' + fmtFull(x.d.total) + ') está ligada al pedido ' + nunFolioStr(m.p) + ' de OTRO cliente: ' + m.p.cliente); } if (idx < 0) idx = i; });
+    });
+    c.sueltos.filter(x => es(x.d.cliente)).forEach(x => { if (!vistos.has(x.d.id)) { vistos.add(x.d.id); out.push(T(x) + ' (' + fmtFull(x.d.total) + ') sin pedido'); } if (idx < 0) idx = i; });
+  });
+  return { L, out, idx };
+}
+function nunCuadrePendHTML(cli){
+  if (!['pedidos','remisiones','facturas'].every(t => Array.isArray(State.data[t]))) return '';
+  const R = nunCuadrePendCalc(cli);
+  if (!R.out.length) return '<div style="margin-bottom:12px;padding:8px 12px;border-radius:8px;background:#eef8f0;border:1px solid #cfe8d5;font-size:12.5px">✅ <b>Todo cuadrado</b>: sus pedidos tienen su remisión/factura y no hay documentos sueltos.</div>';
+  return `<div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8;font-size:12.5px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b>🧩 Falta cuadrar (${R.out.length})</b>
+    <button class="btn btn-sm btn-primary" onclick="cerrarDrawer();nunCuadrarClientes(${R.idx})">Arreglar en Cuadrar por cliente</button></div>
+    <div style="margin-top:6px;line-height:1.6">${R.out.map(t => '· ' + escapeHTML(t)).join('<br>')}</div></div>`;
+}
+window.nunCuadrePendHTML = nunCuadrePendHTML;
 // v4.21 — color del estatus: cancelado rojo, facturado/entregado verde, confirmado azul, activo/borrador/enviada amarillo
 function nunColorEstatus(e){
   e = String(e||'').toLowerCase();

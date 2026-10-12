@@ -39,7 +39,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
     incompleto:M('HUGO SOLORZANO','HUGO CARLOS SOLORZANO GONZALEZ'), vacio:M('','X') };
   w.eval("abrirDetalleCliente('ca')"); await sleep(800); w.eval("window._nunDocsCliFiltro='pedidos';window._nunDocsCliSinCanc=true;nunDocsClienteRepintar()");
   r.pedidos=[...d.querySelectorAll('#nunDocsCliMount tbody tr')].map(tr=>txt(tr.children[1])).sort().join();
-  r.aviso=txt(d.querySelector('#nunDocsCliMount div[style*="fff7e6"]'));
+  r.aviso=txt([...d.querySelectorAll('#nunDocsCliMount div')].find(x=>/^⚠️ Nombre casi igual/.test(txt(x))));
   r.version=txt(d.querySelector('.rwd-version'));
   const R=r.reglas;
   if(R.hugo||R.christian||R.incompleto) r.fallas.push('mezcla-clientes');

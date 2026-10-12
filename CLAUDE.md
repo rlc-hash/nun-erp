@@ -82,6 +82,15 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - Cancelar un pedido-venta: `cancelar_pedido_venta` (no si tiene pagos o factura viva); cancela su cobro y regresa el inventario.
 - Lo anterior (Bind, remisiones y facturas con su propio cobro) se queda igual.
 
+## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)
+- Mismo cliente = NOMBRE COMPLETO igual (`nunCliNorm`: sin acentos/puntos/espacios dobles/"S.A. de C.V."). Error de 1–2 letras
+  o nombre cortado se acepta para ligar (`nunMismoCliente`) pero la ficha lo AVISA y no lo cuenta. Antes bastaban 2 palabras y se mezclaban clientes.
+- Ficha del cliente: Documentos con filtros, "🧩 Falta cuadrar" (de `nunCuadreCalc`), ✕ Cancelar pedido (solo dueño), 📦 Crear pedido
+  (venta directa: `ped_vd_<id doc>`, sin cobro ni inventario). Cliente de factura (kv `nun_relaciones_clientes`): botones 🤝.
+- Folio de pedido repetido de Bind: siempre gana el pedido vivo sobre el cancelado (ligas, cadena, auditoría).
+- Saldo < $1 en Cobranza = pagado (centavos de Bind). Complementos de Bind en notas: `REP BIND-145 uuid=… monto=… fecha=… parc=… sant=…`.
+- Estatus del pedido se sube solo al ligar (`nunPedidosAlDia`: confirmado → entregado → facturado, solo si está surtido completo).
+
 ## Convenciones de datos
 - Folios NUN: Pedido P0001, Remisión R0001, Factura FT0001 (Serie FT), complemento de pago CP0001 (Serie CP),
   nota de crédito NC0001 (Serie NC, CFDI de Egreso ligado a la factura con relación 01 — la serie NC debe existir en Facturama).

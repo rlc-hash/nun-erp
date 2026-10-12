@@ -1693,7 +1693,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.19 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.20 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3865,7 +3865,8 @@ function abrirDetalleCliente(id) {
     sub: `${cli.rfc||'sin RFC'} · ${cli.vendedor||'sin vendedor'} · crédito ${cli.credito_dias||0}d`,
     tabs:[
       { key:'resumen', label:'Resumen', body: tabResumen },
-      { key:'documentos', label:`Documentos (${todoTimeline.length})`, body: tabDocumentos },
+      { key:'documentos', label:`Documentos (${todoTimeline.length})`, body: `<div id="nunDocsCliMount" data-id="${escapeHTML(String(id))}">${nunDocsClienteHTML(cli)}</div>` }, // v4.20 tabla con filtros
+      { key:'archivos', label:'PDF / XML', body: tabDocumentos }, // v4.20 la lista anterior con PDF, XML y nota de crédito
       { key:'cobranza', label:`Cobranza (${docs.length})`, body: tabCobranza },
       { key:'pagos', label:`Pagos (${nunPagosDeCliente(cli).length})`, body: `<div id="nunPagosCliMount" data-id="${escapeHTML(String(id))}">${nunPagosClienteHTML(cli)}</div>` }, // v3.79
       { key:'crm', label:`CRM (${contactos.length})`, body: tabCRM },
@@ -3873,7 +3874,45 @@ function abrirDetalleCliente(id) {
     ].concat(nunEsAdmin() ? [{ key:'cuadre', label:'🧮 Cuadre', body: `<div id="nunCuadreCliMount">${nunCuadreClienteHTML(cli)}</div>` }] : []), // v3.84
     footer
   });
+  // v4.20 — si las listas no estaban cargadas, se cargan y se vuelve a pintar la tabla de documentos
+  if (['pedidos','remisiones','facturas','cotizaciones','notascredito'].some(t => !Array.isArray(State.data[t]))) {
+    Promise.all(['pedidos','remisiones','facturas','cotizaciones','notascredito','cobranza'].map(t => cargarTabla(t).catch(()=>{}))).then(() => { const mm = document.getElementById('nunDocsCliMount'); if (mm && mm.dataset.id === String(id)) mm.innerHTML = nunDocsClienteHTML(cli); });
+  }
 }
+// ============================================================
+// v4.20 — DOCUMENTOS DEL CLIENTE en tabla con filtros (Todos / Pedidos / Remisiones / Facturas / Cotizaciones / Notas):
+// para cuadrar con Bind cliente por cliente. Muestra a qué está ligado cada documento; los cancelados se pueden ocultar.
+// ============================================================
+function nunDocsClienteHTML(cli){
+  const nom = cli.razon_social || cli.nombre_comercial || '';
+  const es = d => nunMismoCliente(d.cliente, nom) || (cli.nombre_comercial && nunMismoCliente(d.cliente, cli.nombre_comercial));
+  const T = [['pedidos','Pedido','blue'],['remisiones','Remisión','amber'],['facturas','Factura','green'],['cotizaciones','Cotización',''],['notascredito','Nota de crédito','purple']];
+  const filas = [];
+  T.forEach(([t, nomT, color]) => (State.data[t]||[]).filter(es).forEach(d => filas.push({ t, nomT, color, d })));
+  filas.sort((a, b) => String(b.d.fecha||'').localeCompare(String(a.d.fecha||'')));
+  const cuenta = t => filas.filter(x => !t || x.t === t).length;
+  const filtro = window._nunDocsCliFiltro || '', sinCanc = window._nunDocsCliSinCanc !== false;
+  const ver = filas.filter(x => (!filtro || x.t === filtro) && (!sinCanc || !/cancel|duplic/i.test(x.d.estatus||'')));
+  const chip = (t, l) => `<button class="btn btn-sm ${filtro === t ? 'btn-primary' : 'btn-secondary'}" onclick="window._nunDocsCliFiltro='${t}';nunDocsClienteRepintar()">${l} (${cuenta(t)})</button>`;
+  const liga = x => { try {
+      if (x.t === 'pedidos') return nunSituacionHTML('pedidos', x.d);
+      if (x.t === 'notascredito') return escapeHTML(x.d.documento_origen ? 'de ' + x.d.documento_origen : '—');
+      if (x.t === 'cotizaciones') { const m = String(x.d.notas||'').match(/pedido (P\d{4,})/); return m ? '→ pedido ' + escapeHTML(m[1]) : '—'; }
+      const po = String(x.d.pedido_origen||'').trim(); return po ? 'pedido ' + escapeHTML(po) : (/\[venta directa/i.test(String(x.d.notas||'')) ? '<span style="color:var(--ink-3)">venta directa</span>' : '<span class="tag amber">sin pedido</span>');
+    } catch(e){ return ''; } };
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chip('', 'Todos')}${chip('pedidos','Pedidos')}${chip('remisiones','Remisiones')}${chip('facturas','Facturas')}${chip('cotizaciones','Cotizaciones')}${chip('notascredito','Notas')}
+      <label style="font-size:12px;display:flex;gap:4px;align-items:center;margin-left:auto"><input type="checkbox" ${sinCanc ? 'checked' : ''} onchange="window._nunDocsCliSinCanc=this.checked;nunDocsClienteRepintar()"> ocultar cancelados</label></div>
+    ${ver.length ? `<div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px"><table class="dt" style="font-size:12px">
+      <thead><tr><th>Tipo</th><th>Folio</th><th>Fecha</th><th class="right">Total</th><th>Estatus</th><th>Ligado a</th><th></th></tr></thead><tbody>
+      ${ver.map(x => { const idJs = escapeHTML(JSON.stringify(String(x.d.id||''))); return `<tr style="${/cancel|duplic/i.test(x.d.estatus||'') ? 'opacity:.55' : ''}">
+        <td><span class="tag ${x.color}">${x.nomT}</span></td><td class="mono"><b>${escapeHTML(nunFolioStr(x.d))}</b></td><td>${fmtFecha(x.d.fecha)}</td>
+        <td class="right mono">${fmtFull(x.d.total)}</td><td><span class="tag">${escapeHTML(x.d.estatus||'')}</span></td><td>${liga(x)}</td>
+        <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="cerrarDrawer();setTimeout(()=>{navegar('${x.t}');setTimeout(()=>abrirDoc('${x.t}',${idJs}),60)},100)">🔎 Ver</button></td></tr>`; }).join('')}
+      </tbody></table></div>` : '<div style="padding:24px;text-align:center;color:var(--mute);font-size:13px">No hay documentos con este filtro</div>'}
+    <div style="font-size:11.5px;color:var(--ink-3);margin-top:6px">Folios repetidos (ej. dos 1161) vienen así de Bind: el cancelado es el duplicado.</div>`;
+}
+function nunDocsClienteRepintar(){ const mm = document.getElementById('nunDocsCliMount'); if (!mm) return; const cli = (State.data.clientes||[]).find(c => String(c.id) === mm.dataset.id); if (cli) mm.innerHTML = nunDocsClienteHTML(cli); }
+window.nunDocsClienteRepintar = nunDocsClienteRepintar;
 // ============================================================
 // v3.84 — CUADRE POR CLIENTE: lo cobrado en cada documento contra los pagos que de verdad hay en Ingresos,
 // y el vendedor de todos sus documentos. Todo se muestra primero; solo se cambia lo que Rafa confirme.
@@ -8150,7 +8189,7 @@ function nunClaveProd(it){
 function nunCantProd(d){ const c = {}; try { JSON.parse(d.items_json||'[]').forEach(it => { const k = nunClaveProd(it); c[k] = (c[k]||0) + (+it.cantidad||0); }); } catch(e){} return c; }
 function nunAuditoriaPedidosCalc(){
   const D = State.data, idx = new Map();
-  (D.pedidos||[]).forEach(p => nunPedClaves(p).forEach(k => idx.set(k, p)));
+  (D.pedidos||[]).forEach(p => nunPedClaves(p).forEach(k => { const y = idx.get(k); if (!y || (/cancel|duplic/i.test(y.estatus||'') && !/cancel|duplic/i.test(p.estatus||''))) idx.set(k, p); }));
   const out = { otroCliente: [], productos: [], demas: [] }, porPed = new Map();
   ['remisiones','facturas'].forEach(t => (D[t]||[]).forEach(d => {
     if (/cancel/i.test(d.estatus||'')) return;
@@ -8209,7 +8248,7 @@ async function nunQuitarLiga(i){
 async function nunCandadoLigaOtroCliente(body){
   if (!/^(erp_upsert_batch|erp_crear|erp_actualizar)$/.test(String(body.accion||'')) || !/^(remisiones|facturas)$/.test(String(body.tabla||''))) return true;
   const items = body.items || (body.item ? [body.item] : []), idx = new Map();
-  (State.data.pedidos||[]).forEach(p => nunPedClaves(p).forEach(k => idx.set(k, p)));
+  (State.data.pedidos||[]).forEach(p => nunPedClaves(p).forEach(k => { const y = idx.get(k); if (!y || (/cancel|duplic/i.test(y.estatus||'') && !/cancel|duplic/i.test(p.estatus||''))) idx.set(k, p); }));
   const malos = [];
   items.forEach(it => { if (!it || !it.pedido_origen) return;
     const cli = it.cliente || ((State.data[body.tabla]||[]).find(d => d.id === it.id) || {}).cliente; if (!cli) return;
@@ -8366,7 +8405,7 @@ function _nunMismoGrupo(a, b){ if (nunMismoCliente(a, b)) return true; const g =
 function nunCuadreCalc(){
   const D = State.data, docs = [];
   ['remisiones','facturas'].forEach(t => (D[t]||[]).forEach(d => { if (!/cancel/i.test(d.estatus||'') && !(t === 'facturas' && nunEsDeRemision(d))) docs.push({ t, d }); }));
-  const idx = new Map(); (D.pedidos||[]).forEach(p => nunPedClaves(p).forEach(k => idx.set(k, p)));
+  const idx = new Map(); (D.pedidos||[]).forEach(p => nunPedClaves(p).forEach(k => { const y = idx.get(k); if (!y || (/cancel|duplic/i.test(y.estatus||'') && !/cancel|duplic/i.test(p.estatus||''))) idx.set(k, p); }));
   const deP = new Map(), sueltos = [];
   docs.forEach(x => { const os = String(x.d.pedido_origen||'').split(/[,;]/).map(s => s.trim()).filter(s => idx.has(s));
     if (!os.length) { if (!_nunEsPrueba(x.d.cliente) && !_nunRevisado(x.d)) sueltos.push(x); return; }

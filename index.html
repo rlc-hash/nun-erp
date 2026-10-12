@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.21 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.22 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3912,7 +3912,7 @@ function nunDocsClienteHTML(cli){
       ${ver.map(x => { const idJs = escapeHTML(JSON.stringify(String(x.d.id||''))); return `<tr style="${/cancel|duplic/i.test(x.d.estatus||'') ? 'opacity:.55' : ''}">
         <td><span class="tag ${x.color}">${x.nomT}</span></td><td class="mono"><b>${escapeHTML(nunFolioStr(x.d))}</b></td><td>${fmtFecha(x.d.fecha)}</td>
         <td class="right mono">${fmtFull(x.d.total)}</td><td><span class="tag ${nunColorEstatus(x.d.estatus)}">${escapeHTML(x.d.estatus||'')}</span></td><td>${liga(x)}</td>
-        <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="cerrarDrawer();setTimeout(()=>{navegar('${x.t}');setTimeout(()=>abrirDoc('${x.t}',${idJs}),60)},100)">🔎 Ver</button>${x.t === 'pedidos' && nunEsDueno() && !/cancel|duplic/i.test(x.d.estatus||'') ? ` <button class="btn btn-sm btn-danger" onclick="nunDocsCliCancelar(${idJs})">✕ Cancelar</button>` : ''}</td></tr>`; }).join('')}
+        <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="cerrarDrawer();setTimeout(()=>{navegar('${x.t}');setTimeout(()=>abrirDoc('${x.t}',${idJs}),60)},100)">🔎 Ver</button>${x.t === 'pedidos' && nunEsDueno() && !/cancel|duplic/i.test(x.d.estatus||'') ? ` <button class="btn btn-sm btn-danger" onclick="nunDocsCliCancelar(${idJs})">✕ Cancelar</button>` : ''}${(x.t === 'remisiones' || x.t === 'facturas') && nunEsAdmin() && !String(x.d.pedido_origen||'').trim() && !/cancel/i.test(x.d.estatus||'') && !(x.t === 'facturas' && nunEsDeRemision(x.d)) ? ` <button class="btn btn-sm btn-primary" onclick="nunDocsCliCrearPedido('${x.t}',${idJs})">📦 Crear pedido</button>` : ''}</td></tr>`; }).join('')}
       </tbody></table></div>` : '<div style="padding:24px;text-align:center;color:var(--mute);font-size:13px">No hay documentos con este filtro</div>'}
     <div style="font-size:11.5px;color:var(--ink-3);margin-top:6px">Folios repetidos (ej. dos 1161) vienen así de Bind: el cancelado es el duplicado.</div>`;
 }
@@ -8543,10 +8543,45 @@ async function nunCQCancelar(i){
 }
 async function nunCQDirecta(j){
   const S = window._nunCQ, c = S && S.L[S.sel], y = c && c.sueltos[j]; if (!y) return;
-  if (!(await confirmDialog({ title:'¿' + (y.t === 'facturas' ? 'La factura ' : 'La remisión ') + nunFolioStr(y.d) + ' fue venta directa?', message:'Es decir, no salió de ningún pedido. Ya no saldrá en esta lista.', ok:'Sí, venta directa' }))) return;
-  const ok = await nunGuardarSeguro(y.t, { id: y.d.id, notas: _nunNota(y.d, '[venta directa, sin pedido]') });
-  toast(ok ? '✓ Anotado' : '✗ No se guardó', { type: ok ? 'success' : 'error' }); nunCuadrarClientes();
+  if (!(await confirmDialog({ title:'¿' + (y.t === 'facturas' ? 'La factura ' : 'La remisión ') + nunFolioStr(y.d) + ' fue venta directa?', message:'Es decir, no salió de ningún pedido. Se crea su pedido con la misma fecha, cliente y productos, y queda ligado (no es otra venta: no crea cobro ni mueve inventario).', ok:'Sí, crear su pedido' }))) return;
+  const fol = await nunPedidoDeVentaDirecta(y.t, y.d);
+  if (fol) toast('✓ Pedido ' + fol + ' creado y ligado a ' + nunFolioStr(y.d), { type:'success', duration:7000 });
+  nunCuadrarClientes();
 }
+// v4.22 — VENTA DIRECTA → PEDIDO: remisión o factura que no salió de un pedido. Se crea su pedido (misma fecha, cliente, vendedor,
+// productos y total), con estatus facturado/entregado, y el documento queda ligado (pedido_origen = folio P…).
+// NO es otra venta: no crea cobro (se sigue cobrando en el documento) ni mueve inventario (ya salió). El id es fijo (ped_vd_<id del doc>):
+// si se repite, no se hace doble. Devuelve el folio del pedido o '' si no se pudo.
+async function nunPedidoDeVentaDirecta(t, d){
+  if (!d || !/^(remisiones|facturas)$/.test(t)) return '';
+  if (/cancel/i.test(d.estatus||'')) { toast('Está cancelada: no se le crea pedido', { type:'error' }); return ''; }
+  if (String(d.pedido_origen||'').trim()) { toast(nunFolioStr(d) + ' ya está ligada al pedido ' + d.pedido_origen, { type:'error' }); return ''; }
+  let its = []; try { its = JSON.parse(d.items_json||'[]'); } catch(e){}
+  its = its.map(it => { const o = Object.assign({}, it); delete o.pedido; return o; });
+  const nomDoc = (t === 'facturas' ? 'factura ' : 'remisión ') + nunFolioStr(d);
+  const item = { id: 'ped_vd_' + d.id, folio:'', fecha: String(d.fecha||'').substring(0,10) || nunHoy(), cliente: d.cliente||'', vendedor: d.vendedor||'', comision_pct: d.comision_pct||'',
+    subtotal: d.subtotal||'', iva: d.iva||'', total: d.total||'', sin_iva: d.sin_iva||'', estatus: t === 'facturas' ? 'facturado' : 'entregado', items_json: JSON.stringify(its),
+    notas: 'Pedido de venta directa: se creó de la ' + nomDoc + ' (no es otra venta; se cobra en la ' + nomDoc + ') (' + nunHoy() + (_nunQuienSoy() ? ', ' + _nunQuienSoy() : '') + ')', creado_por: _nunQuienSoy() || '' };
+  nunOcupado('Creando pedido…');
+  let r; try { r = await api({ accion:'erp_crear', tabla:'pedidos', item }); } catch(e){ r = { ok:false, error:e.message }; } finally { nunOcupado(''); }
+  if (!(r && r.ok)) { toast('✗ No se creó el pedido: ' + ((r && r.error) || 'sin respuesta'), { type:'error', duration:10000 }); return ''; }
+  let fol = r.item && r.item.folio;
+  if (r.ya_existia || !fol) { try { await cargarTabla('pedidos'); } catch(e){} const p = (State.data.pedidos||[]).find(x => String(x.id) === item.id); fol = p && p.folio; }
+  if (!fol) { toast('✗ El pedido se creó pero no supe su folio: revísalo en Pedidos', { type:'error', duration:10000 }); return ''; }
+  const ok = await nunGuardarSeguro(t, { id: d.id, pedido_origen: fol, notas: _nunNota(d, 'Ligada al pedido ' + fol + ' (venta directa)') });
+  try { await Promise.all(['pedidos', t].map(x => cargarTabla(x))); } catch(e){}
+  if (!ok) { toast('✗ Se creó el pedido ' + fol + ' pero no se ligó: ligalo a mano', { type:'error', duration:10000 }); return ''; }
+  return fol;
+}
+// botón en la ficha del cliente (Documentos) para remisiones/facturas "sin pedido" o marcadas venta directa
+async function nunDocsCliCrearPedido(t, id){
+  const d = (State.data[t]||[]).find(x => String(x.id) === String(id)); if (!d) return;
+  if (!(await confirmDialog({ title:'¿Crear el pedido de la ' + (t === 'facturas' ? 'factura ' : 'remisión ') + nunFolioStr(d) + '?', message:'Misma fecha (' + fmtFecha(d.fecha) + '), cliente, productos y total ' + fmtFull(d.total) + '. Queda ligado. No crea cobro ni mueve inventario.', ok:'Crear pedido' }))) return;
+  const fol = await nunPedidoDeVentaDirecta(t, d);
+  if (fol) toast('✓ Pedido ' + fol + ' creado y ligado', { type:'success', duration:7000 });
+  nunDocsClienteRepintar();
+}
+window.nunPedidoDeVentaDirecta = nunPedidoDeVentaDirecta; window.nunDocsCliCrearPedido = nunDocsCliCrearPedido;
 window.nunCuadrarClientes = nunCuadrarClientes; window.nunCQLigar = nunCQLigar; window.nunCQRevisado = nunCQRevisado; window.nunCQDuplicado = nunCQDuplicado; window.nunCQCancelar = nunCQCancelar; window.nunCQDirecta = nunCQDirecta;
  window.nunCobrarEnOtraVenta = nunCobrarEnOtraVenta; window.nunCobrarEnOtraVentaGuardar = nunCobrarEnOtraVentaGuardar;
 

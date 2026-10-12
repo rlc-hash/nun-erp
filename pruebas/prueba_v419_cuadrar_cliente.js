@@ -51,13 +51,13 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   await w.eval(`nunCQDirecta(window._nunCQ.L[0].sueltos.findIndex(x=>x.d.folio==='1601'))`); await sleep(300);
   const ps=await db('pedidos'), f=(await db('facturas')).find(x=>x.id==='fs1');
   const g=id=>ps.find(x=>x.id===id);
-  r.resultado={p1502:/\[revisado ✓ cuadra\]/.test(g('q2').notas||'')&&g('q2').estatus, p1503:g('q3').estatus+' '+/DUPLICADO del pedido 1502/.test(g('q3').notas||''), p1504:g('q4').estatus+' '+/nunca se surtió/.test(g('q4').notas||''), f1601:/\[venta directa/.test(f.notas||''), noSeBorro:ps.length};
+  r.resultado={p1502:/\[revisado ✓ cuadra\]/.test(g('q2').notas||'')&&g('q2').estatus, p1503:g('q3').estatus+' '+/DUPLICADO del pedido 1502/.test(g('q3').notas||''), p1504:g('q4').estatus+' '+/nunca se surtió/.test(g('q4').notas||''), f1601:/^P\d{4}$/.test(f.pedido_origen||'')&&ps.some(x=>x.folio===f.pedido_origen), noSeBorro:ps.length}; // v4.22 venta directa crea su pedido
   r.restante=w.eval("window._nunCQ.L.map(c=>c.pedidos.length+'/'+c.sueltos.length)");
   r.version=txt(d.querySelector('.rwd-version'));
   if(!r.boton) r.fallas.push('boton');
   if(r.lista.join()!=='CLIENTE CQ:1501/1502/1503/1504|401/1601') r.fallas.push('lista');
   if(r.ligado!=='1501') r.fallas.push('ligar');
-  if(r.resultado.p1502!=='confirmado'||r.resultado.p1503!=='cancelado true'||r.resultado.p1504!=='cancelado true'||!r.resultado.f1601||r.resultado.noSeBorro!==6) r.fallas.push('acciones');
+  if(r.resultado.p1502!=='confirmado'||r.resultado.p1503!=='cancelado true'||r.resultado.p1504!=='cancelado true'||!r.resultado.f1601||r.resultado.noSeBorro!==7) r.fallas.push('acciones');
   if(r.restante.join()!=='') r.fallas.push('restante');
   if(!/v4\.(19|[2-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}

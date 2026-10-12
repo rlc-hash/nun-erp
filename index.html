@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.23 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.24 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3890,7 +3890,10 @@ function abrirDetalleCliente(id) {
 function nunDocsClienteHTML(cli){
   const nom = cli.razon_social || cli.nombre_comercial || '';
   // v4.21 — el documento debe traer nombre (las notas de crédito de Bind lo traen en "contraparte"); sin nombre no es de nadie
-  const es = d => { const n = String(d.cliente || d.contraparte || '').trim(); return !!n && (nunMismoCliente(n, nom) || (!!cli.nombre_comercial && nunMismoCliente(n, cli.nombre_comercial))); };
+  const es = d => { const n = String(d.cliente || d.contraparte || '').trim(); return !!n && (nunCliExacto(n, nom) || (!!cli.nombre_comercial && nunCliExacto(n, cli.nombre_comercial))); }; // v4.24 nombre completo
+  const parecido = d => { const n = String(d.cliente || d.contraparte || '').trim(); return !!n && !es(d) && (nunCliErrorDeLetra(n, nom) || (!!cli.nombre_comercial && nunCliErrorDeLetra(n, cli.nombre_comercial))); };
+  const parecidos = new Map();
+  [['pedidos','pedido'],['remisiones','remisión'],['facturas','factura'],['cotizaciones','cotización'],['notascredito','nota']].forEach(([t, n]) => (State.data[t]||[]).filter(parecido).forEach(d => { const k = String(d.cliente || d.contraparte).trim(); if (!parecidos.has(k)) parecidos.set(k, []); parecidos.get(k).push(n + ' ' + nunFolioStr(d)); }));
   const T = [['pedidos','Pedido','blue'],['remisiones','Remisión','amber'],['facturas','Factura','green'],['cotizaciones','Cotización',''],['notascredito','Nota de crédito','purple']];
   const filas = [];
   T.forEach(([t, nomT, color]) => (State.data[t]||[]).filter(es).forEach(d => filas.push({ t, nomT, color, d })));
@@ -3914,7 +3917,8 @@ function nunDocsClienteHTML(cli){
         <td class="right mono">${fmtFull(x.d.total)}</td><td><span class="tag ${nunColorEstatus(x.d.estatus)}">${escapeHTML(x.d.estatus||'')}</span></td><td>${liga(x)}</td>
         <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="cerrarDrawer();setTimeout(()=>{navegar('${x.t}');setTimeout(()=>abrirDoc('${x.t}',${idJs}),60)},100)">🔎 Ver</button>${x.t === 'pedidos' && nunEsDueno() && !/cancel|duplic/i.test(x.d.estatus||'') ? ` <button class="btn btn-sm btn-danger" onclick="nunDocsCliCancelar(${idJs})">✕ Cancelar</button>` : ''}${(x.t === 'remisiones' || x.t === 'facturas') && nunEsAdmin() && !String(x.d.pedido_origen||'').trim() && !/cancel/i.test(x.d.estatus||'') && !(x.t === 'facturas' && nunEsDeRemision(x.d)) ? ` <button class="btn btn-sm btn-primary" onclick="nunDocsCliCrearPedido('${x.t}',${idJs})">📦 Crear pedido</button>` : ''}</td></tr>`; }).join('')}
       </tbody></table></div>` : '<div style="padding:24px;text-align:center;color:var(--mute);font-size:13px">No hay documentos con este filtro</div>'}
-    <div style="font-size:11.5px;color:var(--ink-3);margin-top:6px">Folios repetidos (ej. dos 1161) vienen así de Bind: el cancelado es el duplicado.</div>`;
+    ${parecidos.size ? `<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8;font-size:12.5px">⚠️ <b>Nombre casi igual (¿error de letra?)</b> — no se cuentan aquí hasta que lo revises:<br>${[...parecidos].map(([n, L]) => '· <b>' + escapeHTML(n) + '</b>: ' + escapeHTML(L.join(', '))).join('<br>')}</div>` : ''}
+    <div style="font-size:11.5px;color:var(--ink-3);margin-top:6px">Folios repetidos (ej. dos 1161) vienen así de Bind: el cancelado es el duplicado. Aquí solo salen los documentos con el nombre completo del cliente.</div>`;
 }
 function nunDocsClienteRepintar(){ const mm = document.getElementById('nunDocsCliMount'); if (!mm) return; const cli = (State.data.clientes||[]).find(c => String(c.id) === mm.dataset.id); if (cli) mm.innerHTML = nunDocsClienteHTML(cli); }
 window.nunDocsClienteRepintar = nunDocsClienteRepintar;
@@ -8213,11 +8217,27 @@ function nunCliTokens(s){
   return String(s||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/)
     .filter(t => t.length > 2 && !['DEL','LOS','LAS','SAN','MTY','GDL','CDMX','S','A','DE','C','V'].includes(t));
 }
+// v4.24 — mismo cliente = NOMBRE COMPLETO igual (sin acentos, puntos, espacios dobles ni "S.A. de C.V."). Antes bastaba con que
+// compartieran dos palabras y se mezclaban clientes distintos (Carlos Alberto González Medrano con Hugo Carlos Solórzano González
+// y Christian González Medrano). Un error de letra (1–2 letras en nombres largos) se acepta aquí, pero en la ficha se avisa.
+function nunCliNorm(s){
+  return String(s||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/( (S ?A ?P ?I|S ?A ?B|S ?A|S ?C|S|DE|R ?L|C ?V))+$/, '').replace(/ /g, '');
+}
+function nunDistLetras(a, b, tope){
+  if (Math.abs(a.length - b.length) > tope) return tope + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) { const cur = [i]; let min = i;
+    for (let j = 1; j <= b.length; j++) { cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1)); if (cur[j] < min) min = cur[j]; }
+    if (min > tope) return tope + 1; prev = cur; }
+  return prev[b.length];
+}
+function nunCliErrorDeLetra(a, b){ const x = nunCliNorm(a), y = nunCliNorm(b); if (!x || !y || x === y || Math.min(x.length, y.length) < 10) return false; return nunDistLetras(x, y, 2) <= 2 || (Math.min(x.length, y.length) >= 15 && (x.startsWith(y) || y.startsWith(x))); } // también nombre cortado ("…ROMERO ALVAR")
+function nunCliExacto(a, b){ const x = nunCliNorm(a), y = nunCliNorm(b); return !!x && x === y; }
 function nunMismoCliente(a, b){
-  const x = String(a||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9]/g, ''), y = String(b||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9]/g, '');
+  const x = nunCliNorm(a), y = nunCliNorm(b);
   if (!x || !y || x === y) return true;
-  const A = new Set(nunCliTokens(a)), B = nunCliTokens(b); const comun = B.filter(t => A.has(t)).length;
-  return comun >= 2 || (comun === 1 && (A.size === 1 || B.length === 1));
+  return nunCliErrorDeLetra(a, b);
 }
 function nunClaveProd(it){
   const t = (String(it.sku||'') + ' ' + String(it.descripcion||'')).toUpperCase(), m = t.match(/\b[A-Z]{2}\d{3}[A-Z]?\b/);

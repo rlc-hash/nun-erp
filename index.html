@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.27 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.28 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3936,16 +3936,16 @@ function nunCuadrePendCalc(cli){
   const nom = cli.razon_social || cli.nombre_comercial || '';
   const es = n => nunCliExacto(n, nom) || (!!cli.nombre_comercial && nunCliExacto(n, cli.nombre_comercial));
   const T = x => (x.t === 'facturas' ? 'F ' : 'R ') + nunFolioStr(x.d);
-  const out = [], vistos = new Set(), rels = []; let L = []; try { L = nunCuadreCalc(); } catch(e){ return { L, out, rels, idx:-1 }; }
+  const out = [], vistos = new Set(), rels = []; let L = [], sueltos = 0; try { L = nunCuadreCalc(); } catch(e){ return { L, out, rels, sueltos, idx:-1 }; }
   let idx = -1;
   L.forEach((c, i) => {
     c.pedidos.forEach(m => {
       if (es(m.p.cliente)) { if (!vistos.has(m.p.id)) { vistos.add(m.p.id); out.push('Pedido ' + nunFolioStr(m.p) + ' (' + fmtFull(m.p.total) + '): ' + m.prob); } if (idx < 0) idx = i; }
       else m.ds.filter(x => es(x.d.cliente)).forEach(x => { if (!vistos.has(x.d.id)) { vistos.add(x.d.id); out.push(T(x) + ' (' + fmtFull(x.d.total) + ') está ligada al pedido ' + nunFolioStr(m.p) + ' de OTRO cliente: ' + m.p.cliente); if (!rels.some(r => r.principal === m.p.cliente)) rels.push({ principal: m.p.cliente, otro: x.d.cliente }); } if (idx < 0) idx = i; });
     });
-    c.sueltos.filter(x => es(x.d.cliente)).forEach(x => { if (!vistos.has(x.d.id)) { vistos.add(x.d.id); out.push(T(x) + ' (' + fmtFull(x.d.total) + ') sin pedido'); } if (idx < 0) idx = i; });
+    c.sueltos.filter(x => es(x.d.cliente)).forEach(x => { if (!vistos.has(x.d.id)) { vistos.add(x.d.id); out.push(T(x) + ' (' + fmtFull(x.d.total) + ') sin pedido'); sueltos++; } if (idx < 0) idx = i; });
   });
-  return { L, out, rels, idx };
+  return { L, out, rels, sueltos, idx };
 }
 function nunCuadrePendHTML(cli){
   if (!['pedidos','remisiones','facturas'].every(t => Array.isArray(State.data[t]))) return '';
@@ -3967,6 +3967,7 @@ function _nunCuadrePendCaja(cli){
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b>🧩 Falta cuadrar (${R.out.length})</b>
     <button class="btn btn-sm btn-primary" onclick="cerrarDrawer();nunCuadrarClientes(${R.idx})">Arreglar en Cuadrar por cliente</button></div>
     <div style="margin-top:6px;line-height:1.6">${R.out.map(t => '· ' + escapeHTML(t)).join('<br>')}</div>
+    ${R.sueltos ? `<div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="nunRelacionDesdeSuelto(${escapeHTML(JSON.stringify(String(cli.razon_social||cli.nombre_comercial||'')))},${escapeHTML(JSON.stringify(String(cli.id)))})">🤝 Lo sin pedido lo compró otro cliente (se factura a nombre de este)…</button></div>` : ''}
     ${R.rels.map(r => `<div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="nunRelacionSiFicha(${escapeHTML(JSON.stringify(String(r.principal)))},${escapeHTML(JSON.stringify(String(r.otro)))},${escapeHTML(JSON.stringify(String(cli.id)))})">🤝 Sí, ${escapeHTML(r.otro)} es cliente de factura de ${escapeHTML(r.principal)}</button></div>`).join('')}</div>`;
 }
 window.nunCuadrePendHTML = nunCuadrePendHTML;
@@ -3986,6 +3987,32 @@ async function nunRelacionSi(principal, otro){
 }
 async function nunRelacionSiCQ(principal, otro){ if (await nunRelacionSi(principal, otro)) nunCuadrarClientes(); }
 async function nunRelacionSiFicha(principal, otro, idCli){ if (await nunRelacionSi(principal, otro)) { try { cerrarDrawer(); } catch(e){} setTimeout(() => abrirDetalleCliente(idCli), 120); } }
+// v4.28 — documento suelto a nombre de X que en realidad compró otro cliente: se escoge quién lo compró y queda X como su
+// "cliente de factura"; luego en Cuadrar por cliente sale junto con los pedidos del que compró para ligarlo.
+function nunRelacionDesdeSuelto(otro, volver){
+  let m = document.getElementById('modalRDS'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalRDS';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,0.45);z-index:150;display:flex;align-items:center;justify-content:center;padding:16px';
+  const noms = [...new Set((State.data.clientes||[]).map(c => String(c.razon_social||'').trim()).filter(n => n && !nunCliExacto(n, otro)))].sort();
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:520px;width:100%;padding:18px;box-shadow:0 24px 64px rgba(0,0,0,0.3)">
+    <h3 style="margin:0 0 6px">🤝 ¿Qué cliente lo compró?</h3>
+    <div style="font-size:12.5px;color:var(--ink-3);margin-bottom:10px">Se le facturó a nombre de <b>${escapeHTML(otro)}</b>. Escribe el cliente que hizo el pedido: queda anotado que ${escapeHTML(otro)} es su cliente de factura y en Cuadrar por cliente ya podrás ligarlo a su pedido.</div>
+    <input id="rdsNombre" list="rdsLista" placeholder="Nombre completo del cliente que compró" style="width:100%" autocomplete="off"><datalist id="rdsLista">${noms.map(n => `<option value="${escapeHTML(n)}">`).join('')}</datalist>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px"><button class="btn btn-secondary" onclick="document.getElementById('modalRDS').remove()">Cancelar</button>
+    <button class="btn btn-primary" id="rdsOk">Guardar</button></div></div>`;
+  document.body.appendChild(m);
+  document.getElementById('rdsOk').onclick = async () => {
+    const v = String(document.getElementById('rdsNombre').value||'').trim();
+    const c = (State.data.clientes||[]).find(x => nunCliExacto(x.razon_social, v));
+    if (!c) { toast('Escoge un cliente de la lista (nombre completo)', { type:'error' }); return; }
+    if (nunCliExacto(c.razon_social, otro)) { toast('Es el mismo cliente', { type:'error' }); return; }
+    if (!(await nunRelacionAgregar(c.razon_social, otro))) { toast('✗ No se guardó', { type:'error' }); return; }
+    m.remove();
+    if (volver === 'cq') { window._nunCQ = Object.assign(window._nunCQ || {}, { selNombre: c.razon_social }); nunCuadrarClientes(); }
+    else { try { cerrarDrawer(); } catch(e){} setTimeout(() => { const L = nunCuadreCalc(); const i = L.findIndex(x => nunCliExacto(x.nombre, c.razon_social)); nunCuadrarClientes(i >= 0 ? i : undefined); }, 120); }
+  };
+}
+window.nunRelacionDesdeSuelto = nunRelacionDesdeSuelto;
 window.nunCQBuscar = nunCQBuscar; window.nunRelacionSi = nunRelacionSi; window.nunRelacionSiCQ = nunRelacionSiCQ; window.nunRelacionSiFicha = nunRelacionSiFicha;
 // v4.21 — color del estatus: cancelado rojo, facturado/entregado verde, confirmado azul, activo/borrador/enviada amarillo
 function nunColorEstatus(e){
@@ -8585,7 +8612,8 @@ async function nunCuadrarClientes(sel){
         ${c.sueltos.length ? c.sueltos.map((x, j) => `<label style="display:block;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;cursor:pointer">
           <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><input type="checkbox" class="cqDoc" value="${j}"><b class="mono">${T(x)}</b><span>${fmtFecha(x.d.fecha)}</span><b style="margin-left:auto">${fmtFull(x.d.total)}</b></div>
           <div style="font-size:12px;color:var(--ink-3)">${escapeHTML(x.d.cliente)} · ${escapeHTML(x.d.estatus||'')} · ${escapeHTML(prods(x.d))}</div>
-          <div style="margin-top:6px"><button class="btn btn-sm" onclick="event.preventDefault();nunCQDirecta(${j})">Es venta directa (sin pedido)</button></div></label>`).join('')
+          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm" onclick="event.preventDefault();nunCQDirecta(${j})">Es venta directa (sin pedido)</button>
+            <button class="btn btn-sm" onclick="event.preventDefault();nunRelacionDesdeSuelto(${escapeHTML(JSON.stringify(String(x.d.cliente||'')))},'cq')">🤝 La compró otro cliente…</button></div></label>`).join('')
           : '<div style="color:var(--ink-3);font-size:13px">Este cliente no tiene remisiones ni facturas sueltas.</div>'}</div></div>
     <div style="display:flex;justify-content:space-between;gap:8px;padding:12px 18px;border-top:1px solid var(--line);flex-wrap:wrap;align-items:center">
       <span style="font-size:12px;color:var(--ink-3)">Marca a la derecha las que salieron del pedido escogido y dale Ligar. Nada se borra; todo queda con nota.</span>

@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.22 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.23 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7704,6 +7704,7 @@ function nunFechaLocal(f){ return (f instanceof Date) ? f : new Date(/^\d{4}-\d{
 function nunRecalcAtraso(rows){
   (rows||[]).forEach(c => {
     if (c.sin_entregar != null && typeof c.sin_entregar !== 'boolean') c.sin_entregar = nunEsVerdad(c.sin_entregar); // "FALSE"/"no" de Sheets ya no cuenta como por entregar
+    if ((+c.pendiente||0) > 0 && (+c.pendiente||0) < 1) c.pendiente = 0; // v4.23 — centavos sueltos de Bind (12000.00048 − 12000): ya está pagado
     if (!((+c.pendiente||0) > 0)) { c.dias_vencido = 0; return; }
     let v = c.fecha_vencimiento;
     if (!v && c.fecha_entrega) { const d = nunFechaLocal(String(c.fecha_entrega).substring(0,10)); if (!isNaN(d)) { d.setDate(d.getDate() + (parseInt(c.credito,10)||0)); v = d; } }
@@ -7802,7 +7803,8 @@ window.nunPagoDesdeDoc = nunPagoDesdeDoc;
 // ============================================================
 function nunRepsDeFactura(f){
   const out = [];
-  String(f.notas||'').replace(/REP (CP\d+) uuid=([\w-]+) monto=([\d.]+) fecha=([\d-]+) parc=(\d+)(?: sant=([\d.]+))?/g, (m, folio, uuid, monto, fecha, parc, sant) => { out.push({ folio, uuid, monto:+monto, fecha, parc:+parc, sant: sant != null ? +sant : null }); return m; });
+  // v4.23 — también complementos timbrados en Bind: "REP BIND-145 uuid=…" (su XML está en el almacén de CFDI)
+  String(f.notas||'').replace(/REP (CP\d+|BIND-\d+) uuid=([\w-]+) monto=([\d.]+) fecha=([\d-]+) parc=(\d+)(?: sant=([\d.]+))?/g, (m, folio, uuid, monto, fecha, parc, sant) => { out.push({ folio, uuid, monto:+monto, fecha, parc:+parc, sant: sant != null ? +sant : null }); return m; });
   return out;
 }
 // v3.81 — saldo después de los complementos: si el último trae su saldo anterior (sant=, facturas de Bind) se usa ese
@@ -7818,7 +7820,7 @@ function nunRepPendiente(idFactura){
 }
 function nunSiguienteFolioREP(){
   let max = 0;
-  (State.data.facturas||[]).forEach(f => nunRepsDeFactura(f).forEach(r => { const n = parseInt(String(r.folio).replace(/\D/g,''), 10); if (n > max) max = n; }));
+  (State.data.facturas||[]).forEach(f => nunRepsDeFactura(f).filter(r => /^CP/.test(r.folio)).forEach(r => { const n = parseInt(String(r.folio).replace(/\D/g,''), 10); if (n > max) max = n; }));
   try { Object.keys(localStorage).filter(k => k.indexOf('nun_rep_pend_') === 0).forEach(k => { const n = parseInt(((localStorage.getItem(k)||'').match(/REP CP(\d+)/)||[])[1], 10); if (n > max) max = n; }); } catch(e){} // v3.80
   return 'CP' + String(max + 1).padStart(4, '0');
 }
@@ -8156,6 +8158,7 @@ async function nunLigarAPedidoGuardar(){
   for (const t of Object.keys(porT)) for (let i = 0; i < porT[t].length; i += 40) { try { const r = await api({ accion:'erp_upsert_batch', tabla:t, items: porT[t].slice(i, i+40) }); if (!(r && r.ok)) mal++; } catch(e){ mal++; } }
   const mm = document.getElementById('modalLAP'); if (mm) mm.remove();
   await Promise.all(['pedidos','remisiones','facturas'].map(t => cargarTabla(t)));
+  try { await nunPedidosAlDia(); } catch(e){} // v4.23 estatus del pedido al día
   try { cerrarDrawer(); } catch(e){} renderCurrent();
   toast(mal ? '⚠ Algunos no se guardaron; vuelve a intentar' : '✓ ' + sel.length + ' documento(s) ligados al pedido ' + fol, { type: mal ? 'error' : 'success', duration:7000 });
 }
@@ -8193,6 +8196,7 @@ async function nunLigarDocAPedidoGuardar(){
   const bien = await nunGuardarSeguro(S.tabla, it);
   const mm = document.getElementById('modalLDP'); if (mm) mm.remove();
   await Promise.all(['pedidos','remisiones','facturas'].map(t => cargarTabla(t)));
+  try { await nunPedidosAlDia(); } catch(e){} // v4.23 estatus del pedido al día
   try { cerrarDrawer(); } catch(e){} renderCurrent();
   toast(bien ? '✓ ' + nunFolioStr(S.doc) + ' ligada al pedido ' + fol : '✗ No se guardó. Inténtalo de nuevo.', { type: bien ? 'success' : 'error', duration:6000 });
 }
@@ -8513,6 +8517,7 @@ async function nunCQLigar(){
   if (!(await confirmDialog({ title:'¿Ligar ' + marcados.length + ' documento(s) al pedido ' + fol + '?', message: marcados.map(y => (y.t === 'facturas' ? 'F ' : 'R ') + nunFolioStr(y.d) + ' ' + fmtFull(y.d.total)).join(', ') + '\nCon esto el pedido queda en ' + fmtFull(suma) + ' de ' + fmtFull(x.p.total) + '.', ok:'Ligar' }))) return;
   let mal = 0;
   for (const y of marcados) if (!(await nunGuardarSeguro(y.t, { id: y.d.id, pedido_origen: fol, notas: _nunNota(y.d, 'Ligada al pedido ' + fol + ' en Cuadrar por cliente') }))) mal++;
+  try { await Promise.all(['remisiones','facturas'].map(t => cargarTabla(t))); await nunPedidosAlDia(); } catch(e){} // v4.23
   toast(mal ? '⚠ ' + mal + ' no se guardaron; vuelve a intentar' : '✓ Ligado al pedido ' + fol, { type: mal ? 'error' : 'success' });
   nunCuadrarClientes();
 }
@@ -8581,7 +8586,39 @@ async function nunDocsCliCrearPedido(t, id){
   if (fol) toast('✓ Pedido ' + fol + ' creado y ligado', { type:'success', duration:7000 });
   nunDocsClienteRepintar();
 }
-window.nunPedidoDeVentaDirecta = nunPedidoDeVentaDirecta; window.nunDocsCliCrearPedido = nunDocsCliCrearPedido;
+window.nunPedidoDeVentaDirecta = nunPedidoDeVentaDirecta;
+// v4.23 — ESTATUS DEL PEDIDO AL DÍA: si ya tiene su factura viva y está surtido completo → "facturado";
+// si solo tiene remisión(es) y está surtido completo → "entregado". Solo sube (confirmado → entregado → facturado), nunca baja,
+// y no toca borradores ni cancelados. Si el folio está repetido en otro pedido vivo, no se toca (no se sabe de cuál es).
+function nunPedidosAlDiaCalc(){
+  const I = nunSituacionIdx(), P = State.data.pedidos || [], out = [];
+  P.forEach(p => {
+    const e = String(p.estatus||'').toLowerCase();
+    if (!/^(confirmado|entregado)$/.test(e)) return;
+    const fol = String(p.folio||'').trim();
+    if (fol && P.some(o => o !== p && String(o.folio||'').trim() === fol && !/cancel|duplic/i.test(o.estatus||''))) return;
+    const docs = nunPedClaves(p).flatMap(k => I.porPedido.get(k) || []).filter((x, i, a) => a.findIndex(y => y.d === x.d) === i && !/cancel/i.test(x.d.estatus||''));
+    if (!docs.length) return;
+    let its = []; try { its = JSON.parse(p.items_json||'[]'); } catch(e){}
+    const pedidas = its.reduce((s2, it) => s2 + (+it.cantidad||0), 0);
+    let completo;
+    if (pedidas) { const sur = nunPedidoSurtido(p, docs.map(x => x.d)); completo = Object.values(sur).reduce((s2, n) => s2 + n, 0) >= pedidas; }
+    else completo = docs.reduce((s2, x) => s2 + (+x.d.total||0), 0) >= (+p.total||0) - 1;
+    if (!completo) return;
+    const nuevo = docs.some(x => x.t === 'F') ? 'facturado' : 'entregado';
+    if (nuevo === e) return;
+    out.push({ p, nuevo, docs: docs.map(x => (x.t === 'R' ? 'R ' : 'F ') + nunFolioStr(x.d)) });
+  });
+  return out;
+}
+async function nunPedidosAlDia(){
+  const L = nunPedidosAlDiaCalc(); if (!L.length) return 0;
+  const items = L.map(x => ({ id: x.p.id, estatus: x.nuevo, notas: _nunNota(x.p, 'Estatus ' + x.p.estatus + ' → ' + x.nuevo + ' (ya tiene ' + x.docs.join(', ') + ')') }));
+  let r; try { r = await api({ accion:'erp_upsert_batch', tabla:'pedidos', items }); } catch(e){ r = null; }
+  if (r && r.ok) { L.forEach(x => { x.p.estatus = x.nuevo; }); return L.length; }
+  return 0;
+}
+window.nunPedidosAlDiaCalc = nunPedidosAlDiaCalc; window.nunPedidosAlDia = nunPedidosAlDia; window.nunDocsCliCrearPedido = nunDocsCliCrearPedido;
 window.nunCuadrarClientes = nunCuadrarClientes; window.nunCQLigar = nunCQLigar; window.nunCQRevisado = nunCQRevisado; window.nunCQDuplicado = nunCQDuplicado; window.nunCQCancelar = nunCQCancelar; window.nunCQDirecta = nunCQDirecta;
  window.nunCobrarEnOtraVenta = nunCobrarEnOtraVenta; window.nunCobrarEnOtraVentaGuardar = nunCobrarEnOtraVentaGuardar;
 

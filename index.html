@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.25 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.26 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3927,27 +3927,57 @@ function nunCuadrePendCalc(cli){
   const nom = cli.razon_social || cli.nombre_comercial || '';
   const es = n => nunCliExacto(n, nom) || (!!cli.nombre_comercial && nunCliExacto(n, cli.nombre_comercial));
   const T = x => (x.t === 'facturas' ? 'F ' : 'R ') + nunFolioStr(x.d);
-  const out = [], vistos = new Set(); let L = []; try { L = nunCuadreCalc(); } catch(e){ return { L, out, idx:-1 }; }
+  const out = [], vistos = new Set(), rels = []; let L = []; try { L = nunCuadreCalc(); } catch(e){ return { L, out, rels, idx:-1 }; }
   let idx = -1;
   L.forEach((c, i) => {
     c.pedidos.forEach(m => {
       if (es(m.p.cliente)) { if (!vistos.has(m.p.id)) { vistos.add(m.p.id); out.push('Pedido ' + nunFolioStr(m.p) + ' (' + fmtFull(m.p.total) + '): ' + m.prob); } if (idx < 0) idx = i; }
-      else m.ds.filter(x => es(x.d.cliente)).forEach(x => { if (!vistos.has(x.d.id)) { vistos.add(x.d.id); out.push(T(x) + ' (' + fmtFull(x.d.total) + ') está ligada al pedido ' + nunFolioStr(m.p) + ' de OTRO cliente: ' + m.p.cliente); } if (idx < 0) idx = i; });
+      else m.ds.filter(x => es(x.d.cliente)).forEach(x => { if (!vistos.has(x.d.id)) { vistos.add(x.d.id); out.push(T(x) + ' (' + fmtFull(x.d.total) + ') está ligada al pedido ' + nunFolioStr(m.p) + ' de OTRO cliente: ' + m.p.cliente); if (!rels.some(r => r.principal === m.p.cliente)) rels.push({ principal: m.p.cliente, otro: x.d.cliente }); } if (idx < 0) idx = i; });
     });
     c.sueltos.filter(x => es(x.d.cliente)).forEach(x => { if (!vistos.has(x.d.id)) { vistos.add(x.d.id); out.push(T(x) + ' (' + fmtFull(x.d.total) + ') sin pedido'); } if (idx < 0) idx = i; });
   });
-  return { L, out, idx };
+  return { L, out, rels, idx };
 }
 function nunCuadrePendHTML(cli){
   if (!['pedidos','remisiones','facturas'].every(t => Array.isArray(State.data[t]))) return '';
+  // v4.26 — cliente de factura: a nombre de quién más se factura / de parte de quién viene
+  const nom = cli.razon_social || cli.nombre_comercial || '', g = nunGrupoDe(nom);
+  let rel = '';
+  if (g && !_nunEsPublico(nom)) {
+    rel = nunCliExacto(g.principal, nom)
+      ? ((g.facturar_a||[]).length ? '🤝 También se le factura a nombre de: <b>' + (g.facturar_a||[]).map(escapeHTML).join('</b>, <b>') + '</b>' : '')
+      : '🤝 <b>Cliente de factura de ' + escapeHTML(g.principal) + '</b>: sus facturas vienen de pedidos de ' + escapeHTML(g.principal) + '.';
+    if (rel) rel = '<div style="margin-bottom:10px;padding:8px 12px;border-radius:8px;background:#eef3fb;border:1px solid #cddcf3;font-size:12.5px">' + rel + '</div>';
+  }
+  return rel + _nunCuadrePendCaja(cli);
+}
+function _nunCuadrePendCaja(cli){
   const R = nunCuadrePendCalc(cli);
   if (!R.out.length) return '<div style="margin-bottom:12px;padding:8px 12px;border-radius:8px;background:#eef8f0;border:1px solid #cfe8d5;font-size:12.5px">✅ <b>Todo cuadrado</b>: sus pedidos tienen su remisión/factura y no hay documentos sueltos.</div>';
   return `<div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8;font-size:12.5px">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b>🧩 Falta cuadrar (${R.out.length})</b>
     <button class="btn btn-sm btn-primary" onclick="cerrarDrawer();nunCuadrarClientes(${R.idx})">Arreglar en Cuadrar por cliente</button></div>
-    <div style="margin-top:6px;line-height:1.6">${R.out.map(t => '· ' + escapeHTML(t)).join('<br>')}</div></div>`;
+    <div style="margin-top:6px;line-height:1.6">${R.out.map(t => '· ' + escapeHTML(t)).join('<br>')}</div>
+    ${R.rels.map(r => `<div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="nunRelacionSiFicha(${escapeHTML(JSON.stringify(String(r.principal)))},${escapeHTML(JSON.stringify(String(r.otro)))},${escapeHTML(JSON.stringify(String(cli.id)))})">🤝 Sí, ${escapeHTML(r.otro)} es cliente de factura de ${escapeHTML(r.principal)}</button></div>`).join('')}</div>`;
 }
 window.nunCuadrePendHTML = nunCuadrePendHTML;
+// v4.26 — buscador de cliente en Cuadrar por cliente: filtra la lista y, al escoger un nombre, abre ese cliente
+function nunCQBuscar(q, ir){
+  const S = window._nunCQ, sel = document.getElementById('cqCliente'); if (!S || !sel) return;
+  const n = nunCliNorm(q); let primero = -1;
+  [...sel.options].forEach(o => { const ok = !n || nunCliNorm(S.L[+o.value].nombre).includes(n); o.hidden = !ok; if (ok && primero < 0) primero = +o.value; });
+  const exacto = S.L.findIndex(c => nunCliNorm(c.nombre) === n);
+  if (exacto >= 0 && exacto !== S.sel) { nunCuadrarClientes(exacto); return; }
+  if (ir && primero >= 0 && primero !== S.sel) nunCuadrarClientes(primero);
+}
+// v4.26 — "cliente de factura": el pedido es de un cliente y la factura sale a nombre de otro que él pidió (ej. Dionicio → Carlos Iván)
+async function nunRelacionSi(principal, otro){
+  if (!(await confirmDialog({ title:'¿' + otro + ' es cliente de factura de ' + principal + '?', message:'Quiere decir que ' + principal + ' compra y pidió facturar a nombre de ' + otro + '. Las ligas entre los dos quedan como buenas y ya no salen como error. No se borra nada.', ok:'Sí, es de ' + principal }))) return false;
+  return await nunRelacionAgregar(principal, otro);
+}
+async function nunRelacionSiCQ(principal, otro){ if (await nunRelacionSi(principal, otro)) nunCuadrarClientes(); }
+async function nunRelacionSiFicha(principal, otro, idCli){ if (await nunRelacionSi(principal, otro)) { try { cerrarDrawer(); } catch(e){} setTimeout(() => abrirDetalleCliente(idCli), 120); } }
+window.nunCQBuscar = nunCQBuscar; window.nunRelacionSi = nunRelacionSi; window.nunRelacionSiCQ = nunRelacionSiCQ; window.nunRelacionSiFicha = nunRelacionSiFicha;
 // v4.21 — color del estatus: cancelado rojo, facturado/entregado verde, confirmado azul, activo/borrador/enviada amarillo
 function nunColorEstatus(e){
   e = String(e||'').toLowerCase();
@@ -8503,7 +8533,7 @@ function nunCuadreCalc(){
     else if (!ds.length) prob = 'Sin remisión ni factura';
     else if (suma < tot - 1) prob = 'Salió una parte: faltan ' + fmtFull(tot - suma);
     else if (suma > tot * 1.17 + 1) prob = 'Salió más de lo pedido (' + fmtFull(suma) + ')';
-    if (prob) malos.push({ p, ds, suma, prob });
+    if (prob) malos.push({ p, ds, suma, prob, otro });
   });
   const clientes = new Map();
   const clave = n => { const g = nunGrupoDe(n); return g ? 'G:' + g.principal.toUpperCase() : String(n||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9]/g, ''); };
@@ -8527,7 +8557,7 @@ async function nunCuadrarClientes(sel){
   m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:1100px;width:100%;height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,0.30)">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap">
       <div><h3 style="margin:0">🧩 Cuadrar por cliente</h3><div style="font-size:12px;color:var(--ink-3)">${L.length} clientes · ${L.reduce((a, x) => a + x.pedidos.length, 0)} pedidos por cuadrar · ${L.reduce((a, x) => a + x.sueltos.length, 0)} remisiones/facturas sueltas</div></div>
-      <div style="display:flex;gap:8px;align-items:center"><select id="cqCliente" onchange="nunCuadrarClientes(+this.value)" style="max-width:420px">${L.map((x, i) => `<option value="${i}" ${i === window._nunCQ.sel ? 'selected' : ''}>${escapeHTML(x.nombre)} · ${x.pedidos.length} pedido(s) · ${x.sueltos.length} suelto(s)</option>`).join('')}</select>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input id="cqBuscar" list="cqBuscarLista" placeholder="🔎 Buscar cliente…" style="min-width:220px" autocomplete="off" oninput="nunCQBuscar(this.value)" onchange="nunCQBuscar(this.value, true)"><datalist id="cqBuscarLista">${L.map(x => `<option value="${escapeHTML(x.nombre)}">`).join('')}</datalist><select id="cqCliente" onchange="nunCuadrarClientes(+this.value)" style="max-width:420px">${L.map((x, i) => `<option value="${i}" ${i === window._nunCQ.sel ? 'selected' : ''}>${escapeHTML(x.nombre)} · ${x.pedidos.length} pedido(s) · ${x.sueltos.length} suelto(s)</option>`).join('')}</select>
       <button class="icon-btn" onclick="document.getElementById('modalCQ').remove()">✕</button></div></div>
     ${!c ? '<div style="padding:40px;text-align:center;color:var(--green)">✓ Todos los pedidos cuadran</div>' : `
     <div style="flex:1;overflow:auto;padding:12px 18px;display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));align-items:start">
@@ -8540,7 +8570,8 @@ async function nunCuadrarClientes(sel){
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
             <button class="btn btn-sm" onclick="event.preventDefault();nunCQRevisado(${i})">✓ Cuadra así</button>
             <button class="btn btn-sm" onclick="event.preventDefault();nunCQDuplicado(${i})">Duplicado de…</button>
-            <button class="btn btn-sm" style="color:var(--red)" onclick="event.preventDefault();nunCQCancelar(${i})">Cancelar (nunca se surtió)</button></div></label>`).join('')}</div>
+            <button class="btn btn-sm" style="color:var(--red)" onclick="event.preventDefault();nunCQCancelar(${i})">Cancelar (nunca se surtió)</button>
+            ${[...new Set((x.otro||[]).map(y => String(y.d.cliente||'').trim()))].map(n => `<button class="btn btn-sm btn-primary" onclick="event.preventDefault();nunRelacionSiCQ(${escapeHTML(JSON.stringify(String(x.p.cliente||'')))},${escapeHTML(JSON.stringify(n))})">🤝 ${escapeHTML(n)} es cliente de factura de ${escapeHTML(x.p.cliente||'')}</button>`).join('')}</div></label>`).join('')}</div>
       <div style="min-width:0"><h4 style="margin:0 0 6px">Remisiones y facturas sueltas <span style="font-weight:400;color:var(--ink-3);font-size:12px">· sin pedido</span></h4>
         ${c.sueltos.length ? c.sueltos.map((x, j) => `<label style="display:block;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:8px;cursor:pointer">
           <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><input type="checkbox" class="cqDoc" value="${j}"><b class="mono">${T(x)}</b><span>${fmtFecha(x.d.fecha)}</span><b style="margin-left:auto">${fmtFull(x.d.total)}</b></div>

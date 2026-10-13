@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.34 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.35 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3726,13 +3726,15 @@ function abrirDetalleCliente(id) {
   if (!cli) return;
   const _miembros = nunMiembrosDe(cli.razon_social||''); // v4.33 — lo facturado a nombre de sus clientes de factura cuenta para él
   const docs = (State.data.cobranza||[]).filter(c => (c.cliente||'').trim() === (cli.razon_social||'').trim() || _miembros.some(m => nunCliExacto(m, c.cliente)));
-  const facturado = docs.filter(d=>!d.sin_entregar).reduce((s,d)=>s+(+d.total||0),0);
+  const _ncCli = nunNCVivas().filter(n => { const c = nunNCCliente(n); return nunCliExacto(c, cli.razon_social||'') || _miembros.some(m => nunCliExacto(m, c)); }); // v4.35
+  const _ncMonto = _ncCli.reduce((s, n) => s + (+n.total||0), 0);
+  const facturado = docs.filter(d=>!d.sin_entregar && !/^cancelad/i.test(d.estatus||'')).reduce((s,d)=>s+(+d.total||0),0) - _ncMonto; // v4.35 menos notas de crédito
   const cobrado = docs.filter(d=>!d.sin_entregar).reduce((s,d)=>s+(+d.cobrado||0),0);
   const pendiente = docs.filter(d=>!d.sin_entregar).reduce((s,d)=>s+Math.max(0,+d.pendiente||0),0);
   const contactos = (State.data.contactoscrm||[]).filter(c => (c.cliente||'').trim() === (cli.razon_social||'').trim());
   const recordatorios = (State.data.recordatorios||[]).filter(r => (r.cliente||'').trim() === (cli.razon_social||'').trim());
 
-  const tabResumen = `<div class="nunCuadrePendMount" data-id="${escapeHTML(String(id))}">${nunCuadrePendHTML(cli)}</div>${_miembros.length ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">Los montos incluyen lo facturado a nombre de: <b>${_miembros.map(escapeHTML).join('</b>, <b>')}</b></div>` : ''}
+  const tabResumen = `<div class="nunCuadrePendMount" data-id="${escapeHTML(String(id))}">${nunCuadrePendHTML(cli)}</div>${_miembros.length ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">Los montos incluyen lo facturado a nombre de: <b>${_miembros.map(escapeHTML).join('</b>, <b>')}</b></div>` : ''}${_ncMonto > 0 ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">"Facturado" ya tiene restadas ${_ncCli.length} nota(s) de crédito por ${fmtFull(_ncMonto)}</div>` : ''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
       <div class="kpi" style="padding:12px"><div class="kpi-label">Facturado</div><div class="kpi-value" style="font-size:18px">${fmt(facturado)}</div></div>
       <div class="kpi" style="padding:12px"><div class="kpi-label">Pendiente</div><div class="kpi-value red" style="font-size:18px">${fmt(pendiente)}</div></div>
@@ -6585,7 +6587,9 @@ function nunTableroVentas(){
   (State.data.remisiones||[]).forEach(d => { if (!/cancel/i.test(d.estatus||'')) out.push({ d, t:'R' }); });
   (State.data.pedidos||[]).forEach(d => { if (!/cancel/i.test(d.estatus||'') && nunCobroPropioPedido(d)) out.push({ d, t:'P' }); }); // v4.14 pedido confirmado = venta
   (State.data.facturas||[]).forEach(d => { if (!/cancel/i.test(d.estatus||'') && !nunEsDeRemision(d) && !/Cobro en [^·(]*\(id /.test(String(d.notas||''))) out.push({ d, t:'F' }); });
-  return out.map(x => ({ fecha: String(x.d.fecha||'').substring(0,10), total: +x.d.total||0, cliente: String(x.d.cliente||'').trim(), vend: (typeof nunVendedorDeDoc === 'function' ? nunVendedorDeDoc(x.d) : String(x.d.vendedor||'').toUpperCase()) || '(sin vendedor)', t: x.t, d: x.d }));
+  const _vDe = n => { const c = (State.data.cobranza||[]).find(c => String(c.numero||'').trim() === String(n.documento_origen||'').trim()); return String((c && c.vendedor) || n.vendedor || '').toUpperCase().trim(); };
+  const _ncs = nunNCVivas().map(n => ({ fecha: String(n.fecha||'').substring(0,10), total: -(+n.total||0), cliente: nunNCCliente(n), vend: _vDe(n), nc: true, doc: n })); // v4.35 notas de crédito restan
+  return _ncs.concat(out.map(x => ({ fecha: String(x.d.fecha||'').substring(0,10), total: +x.d.total||0, cliente: String(x.d.cliente||'').trim(), vend: (typeof nunVendedorDeDoc === 'function' ? nunVendedorDeDoc(x.d) : String(x.d.vendedor||'').toUpperCase()) || '(sin vendedor)', t: x.t, d: x.d })));
 }
 function nunTableroCalc(desde, hasta, vend){
   const enR = f => f >= desde && f <= hasta, okV = v => !vend || v === vend;
@@ -6593,7 +6597,7 @@ function nunTableroCalc(desde, hasta, vend){
   const cobVend = new Map((State.data.cobranza||[]).map(c => [String(c.numero||'').trim(), String(c.vendedor||'').toUpperCase().trim()]));
   const ing = (State.data.ingresos||[]).filter(i => nunPagoCuenta(i) && enR(String(i.fecha||'').substring(0,10)) && (!vend || cobVend.get(String(i.factura||'').trim()) === vend));
   const sum = (a, k) => nunR2(a.reduce((s2, x) => s2 + (+x[k]||0), 0));
-  return { ventas, ing, totV: sum(ventas, 'total'), totI: sum(ing, 'monto'), n: ventas.length };
+  return { ventas, ing, totV: sum(ventas, 'total'), totI: sum(ing, 'monto'), n: ventas.filter(x => !x.nc).length }; // v4.35 las notas de crédito restan pero no cuentan como venta
 }
 function nunTableroHTML(){
   const D = State.data;
@@ -6613,7 +6617,7 @@ function nunTableroHTML(){
   // agrupaciones
   const agrupa = (arr, kf, vf) => { const m = new Map(); arr.forEach(x => { const k = kf(x); m.set(k, (m.get(k)||0) + vf(x)); }); return [...m.entries()].sort((a, b) => b[1] - a[1]); };
   const porVend = agrupa(A.ventas, x => x.vend, x => x.total);
-  const porCli = agrupa(A.ventas, x => x.cliente || '(sin cliente)', x => x.total).slice(0, 10);
+  const porCli = agrupa(A.ventas, x => nunClientePrincipal(x.cliente) || '(sin cliente)', x => x.total).slice(0, 10); // v4.33/v4.35
   const porCta = agrupa(A.ing, x => String(x.cuenta||'(sin cuenta)'), x => +x.monto||0);
   let prods = []; try { const P = nunPartidasVendidas().partidas.filter(x => x.fecha >= desde && x.fecha <= hasta && (!_tab.vend || x.vendedor === _tab.vend)); prods = agrupa(P, x => x.modelo !== '(sin modelo)' ? x.modelo : x.sku, x => x.cantidad).slice(0, 10); } catch(e){}
   const diasMes = +hasta.slice(8), porDia = []; for (let i = 1; i <= diasMes; i++) { const f = _tab.mes + '-' + String(i).padStart(2,'0'); porDia.push([String(i), nunR2(A.ventas.filter(x => x.fecha === f).reduce((s2, x) => s2 + x.total, 0))]); }
@@ -6847,6 +6851,7 @@ async function abrirReporte(rep) {
   if (rep === 'top_clientes') {
     const map = {};
     for (const c of (State.data.cobranza||[])) {
+      if (/^cancelad/i.test(c.estatus||'')) continue; // v4.35 los cobros cancelados no son facturación
       const k = nunClientePrincipal(c.cliente) || 'Sin nombre'; // v4.33
       if (!map[k]) map[k] = { total:0, cobrado:0, pendiente:0, docs:0 };
       map[k].total += (+c.total||0);
@@ -6854,6 +6859,7 @@ async function abrirReporte(rep) {
       map[k].pendiente += (+c.pendiente||0);
       map[k].docs++;
     }
+    nunNCVivas().forEach(n => { const k = nunClientePrincipal(nunNCCliente(n)) || 'Sin nombre'; if (!map[k]) map[k] = { total:0, cobrado:0, pendiente:0, docs:0 }; map[k].total -= (+n.total||0); }); // v4.35 notas de crédito restan
     const ordenados = Object.entries(map).sort((a,b) => b[1].total - a[1].total).slice(0,30);
     mount.innerHTML = `
       <div style="margin-bottom:18px"><h3 style="margin:0 0 6px;font-size:16px">Top 30 Clientes por facturación</h3></div>
@@ -7242,12 +7248,13 @@ function nunSituacionHTML(tabla, r){
     let its = []; try { its = JSON.parse(r.items_json||'[]'); } catch(e){}
     const pedidas = its.reduce((s2, it) => s2 + (+it.cantidad||0), 0);
     if (!docs.length) return /^bind_/.test(String(r.id)) ? gris('de Bind (sin liga)') : `<span class="tag amber">sin surtir</span>`;
+    const _nc = nunR2(nunNCsDeDocs(docs).reduce((s2, n) => s2 + (+n.total||0), 0)), _ncTxt = _nc > 0 ? ' ' + gris('· nota de crédito −' + fmtFull(_nc) + ' → neto ' + fmtFull((+r.total||0) - _nc)) : ''; // v4.35
     const sur = nunPedidoSurtido(r, docs.map(x => x.d)); const salio = Object.values(sur).reduce((s2, n) => s2 + n, 0);
     const lista = docs.map(x => (x.t === 'R' ? 'R ' : 'F ') + fol(x.d)).join(', ');
     const _monto = nunR2(docs.reduce((s2, x) => s2 + (+x.d.total||0), 0)); // v4.32 — si el dinero ya cuadra, está completo aunque hayan cambiado modelos
-    if (pedidas && salio && salio < pedidas && (+r.total||0) > 0 && _monto >= (+r.total||0) - 1) return `<span class="tag green">surtido</span> ${gris('→ ' + lista + ' · piezas ' + salio + '/' + pedidas + ', el monto cuadra')}`;
-    if (pedidas && salio && salio < pedidas) return `<span class="tag amber">parcial ${salio}/${pedidas}</span> ${gris('→ ' + lista)}`;
-    return `<span class="tag green">surtido</span> ${gris('→ ' + lista)}`;
+    if (pedidas && salio && salio < pedidas && (+r.total||0) > 0 && _monto >= (+r.total||0) - 1) return `<span class="tag green">surtido</span> ${gris('→ ' + lista + ' · piezas ' + salio + '/' + pedidas + ', el monto cuadra')}${_ncTxt}`;
+    if (pedidas && salio && salio < pedidas) return `<span class="tag amber">parcial ${salio}/${pedidas}</span> ${gris('→ ' + lista)}${_ncTxt}`;
+    return `<span class="tag green">surtido</span> ${gris('→ ' + lista)}${_ncTxt}`;
   }
   // remisiones
   const facs = (I.facDeRem.get(String(r.id)) || []); // v3.96
@@ -7663,7 +7670,7 @@ function abrirDoc(tabla, id) {
     wide: true, // v3.44 — editor de documentos más ancho
     title: id ? 'Editar '+def.singular : 'Nueva '+def.singular,
     sub: id ? doc.folio || 'ID '+(doc.id||'').substring(0,8) : '',
-    tabs:[{ key:'datos', label:'Datos', body: (id ? nunPanelDoc(tabla, doc, acciones) : '') + fields }].concat(id && ['pedidos','remisiones','facturas'].includes(tabla) ? [{ key:'rel', label:'Relacionados', body:`<div id="nunRelMount" data-id="${escapeHTML(String(id))}">${nunRelacionadosHTML(tabla, doc)}</div>` }, { key:'arch', label:'📎 Archivos', body:`<div id="nunArchMount" data-id="${escapeHTML(String(id))}">${nunArchivosHTML(tabla, doc)}</div>` }] : []), // v3.77 · v3.78 Archivos
+    tabs:[{ key:'datos', label:'Datos', body: (id ? `<div id="nunPanelMount" data-id="${escapeHTML(String(id))}">${nunPanelDoc(tabla, doc, acciones)}</div>` : '') + fields }].concat(id && ['pedidos','remisiones','facturas'].includes(tabla) ? [{ key:'rel', label:'Relacionados', body:`<div id="nunRelMount" data-id="${escapeHTML(String(id))}">${nunRelacionadosHTML(tabla, doc)}</div>` }, { key:'arch', label:'📎 Archivos', body:`<div id="nunArchMount" data-id="${escapeHTML(String(id))}">${nunArchivosHTML(tabla, doc)}</div>` }] : []), // v3.77 · v3.78 Archivos
     footer: `
       ${id && !doc.uuid_sat && !/cancel/i.test(doc.estatus||'') ? `<button class="btn btn-danger" onclick="eliminarDoc('${tabla}','${id}')">🚫 Cancelar ${escapeHTML(def.singular)}</button>` : ''}
       <div style="flex:1"></div>
@@ -7674,6 +7681,7 @@ function abrirDoc(tabla, id) {
   });
   // Renderizar items después de que el drawer haya pintado
   setTimeout(() => { renderDocItems(); recalcularDocDesdeItems(); }, 50);
+  if (id) window._nunPanelAcc = { tabla, id, acciones }; // v4.35 para volver a pintar el panel cuando carguen las notas de crédito
   if (id && ['pedidos','remisiones','facturas'].includes(tabla)) nunAsegurarArchivos(tabla, id); // v3.77 · v3.78 (incluye Relacionados)
 }
 
@@ -9071,7 +9079,7 @@ function nunPanelDoc(tabla, doc, acciones){
     saldo != null ? `Saldo <b style="color:${saldo > 0.01 ? 'var(--red)' : 'var(--green)'}">${fmtFull(saldo)}</b>` : '',
     vivos.length ? `${vivos.length} pago(s) ${fmtFull(cobrado)}` : 'Sin pagos',
     R.reps.length ? `${R.reps.length} complemento(s)` : '',
-    R.ncs.length ? `<span style="color:var(--amber,#b45309)">${R.ncs.length} nota(s) de crédito ${fmtFull(R.ncs.filter(n => !/cancel/i.test(n.estatus||'')).reduce((s,n)=>s+(+n.total||0),0))}</span>` : '' /* v3.80 sin canceladas */
+    R.ncs.length ? `<span style="color:var(--amber,#b45309)">${R.ncs.length} nota(s) de crédito −${fmtFull(R.ncs.filter(n => !/cancel/i.test(n.estatus||'')).reduce((s,n)=>s+(+n.total||0),0))} · neto <b>${fmtFull((+doc.total||0) - R.ncs.filter(n => !/cancel/i.test(n.estatus||'')).reduce((s,n)=>s+(+n.total||0),0))}</b></span>` : '' /* v3.80 sin canceladas · v4.35 neto */
   ].filter(Boolean).join(' · ');
   return `<div style="border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px;background:var(--bg-2,#fafafa)">
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${cadena.join('<span style="color:var(--ink-4)">→</span>') || '<span style="font-size:12px;color:var(--ink-3)">Sin documentos ligados</span>'}</div>
@@ -9106,6 +9114,8 @@ async function nunAsegurarRelacionados(tabla, id){
   try { await Promise.all(falta.map(t => cargarTabla(t))); State.data._ncCargadas = true; } catch(e){}
   const m = document.getElementById('nunRelMount'); const doc = (State.data[tabla]||[]).find(d => d.id === id);
   if (m && doc && m.dataset.id === String(id)) m.innerHTML = nunRelacionadosHTML(tabla, doc);
+  const pm = document.getElementById('nunPanelMount'), A = window._nunPanelAcc; // v4.35 el panel de arriba también (notas de crédito, pagos)
+  if (pm && doc && A && A.id === id && pm.dataset.id === String(id)) pm.innerHTML = nunPanelDoc(tabla, doc, A.acciones);
 }
 
 
@@ -9132,6 +9142,14 @@ function nunNCsDelDoc(r, tabla){
   const esRem = tabla === 'remisiones' || (!tabla && /^R\d{4,}$/.test(x));
   const o = new Set(esRem ? ['V01' + x, 'REM ' + x].concat(x.startsWith('R') ? [x] : []) : [x, 'A' + x, 'F-' + x]);
   return (State.data.notascredito||[]).filter(n => o.has(String(n.documento_origen||'').trim()) && !/cancel/i.test(n.estatus||'') && !/^bind_/.test(String(n.id||'')) && (n.uuid_sat || /aplicad/i.test(n.estatus||''))); // v3.81 solo notas aplicadas o timbradas (no borradores)
+}
+// v4.35 — notas de crédito VIVAS (incluye las de Bind) que RESTAN de lo vendido/facturado (no del saldo: eso ya lo hace Cobranza)
+function nunNCVivas(){ return (State.data.notascredito||[]).filter(n => !/cancel|borrador/i.test(n.estatus||'') && (+n.total||0) > 0); }
+function nunNCCliente(n){ return String(n.cliente || n.contraparte || '').trim(); }
+function nunNCsDeDocs(docs){ // docs: [{d, t:'R'|'F'}] o documentos con folio; por documento_origen
+  const o = new Set(); (docs||[]).forEach(x => { const d = x.d || x, t = x.t || (d.uuid_sat ? 'F' : 'R'), f = nunFolioStr(d); if (!f) return;
+    if (t === 'R') { o.add('V01' + f); o.add('REM ' + f); if (/^R\d/.test(f)) o.add(f); } else { o.add(f); o.add('A' + f); o.add('F-' + f); } });
+  return nunNCVivas().filter(n => o.has(String(n.documento_origen||'').trim()));
 }
 function nunMontoNCs(r, tabla){ return nunR2(nunNCsDelDoc(r, tabla).reduce((s, n) => s + (+n.total||0), 0)); }
 // v3.92 — un pedido no es una deuda: se cobra su remisión o factura. Solo tiene saldo si tiene su propio cobro (anticipo).

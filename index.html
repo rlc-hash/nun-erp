@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.30 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.31 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -8417,8 +8417,14 @@ function nunCobroPropioPedido(p){
   if (!p) return null;
   return (State.data.cobranza||[]).find(c => String(c.factura_origen) === String(p.id) && !/cancel/i.test(String(c.estatus||''))) || null;
 }
+// v4.31 — también un pedido del flujo nuevo (desde el 7 oct 2026) que quedó "confirmado" SIN su cobro (se capturó con una página vieja):
+// no es venta todavía; se confirma igual (descuenta inventario y crea su cobro).
+const NUN_INICIO_FLUJO_NUEVO = '2026-10-07';
+function nunPedidoConfirmadoSinVenta(p){
+  return !!p && /^confirmado$/i.test(String(p.estatus||'')) && !/^(bind_|ped_vd_)/.test(String(p.id)) && String(p.fecha||'').substring(0,10) >= NUN_INICIO_FLUJO_NUEVO;
+}
 function nunPedidoPorConfirmar(p){
-  if (!p || /cancel/i.test(p.estatus||'') || /^bind_/.test(String(p.id)) || !/borrador/i.test(p.estatus||'') || nunCobroPropioPedido(p)) return false;
+  if (!p || /cancel/i.test(p.estatus||'') || /^bind_/.test(String(p.id)) || !(/borrador/i.test(p.estatus||'') || nunPedidoConfirmadoSinVenta(p)) || nunCobroPropioPedido(p)) return false;
   const k = nunPedClaves(p);
   return !(State.data.remisiones||[]).concat(State.data.facturas||[]).some(d => !/cancel/i.test(d.estatus||'') && k.includes(String(d.pedido_origen||'').trim()));
 }
@@ -9293,7 +9299,9 @@ async function guardarDoc(tabla, id, opts) {
   const idGuardado = id || (data.item && data.item.id) || _nunIdNuevo || null;
   window._nunDocGuardadoOk = idGuardado; // v3.72
   // v4.14 — pedido capturado directo y NO en borrador = venta: descuenta inventario y entra a Cobranza
-  if (!id && tabla === 'pedidos' && idGuardado && !/borrador|cancel/i.test(item.estatus||'')) {
+  // v4.31 — también si era borrador (o "confirmado" sin venta) y lo dejaron confirmado a mano: se vuelve venta igual
+  const _seVuelveVenta = tabla === 'pedidos' && idGuardado && !/borrador|cancel/i.test(item.estatus||'') && (!id || (_previo && (/borrador/i.test(_previo.estatus||'') || nunPedidoConfirmadoSinVenta(_previo)) && !nunCobroPropioPedido(_previo) && nunPedidoConfirmadoSinVenta(Object.assign({}, _previo, item, { id: idGuardado }))));
+  if (_seVuelveVenta) {
     try { const _a = await api({ accion:'activar_pedido', id: idGuardado, usuario: ((State.sesion||{}).usuario||{}).nombre || '' });
       if (!(_a && _a.ok)) toast('⚠ El pedido se guardó pero no quedó como venta: ' + ((_a && _a.error) || 'sin respuesta') + '. Usa ✅ Confirmar pedido.', { type:'error', duration:10000 }); else cargarTabla('cobranza').catch(()=>{});
     } catch(e){ toast('⚠ El pedido se guardó pero no quedó como venta. Usa ✅ Confirmar pedido.', { type:'error', duration:10000 }); }
@@ -15225,6 +15233,7 @@ function nunPedidoViejoRemisionable(p){
   if (!p || /cancel|duplic/i.test(p.estatus||'') || /borrador/i.test(p.estatus||'')) return false;
   if (nunCobroPropioPedido(p)) return false;
   if (/^ped_vd_/.test(String(p.id))) return false; // pedido creado de una venta directa: ya tiene su documento
+  if (nunPedidoPorConfirmar(p)) return false; // v4.31 del flujo nuevo sin confirmar: primero ✅ Confirmar
   return true;
 }
 async function nunDesdePedidos(idPedido, destino){

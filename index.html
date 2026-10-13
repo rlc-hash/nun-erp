@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.33 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.34 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -9323,6 +9323,10 @@ async function guardarDoc(tabla, id, opts) {
     try { const _a = await api({ accion:'activar_pedido', id: idGuardado, usuario: ((State.sesion||{}).usuario||{}).nombre || '' });
       if (!(_a && _a.ok)) toast('⚠ El pedido se guardó pero no quedó como venta: ' + ((_a && _a.error) || 'sin respuesta') + '. Usa ✅ Confirmar pedido.', { type:'error', duration:10000 }); else cargarTabla('cobranza').catch(()=>{});
     } catch(e){ toast('⚠ El pedido se guardó pero no quedó como venta. Usa ✅ Confirmar pedido.', { type:'error', duration:10000 }); }
+  }
+  // v4.34 — al guardar un pedido (ej. lo reactivaste) su estatus se pone al día con sus remisiones/facturas (confirmado → entregado/facturado)
+  if (tabla === 'pedidos' && idGuardado && !/cancel|borrador/i.test(item.estatus||'')) {
+    try { const _p = (State.data.pedidos||[]).find(x => String(x.id) === String(idGuardado)); if (_p) Object.assign(_p, item, { id: idGuardado }); await nunPedidosAlDia(); } catch(e){}
   }
   // v3.80 — si otra persona guardó al mismo tiempo con el mismo folio, el nuestro pasa al siguiente libre
   if (!id && data && data.item && data.item.folio) folio = String(data.item.folio); // v4.03 — el servidor ya cuidó que el folio no se repita

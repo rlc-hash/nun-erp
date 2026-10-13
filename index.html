@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.29 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.30 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7632,6 +7632,7 @@ function abrirDoc(tabla, id) {
     if (nunEsAdmin() && /^(pedidos|cotizaciones|remisiones|facturas|notascredito)$/.test(tabla)) acciones += `<button class="btn btn-secondary" onclick="nunHistorialDoc('${id}')" title="Quién lo cambió y cuándo">🕘 Cambios</button>`; // v4.16
     if (tabla === 'pedidos' && nunPuedeLigar() && nunPedidoPorConfirmar(doc)) acciones += `<button class="btn btn-primary" onclick="nunActivarPedido('${id}')" title="Descuenta inventario y entra a Cobranza como venta">✅ Confirmar pedido</button>`;
     if (tabla === 'pedidos' && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn ${nunPedidoPorConfirmar(doc) ? 'btn-secondary' : 'btn-primary'}" onclick="nunDesdePedidos('${id}','facturas')">🧾 Hacer factura</button>`; // v3.88 · v4.14 sin remisión
+    if (tabla === 'pedidos' && nunPedidoViejoRemisionable(doc)) acciones += `<button class="btn btn-secondary" onclick="nunDesdePedidos('${id}','remisiones')" title="Pedido viejo (antes del flujo nuevo): documenta lo que se entregó">📦 Hacer remisión</button>`; // v4.30
     if (tabla === 'remisiones') acciones += `<button class="btn btn-secondary" onclick="nunFacturarRemisionDesdeDrawer('${id}')">→ Factura</button>`; // v3.72 guarda y luego factura
     if (tabla === 'ordenescompra') acciones += `<button class="btn btn-secondary" onclick="recibirOC('${id}')">Recibir mercancía</button>`;
     if (tabla === 'importaciones') acciones += `<button class="btn btn-secondary" onclick="cerrarImportacion('${id}')">Cerrar importación</button>`;
@@ -8680,6 +8681,7 @@ async function nunPedidoDeVentaDirecta(t, d){
   const nomDoc = (t === 'facturas' ? 'factura ' : 'remisión ') + nunFolioStr(d);
   const item = { id: 'ped_vd_' + d.id, folio:'', fecha: String(d.fecha||'').substring(0,10) || nunHoy(), cliente: d.cliente||'', vendedor: d.vendedor||'', comision_pct: d.comision_pct||'',
     subtotal: d.subtotal||'', iva: d.iva||'', total: d.total||'', sin_iva: d.sin_iva||'', estatus: t === 'facturas' ? 'facturado' : 'entregado', items_json: JSON.stringify(its),
+    _sin_inventario: true, // v4.30 — ya se entregó: no aparta inventario (servidor v0.9.16)
     notas: 'Pedido de venta directa: se creó de la ' + nomDoc + ' (no es otra venta; se cobra en la ' + nomDoc + ') (' + nunHoy() + (_nunQuienSoy() ? ', ' + _nunQuienSoy() : '') + ')', creado_por: _nunQuienSoy() || '' };
   nunOcupado('Creando pedido…');
   let r; try { r = await api({ accion:'erp_crear', tabla:'pedidos', item }); } catch(e){ r = { ok:false, error:e.message }; } finally { nunOcupado(''); }
@@ -15217,6 +15219,14 @@ function nunDondeSalio(p, k, docs, facIds){
     if (c > 0) out.push({ folio: (facIds && facIds.has(d.id) ? 'F ' : 'R ') + String(d.folio||''), cant: c, pu: nunR2(imp / c) }); });
   return out;
 }
+// v4.30 — pedidos VIEJOS (Bind / antes del flujo nuevo, sin cobro propio): se les puede hacer remisión para documentar lo entregado.
+// Los del flujo nuevo (cotización → pedido con su cobro) no llevan remisión: se factura directo.
+function nunPedidoViejoRemisionable(p){
+  if (!p || /cancel|duplic/i.test(p.estatus||'') || /borrador/i.test(p.estatus||'')) return false;
+  if (nunCobroPropioPedido(p)) return false;
+  if (/^ped_vd_/.test(String(p.id))) return false; // pedido creado de una venta directa: ya tiene su documento
+  return true;
+}
 async function nunDesdePedidos(idPedido, destino){
   nunOcupado('Revisando pedidos…');
   try { if (!(State.data.clientes||[]).length) await cargarTabla('clientes'); } catch(e){} // v4.17 para "Facturar a nombre de"
@@ -15226,7 +15236,7 @@ async function nunDesdePedidos(idPedido, destino){
   catch(e) { nunOcupado(''); toast('No se pudo leer: ' + e.message, { type:'error' }); return; } finally { nunOcupado(''); }
   const base = peds.find(p => String(p.id) === String(idPedido)); if (!base) { toast('No encontré el pedido', { type:'error' }); return; }
   if (/cancel/i.test(base.estatus||'')) { toast('El pedido está cancelado', { type:'error' }); return; }
-  if (/^bind_/.test(String(base.id))) {
+  if (/^bind_/.test(String(base.id)) && nunRelDoc('pedidos', base).pedidos.length && (nunRelDoc('pedidos', base).vivos.remisiones + nunRelDoc('pedidos', base).vivos.facturas) > 0) { // v4.30 solo si ya tiene documentos vivos
     const ok = await confirmDialog({ title:'⚠ Este pedido viene de Bind', message:'Casi seguro ya tiene su remisión o factura en Bind (V01… o A…). Si sigues, se puede DUPLICAR la venta. ¿Es una venta nueva?', ok:'Sí, es nueva', danger:true });
     if (!ok) return;
   }
@@ -15274,10 +15284,11 @@ async function nunDesdePedidos(idPedido, destino){
       </div>
       <div id="dpTotales" style="margin-top:12px;font-size:13px;text-align:right" class="mono"></div>
       <div id="dpError" style="color:var(--red);font-size:12.5px;margin-top:8px;white-space:pre-line"></div>
-      <div style="font-size:11.5px;color:var(--ink-3);margin-top:8px">Remisión: se crea entregada (R…), entra a Cobranza y descuenta inventario. Factura: se crea en borrador (FT…) para revisarla y timbrarla, y entra a Cobranza.</div></div>
+      <div style="font-size:11.5px;color:var(--ink-3);margin-top:8px">Remisión (solo pedidos viejos, sin cobro propio): se crea entregada (R…) y entra a Cobranza; si el pedido es de Bind no mueve inventario. Factura: se crea en borrador (FT…) para revisarla y timbrarla, y entra a Cobranza.</div></div>
     <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)">
       <button class="btn" onclick="document.getElementById('modalDP').remove()">Cancelar</button>
 
+      ${nunPedidoViejoRemisionable(base) ? `<button class="btn btn-secondary" id="dpBotonR" onclick="nunDesdePedidosCrear('remisiones')">📦 Hacer remisión</button>` : ''}
       <button class="btn btn-primary" id="dpBoton" onclick="nunDesdePedidosCrear('facturas')">🧾 Hacer factura</button></div></div>`;
   document.body.appendChild(m);
   nunDesdePedidosTotal();
@@ -15402,6 +15413,7 @@ async function nunDesdePedidosCrear(dest){
         nunOcupado(''); btn.disabled = false; btn.textContent = btn.id === 'dpBoton' ? '🧾 Hacer factura' : '📦 Hacer remisión'; return; }
     }
     // v4.14 — si el pedido ya es venta (tiene su cobro), la factura NO crea otro cobro: se cobra en el del pedido
+    if (destino === 'remisiones' && peds.some(p => !nunPedidoViejoRemisionable(p))) throw new Error('Este pedido es del flujo nuevo (ya tiene su cobro): no lleva remisión'); // v4.30
     const _cobsPed = destino === 'facturas' ? peds.map(p => nunCobroPropioPedido(p)) : [];
     const _cobPed = _cobsPed.find(Boolean) || null;
     if (_cobPed && (peds.length > 1)) throw new Error('Este pedido ya es venta: factúralo solo (sin juntarlo con otros pedidos)');
@@ -15410,7 +15422,7 @@ async function nunDesdePedidosCrear(dest){
         pedido_origen: peds.map(p => String(p.folio || p.id)).join(', '), subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: sinIva || (destino === 'facturas' && modo === 'sin'),
         estatus: destino === 'facturas' ? 'borrador' : 'entregada', items_json: JSON.stringify(lineas.map(l => { const o = Object.assign({}, l); delete o._p; delete o._l; delete o._puOrig; delete o._puNuevo; return o; })),
         notas: (destino === 'facturas' ? 'Factura' : 'Remisión') + ' de pedido(s) ' + peds.map(p => p.folio||p.id).join(', ') + (vends.length > 1 ? ' · vendedores: ' + vends.join(', ') : '') + (modo === 'incluye' ? ' · precio con IVA incluido' : '') + (_cobPed ? ' · Cobro en ' + (_cobPed.numero||'') + ' (id ' + _cobPed.id + ')' : '') + (_facA && !nunMismoCliente(_facA, peds[0].cliente) ? ' · Facturada a nombre de ' + _facA + ' (pedido de ' + peds[0].cliente + ')' : '') };
-      if (destino === 'remisiones') { item.fecha_entrega = nunHoy(); item.sin_entregar = false; }
+      if (destino === 'remisiones') { item.fecha_entrega = nunHoy(); item.sin_entregar = false; if (peds.every(p => /^bind_/.test(String(p.id)))) item._sin_inventario = true; } // v4.30 pedido de Bind (mercancía de antes del corte): no mueve inventario
       const r = await api({ accion:'erp_crear', tabla: destino, item });
       if (!(r && r.ok)) { const chk = await nunListarFresco(destino); doc = chk.find(d => String(d.id) === id); if (!doc) throw new Error((r && r.error) || 'el servidor no confirmó'); }
       else doc = Object.assign({}, item, (r.item && r.item.folio) ? { folio: r.item.folio } : {});

@@ -17,6 +17,9 @@
 //  · Bind apagado (ya no se usa desde el 29-sep-2026): sincronización y proxy desactivados; el
 //    activador automático se borra solo si llega a correr.
 //
+// v0.9.16 (13-oct-2026) — erp_crear de pedidos/remisiones con item._sin_inventario=true NO aparta ni descuenta inventario
+//   (pedido de una venta directa ya entregada y remisión de un pedido VIEJO de Bind: esa mercancía es de antes del corte).
+//
 // v0.9.15 (7-oct-2026) — FLUJO NUEVO DE VENTA: el vendedor sube COTIZACIÓN (folio C0001; aparta inventario); al CONFIRMARLA
 //  (confirmar_cotizacion) se vuelve PEDIDO: se libera lo apartado, se descuenta el inventario y nace UN cobro (tipo Pedido).
 //  La factura que salga de ese pedido NO crea otro cobro: se cobra en el del pedido. Las remisiones ya no se usan.
@@ -2849,13 +2852,15 @@ function doPost(e) {
 
     // ===== v0.9.7 — INVENTARIO AUTOMATICO (hooks antes del CRUD genérico) =====
     if (accion === 'erp_crear' && body.tabla === 'pedidos') {
+      const sinInv = !!(body.item && body.item._sin_inventario); if (body.item) delete body.item._sin_inventario; // v0.9.16
       const r = erpCrear('pedidos', body.item || {});
-      if (r.ok && r.item && !r.ya_existia) { try { pedidoApartar(r.item.id, body.codigo); } catch(e){} }
+      if (r.ok && r.item && !r.ya_existia && !sinInv) { try { pedidoApartar(r.item.id, body.codigo); } catch(e){} }
       return resp(r);
     }
     if (accion === 'erp_crear' && body.tabla === 'remisiones') {
+      const sinInv = !!(body.item && body.item._sin_inventario); if (body.item) delete body.item._sin_inventario; // v0.9.16
       const r = erpCrear('remisiones', body.item || {});
-      if (r.ok && r.item && !r.ya_existia) { try { remisionAplicar(r.item.id, body.codigo); } catch(e){} }
+      if (r.ok && r.item && !r.ya_existia && !sinInv) { try { remisionAplicar(r.item.id, body.codigo); } catch(e){} }
       return resp(r);
     }
     // v0.9.15 — cotización (aparta inventario) → pedido (venta)

@@ -1,11 +1,12 @@
 // v4.03 — Remisión desde pedido sin bajar listas completas (el servidor a veces tarda 30-60 s); aviso si ya hay una remisión igual del
+// v4.30: el pedido de prueba es viejo y CONFIRMADO (un borrador del flujo nuevo ya no lleva remisión: primero se confirma).
 // cliente (mismo total, 45 días) para no duplicarla; y al cambiar el total de una remisión queda escrito el monto de antes. Datos inventados.
 const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
 const errs=[];const vc=new VirtualConsole();vc.on('jsdomError',e=>errs.push(String(e.message).slice(0,300)));
 const N='CLIENTE DIEZ', it=(sku,c,pu)=>({sku,descripcion:'PIEZA '+sku,cantidad:c,precio_unitario:pu,iva_pct:0});
 const hoy=new Date().toISOString().substring(0,10);
 const DB={clientes:[{id:'cl1',razon_social:N}],
- pedidos:[{id:'p4',folio:'P0004',cliente:N,estatus:'borrador',vendedor:'EDGAR',fecha:hoy,sin_iva:true,total:4650,items_json:JSON.stringify([it('A',3,1550)])}],
+ pedidos:[{id:'p4',folio:'P0004',cliente:N,estatus:'confirmado',vendedor:'EDGAR',fecha:hoy,sin_iva:true,total:4650,items_json:JSON.stringify([it('A',3,1550)])}],
  remisiones:[{id:'r6',folio:'R0006',cliente:N,estatus:'borrador',total:4650,fecha:hoy,pedido_origen:'',items_json:JSON.stringify([it('A',3,1550)])},
   {id:'r323',folio:'323',cliente:'CLIENTA ONCE',estatus:'pendiente',total:5550,fecha:'2026-09-28',sin_iva:true,notas:'Importada desde Bind ERP',items_json:JSON.stringify([it('B',1,5550)])}],
  facturas:[],cobranza:[{id:'bind_cob_323',numero:'V01323',cliente:'CLIENTA ONCE',total:5550,cobrado:0,pendiente:5550,factura_origen:'r323'}],ingresos:[],usuarios:[]};

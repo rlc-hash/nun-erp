@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.31 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.32 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7242,6 +7242,8 @@ function nunSituacionHTML(tabla, r){
     if (!docs.length) return /^bind_/.test(String(r.id)) ? gris('de Bind (sin liga)') : `<span class="tag amber">sin surtir</span>`;
     const sur = nunPedidoSurtido(r, docs.map(x => x.d)); const salio = Object.values(sur).reduce((s2, n) => s2 + n, 0);
     const lista = docs.map(x => (x.t === 'R' ? 'R ' : 'F ') + fol(x.d)).join(', ');
+    const _monto = nunR2(docs.reduce((s2, x) => s2 + (+x.d.total||0), 0)); // v4.32 — si el dinero ya cuadra, está completo aunque hayan cambiado modelos
+    if (pedidas && salio && salio < pedidas && (+r.total||0) > 0 && _monto >= (+r.total||0) - 1) return `<span class="tag green">surtido</span> ${gris('→ ' + lista + ' · piezas ' + salio + '/' + pedidas + ', el monto cuadra')}`;
     if (pedidas && salio && salio < pedidas) return `<span class="tag amber">parcial ${salio}/${pedidas}</span> ${gris('→ ' + lista)}`;
     return `<span class="tag green">surtido</span> ${gris('→ ' + lista)}`;
   }
@@ -8724,8 +8726,9 @@ function nunPedidosAlDiaCalc(){
     let its = []; try { its = JSON.parse(p.items_json||'[]'); } catch(e){}
     const pedidas = its.reduce((s2, it) => s2 + (+it.cantidad||0), 0);
     let completo;
-    if (pedidas) { const sur = nunPedidoSurtido(p, docs.map(x => x.d)); completo = Object.values(sur).reduce((s2, n) => s2 + n, 0) >= pedidas; }
-    else completo = docs.reduce((s2, x) => s2 + (+x.d.total||0), 0) >= (+p.total||0) - 1;
+    const _monto = (+p.total||0) > 0 && docs.reduce((s2, x) => s2 + (+x.d.total||0), 0) >= (+p.total||0) - 1; // v4.32 el monto cuadra = completo
+    if (pedidas) { const sur = nunPedidoSurtido(p, docs.map(x => x.d)); completo = _monto || Object.values(sur).reduce((s2, n) => s2 + n, 0) >= pedidas; }
+    else completo = _monto;
     if (!completo) return;
     const nuevo = docs.some(x => x.t === 'F') ? 'facturado' : 'entregado';
     if (nuevo === e) return;

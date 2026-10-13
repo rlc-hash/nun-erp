@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.32 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.33 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2188,7 +2188,7 @@ function computeAging(){
     const dueDate = new Date(f.fecha_vencimiento || f.fecha);
     dueDate.setHours(0,0,0,0);
     const days = Math.floor((today - dueDate) / 86400000);
-    const cliente = f.cliente || 'Sin cliente';
+    const cliente = nunClientePrincipal(f.cliente) || 'Sin cliente'; // v4.33
     if (!aging[cliente]) aging[cliente] = { current:0, d_1_30:0, d_31_60:0, d_61_90:0, d_over_90:0, total:0, docs:[] };
     const bucket = days <= 0 ? 'current' : days <= 30 ? 'd_1_30' : days <= 60 ? 'd_31_60' : days <= 90 ? 'd_61_90' : 'd_over_90';
     aging[cliente][bucket] += saldo;
@@ -3724,14 +3724,15 @@ function abrirFormGenerico(modKey, id) {
 function abrirDetalleCliente(id) {
   const cli = (State.data.clientes||[]).find(c => c.id === id);
   if (!cli) return;
-  const docs = (State.data.cobranza||[]).filter(c => (c.cliente||'').trim() === (cli.razon_social||'').trim());
+  const _miembros = nunMiembrosDe(cli.razon_social||''); // v4.33 — lo facturado a nombre de sus clientes de factura cuenta para él
+  const docs = (State.data.cobranza||[]).filter(c => (c.cliente||'').trim() === (cli.razon_social||'').trim() || _miembros.some(m => nunCliExacto(m, c.cliente)));
   const facturado = docs.filter(d=>!d.sin_entregar).reduce((s,d)=>s+(+d.total||0),0);
   const cobrado = docs.filter(d=>!d.sin_entregar).reduce((s,d)=>s+(+d.cobrado||0),0);
   const pendiente = docs.filter(d=>!d.sin_entregar).reduce((s,d)=>s+Math.max(0,+d.pendiente||0),0);
   const contactos = (State.data.contactoscrm||[]).filter(c => (c.cliente||'').trim() === (cli.razon_social||'').trim());
   const recordatorios = (State.data.recordatorios||[]).filter(r => (r.cliente||'').trim() === (cli.razon_social||'').trim());
 
-  const tabResumen = `<div class="nunCuadrePendMount" data-id="${escapeHTML(String(id))}">${nunCuadrePendHTML(cli)}</div>
+  const tabResumen = `<div class="nunCuadrePendMount" data-id="${escapeHTML(String(id))}">${nunCuadrePendHTML(cli)}</div>${_miembros.length ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">Los montos incluyen lo facturado a nombre de: <b>${_miembros.map(escapeHTML).join('</b>, <b>')}</b></div>` : ''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
       <div class="kpi" style="padding:12px"><div class="kpi-label">Facturado</div><div class="kpi-value" style="font-size:18px">${fmt(facturado)}</div></div>
       <div class="kpi" style="padding:12px"><div class="kpi-label">Pendiente</div><div class="kpi-value red" style="font-size:18px">${fmt(pendiente)}</div></div>
@@ -3941,7 +3942,7 @@ function nunCuadrePendCalc(cli){
   L.forEach((c, i) => {
     c.pedidos.forEach(m => {
       if (es(m.p.cliente)) { if (!vistos.has(m.p.id)) { vistos.add(m.p.id); out.push('Pedido ' + nunFolioStr(m.p) + ' (' + fmtFull(m.p.total) + '): ' + m.prob); } if (idx < 0) idx = i; }
-      else m.ds.filter(x => es(x.d.cliente)).forEach(x => { if (!vistos.has(x.d.id)) { vistos.add(x.d.id); out.push(T(x) + ' (' + fmtFull(x.d.total) + ') está ligada al pedido ' + nunFolioStr(m.p) + ' de OTRO cliente: ' + m.p.cliente); if (!rels.some(r => r.principal === m.p.cliente)) rels.push({ principal: m.p.cliente, otro: x.d.cliente }); } if (idx < 0) idx = i; });
+      else m.ds.filter(x => es(x.d.cliente) && !nunClientesRelacionados(x.d.cliente, m.p.cliente)).forEach(x => { /* v4.33 si es su cliente de factura, no es error */ if (!vistos.has(x.d.id)) { vistos.add(x.d.id); out.push(T(x) + ' (' + fmtFull(x.d.total) + ') está ligada al pedido ' + nunFolioStr(m.p) + ' de OTRO cliente: ' + m.p.cliente); if (!rels.some(r => r.principal === m.p.cliente)) rels.push({ principal: m.p.cliente, otro: x.d.cliente }); } if (idx < 0) idx = i; });
     });
     c.sueltos.filter(x => es(x.d.cliente)).forEach(x => { if (!vistos.has(x.d.id)) { vistos.add(x.d.id); out.push(T(x) + ' (' + fmtFull(x.d.total) + ') sin pedido'); sueltos++; } if (idx < 0) idx = i; });
   });
@@ -4927,10 +4928,11 @@ function renderCobranzaHoy(todo) {
   // Agrupar por cliente
   const porCliente = {};
   conScore.forEach(c => {
-    if (!porCliente[c.cliente]) porCliente[c.cliente] = { cliente:c.cliente, vendedor:c.vendedor, docs:[], totalPend:0, maxDias:0 };
-    porCliente[c.cliente].docs.push(c);
-    porCliente[c.cliente].totalPend += +c.pendiente || 0;
-    porCliente[c.cliente].maxDias = Math.max(porCliente[c.cliente].maxDias, c.dias_vencido||0);
+    const _k = nunClientePrincipal(c.cliente) || c.cliente; // v4.33 se le cobra al cliente de verdad (no al nombre de la factura)
+    if (!porCliente[_k]) porCliente[_k] = { cliente:_k, vendedor:c.vendedor, docs:[], totalPend:0, maxDias:0 };
+    porCliente[_k].docs.push(c);
+    porCliente[_k].totalPend += +c.pendiente || 0;
+    porCliente[_k].maxDias = Math.max(porCliente[_k].maxDias, c.dias_vencido||0);
   });
   const clientes = Object.values(porCliente).sort((a,b) => b.maxDias === a.maxDias ? b.totalPend - a.totalPend : b.maxDias - a.maxDias);
 
@@ -5726,7 +5728,7 @@ function renderTopClientesSaldo() {
   const agrup = {};
   (State.data.cobranza||[]).forEach(c => {
     if (c.sin_entregar) return;
-    const cli = c.cliente || 'Sin cliente';
+    const cli = nunClientePrincipal(c.cliente) || 'Sin cliente'; // v4.33
     const pend = +c.pendiente || 0;
     if (pend <= 0) return;
     if (!agrup[cli]) agrup[cli] = 0;
@@ -6739,13 +6741,13 @@ function nunRepVentasFiltradas(){
   const q = normC(f.buscar);
   const rows = partidas.filter(r => (!f.desde || r.fecha >= f.desde) && (!f.hasta || r.fecha <= f.hasta)
     && (f.tipo === 'ambos' ? !r.deRemision : r.tipoDoc === f.tipo) // v3.80 — "ambos": la factura de una remisión no se cuenta otra vez
-    && (!f.cliente || normC(r.cliente).includes(normC(f.cliente)))
+    && (!f.cliente || normC(r.cliente).includes(normC(f.cliente)) || normC(nunClientePrincipal(r.cliente)).includes(normC(f.cliente))) // v4.33
     && (!f.vendedor || r.vendedor === f.vendedor)
     && (!q || normC(r.sku + ' ' + r.descripcion + ' ' + r.modelo + ' ' + r.color).includes(q)));
   return { rows, sinPartidas, f };
 }
 function nunRepVentasAgrupar(rows, modo){
-  const key = r => ({ sku: r.sku, modelo: r.modelo, color: r.color, medida: r.medida, modelo_color: r.modelo + ' · ' + r.color, cliente: r.cliente, vendedor: r.vendedor,
+  const key = r => ({ sku: r.sku, modelo: r.modelo, color: r.color, medida: r.medida, modelo_color: r.modelo + ' · ' + r.color, cliente: nunClientePrincipal(r.cliente), vendedor: r.vendedor,
     documento: r.tipoDoc + ' ' + r.folio + '|' + r.docId, mes: r.fecha.slice(0,7), partida: Math.random() })[modo];
   const g = {};
   rows.forEach(r => { const k = key(r); const x = g[k] = g[k] || { k, cantidad:0, importe:0, costo:0, docs:new Set(), sinCosto:0, ej:r }; x.cantidad += r.cantidad; x.importe += r.importe; x.costo += r.costo; x.docs.add(r.docId); if (!r.tieneCosto) x.sinCosto++; });
@@ -6845,7 +6847,7 @@ async function abrirReporte(rep) {
   if (rep === 'top_clientes') {
     const map = {};
     for (const c of (State.data.cobranza||[])) {
-      const k = c.cliente || 'Sin nombre';
+      const k = nunClientePrincipal(c.cliente) || 'Sin nombre'; // v4.33
       if (!map[k]) map[k] = { total:0, cobrado:0, pendiente:0, docs:0 };
       map[k].total += (+c.total||0);
       map[k].cobrado += (+c.cobrado||0);
@@ -8506,6 +8508,19 @@ async function nunGuardarRelaciones(a){
 const _nunEsPublico = n => /PUBLICOENGENERAL/.test(String(n||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z]/g, ''));
 const _nunMiembros = g => [g.principal].concat(g.facturar_a || []).filter(Boolean);
 function nunGrupoDe(n){ return nunRelaciones().find(g => _nunMiembros(g).some(x => nunMismoCliente(x, n))) || null; }
+// v4.33 — el CLIENTE de verdad: si n es "cliente de factura" de alguien (ej. Félix → Natalia), regresa el principal (Natalia).
+// Para totales, reportes y análisis: todo cuenta para el principal; el otro solo es a nombre de quién se facturó.
+const _nunPrinCache = { k:null, m:new Map() };
+function nunClientePrincipal(n){
+  n = String(n||'').trim(); if (!n || _nunEsPublico(n)) return n;
+  let raw = ''; try { raw = localStorage.getItem(NUN_REL_KEY) || ''; } catch(e){}
+  if (_nunPrinCache.k !== raw) { _nunPrinCache.k = raw; _nunPrinCache.m = new Map(); }
+  if (_nunPrinCache.m.has(n)) return _nunPrinCache.m.get(n);
+  const g = nunRelaciones().find(g => (g.facturar_a||[]).some(x => nunCliExacto(x, n)));
+  const r = g ? String(g.principal) : n; _nunPrinCache.m.set(n, r); return r;
+}
+function nunMiembrosDe(principal){ const g = nunRelaciones().find(g => nunCliExacto(g.principal, principal)); return g ? (g.facturar_a||[]).slice() : []; }
+window.nunClientePrincipal = nunClientePrincipal;
 function nunClientesRelacionados(a, b){
   if (nunMismoCliente(a, b) || _nunEsPublico(a) || _nunEsPublico(b)) return true;
   const g = nunGrupoDe(a); return !!g && _nunMiembros(g).some(x => nunMismoCliente(x, b));
@@ -8760,7 +8775,7 @@ function nunUltimoPagoIdx(){
   return m;
 }
 function nunPagosDeCliente(cli){
-  const nombres = [cli.razon_social, cli.nombre_comercial].filter(Boolean).map(x => String(x).trim().toLowerCase());
+  const nombres = [cli.razon_social, cli.nombre_comercial].concat(nunMiembrosDe(cli.razon_social||'')).filter(Boolean).map(x => String(x).trim().toLowerCase()); // v4.33 + clientes de factura
   return (State.data.ingresos||[]).filter(i => nunPagoCuenta(i) && nombres.includes(String(i.cliente||'').trim().toLowerCase()))
     .sort((a, b) => String(b.fecha||'').localeCompare(String(a.fecha||'')));
 }

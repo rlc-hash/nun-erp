@@ -89,6 +89,8 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   (venta directa: `ped_vd_<id doc>`, sin cobro ni inventario). Cliente de factura (kv `nun_relaciones_clientes`): botones 🤝.
 - Folio de pedido repetido de Bind: siempre gana el pedido vivo sobre el cancelado (ligas, cadena, auditoría).
 - Saldo < $1 en Cobranza = pagado (centavos de Bind). Complementos de Bind en notas: `REP BIND-145 uuid=… monto=… fecha=… parc=… sant=…`.
+- 📦 Hacer remisión (v4.30): solo pedidos viejos SIN cobro propio (no borrador). Si el pedido es de Bind, la remisión y el pedido de venta
+  directa van con `item._sin_inventario=true` (servidor v0.9.16: erp_crear no aparta ni descuenta). Los del flujo nuevo no llevan remisión.
 - Estatus del pedido se sube solo al ligar (`nunPedidosAlDia`: confirmado → entregado → facturado, solo si está surtido completo).
 
 ## Convenciones de datos

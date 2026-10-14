@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.36 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.37 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3927,13 +3927,29 @@ function nunDocsClienteHTML(cli){
       ${ver.map(x => { const idJs = escapeHTML(JSON.stringify(String(x.d.id||''))); return `<tr style="${/cancel|duplic/i.test(x.d.estatus||'') ? 'opacity:.55' : ''}">
         <td><span class="tag ${x.color}">${x.nomT}</span></td><td class="mono"><b>${escapeHTML(nunFolioStr(x.d))}</b>${x.aNombre ? `<div style="font-family:inherit;font-size:11px;color:var(--ink-3)">🤝 a nombre de ${escapeHTML(x.aNombre)}</div>` : ''}</td><td>${fmtFecha(x.d.fecha)}</td>
         <td class="right mono">${fmtFull(x.d.total)}</td><td><span class="tag ${nunColorEstatus(x.d.estatus)}">${escapeHTML(x.d.estatus||'')}</span></td><td>${liga(x)}</td>
-        <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="cerrarDrawer();setTimeout(()=>{navegar('${x.t}');setTimeout(()=>abrirDoc('${x.t}',${idJs}),60)},100)">🔎 Ver</button>${x.t === 'pedidos' && nunEsDueno() && !/cancel|duplic/i.test(x.d.estatus||'') ? ` <button class="btn btn-sm btn-danger" onclick="nunDocsCliCancelar(${idJs})">✕ Cancelar</button>` : ''}${(x.t === 'remisiones' || x.t === 'facturas') && nunEsAdmin() && !String(x.d.pedido_origen||'').trim() && !/cancel/i.test(x.d.estatus||'') && !(x.t === 'facturas' && nunEsDeRemision(x.d)) ? ` <button class="btn btn-sm btn-primary" onclick="nunDocsCliCrearPedido('${x.t}',${idJs})">📦 Crear pedido</button>` : ''}</td></tr>`; }).join('')}
+        <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="nunDocsCliVer('${x.t}',${idJs},this)" title="Ver el resumen aquí mismo">🔎 Ver</button> <button class="btn btn-sm btn-secondary" onclick="cerrarDrawer();setTimeout(()=>{navegar('${x.t}');setTimeout(()=>abrirDoc('${x.t}',${idJs}),60)},100)" title="Abrir el documento para editarlo">↗ Abrir</button>${x.t === 'pedidos' && nunEsDueno() && !/cancel|duplic/i.test(x.d.estatus||'') ? ` <button class="btn btn-sm btn-danger" onclick="nunDocsCliCancelar(${idJs})">✕ Cancelar</button>` : ''}${(x.t === 'remisiones' || x.t === 'facturas') && nunEsAdmin() && !String(x.d.pedido_origen||'').trim() && !/cancel/i.test(x.d.estatus||'') && !(x.t === 'facturas' && nunEsDeRemision(x.d)) ? ` <button class="btn btn-sm btn-primary" onclick="nunDocsCliCrearPedido('${x.t}',${idJs})">📦 Crear pedido</button>` : ''}</td></tr>`; }).join('')}
       </tbody></table></div>` : '<div style="padding:24px;text-align:center;color:var(--mute);font-size:13px">No hay documentos con este filtro</div>'}
     ${parecidos.size ? `<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8;font-size:12.5px">⚠️ <b>Nombre casi igual (¿error de letra?)</b> — no se cuentan aquí hasta que lo revises:<br>${[...parecidos].map(([n, L]) => '· <b>' + escapeHTML(n) + '</b>: ' + escapeHTML(L.join(', '))).join('<br>')}</div>` : ''}
     <div style="font-size:11.5px;color:var(--ink-3);margin-top:6px">Folios repetidos (ej. dos 1161) vienen así de Bind: el cancelado es el duplicado. Aquí solo salen los documentos con el nombre completo del cliente.</div>`;
 }
 function nunDocsClienteRepintar(){ const mm = document.getElementById('nunDocsCliMount'); if (!mm) return; const cli = (State.data.clientes||[]).find(c => String(c.id) === mm.dataset.id); if (cli) { mm.innerHTML = nunDocsClienteHTML(cli); document.querySelectorAll('.nunCuadrePendMount').forEach(x => { if (x.dataset.id === String(cli.id) && !mm.contains(x)) x.innerHTML = nunCuadrePendHTML(cli); }); } }
 window.nunDocsClienteRepintar = nunDocsClienteRepintar;
+// v4.37 — 🔎 Ver en la ficha del cliente: resumen del documento ahí mismo (cadena, saldo, pagos, piezas y productos) sin salir de la página
+function nunDocsCliVer(t, id, btn){
+  const tr = btn && btn.closest('tr'); if (!tr) return;
+  const sig = tr.nextElementSibling;
+  if (sig && sig.classList.contains('nunDocDet')) { sig.remove(); btn.textContent = '🔎 Ver'; return; }
+  const doc = (State.data[t]||[]).find(d => String(d.id) === String(id)); if (!doc) return;
+  let panel = '';
+  try { if (/^(pedidos|remisiones|facturas)$/.test(t)) panel = nunPanelDoc(t, doc, '').replace(/<button[^>]*>\s*Cancelar pago\s*<\/button>/g, '').replace(/<a [^>]*drawerCambiarTab[^>]*>[\s\S]*?<\/a>/g, '').replace(/\sonclick="[^"]*"/g, '').replace(/<button/g, '<span').replace(/<\/button>/g, '</span>').replace(/ · \s*·/g, ' ·'); } catch(e){ panel = ''; }
+  let its = []; try { its = JSON.parse(doc.items_json || '[]'); } catch(e){}
+  const prods = its.length ? `<table class="dt" style="font-size:11.5px;margin-top:6px"><thead><tr><th>Producto</th><th class="right">Cant.</th><th class="right">Precio</th><th class="right">Importe</th></tr></thead><tbody>${its.map(i => `<tr><td><span class="mono">${escapeHTML(String(i.sku||''))}</span> ${escapeHTML(String(i.descripcion||'').substring(0,50))}</td><td class="right mono">${escapeHTML(String(i.cantidad||''))}</td><td class="right mono">${fmtFull(+i.precio_unitario||0)}</td><td class="right mono">${fmtFull((+i.cantidad||0)*(+i.precio_unitario||0)*(1-(+i.descuento_pct||0)/100))}</td></tr>`).join('')}</tbody></table>` : '<div style="font-size:12px;color:var(--ink-3)">Sin productos</div>';
+  const notas = doc.notas ? `<div style="font-size:11.5px;color:var(--ink-3);margin-top:6px;white-space:pre-wrap">📝 ${escapeHTML(String(doc.notas)).substring(0,600)}</div>` : '';
+  const det = document.createElement('tr'); det.className = 'nunDocDet';
+  det.innerHTML = `<td colspan="7" style="background:var(--bg-2,#fafafa);padding:10px 14px">${panel}${prods}${notas}</td>`;
+  tr.after(det); btn.textContent = '✕ Cerrar';
+}
+window.nunDocsCliVer = nunDocsCliVer;
 // v4.25 — FALTA CUADRAR de este cliente (lo mismo que Cuadrar por cliente, pero solo lo suyo), arriba en Resumen y Documentos
 function nunCuadrePendCalc(cli){
   const nom = cli.razon_social || cli.nombre_comercial || '';

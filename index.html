@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.37 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.38 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -8799,20 +8799,39 @@ function nunUltimoPagoIdx(){
   (State.data.ingresos||[]).forEach(i => { if (!nunPagoCuenta(i)) return; const k = String(i.factura||'').trim(); if (!k) return; const f = String(i.fecha||''); if (!m.has(k) || f > m.get(k)) m.set(k, f); });
   return m;
 }
-function nunPagosDeCliente(cli){
+function nunPagosDeCliente(cli, conCancelados){
   const nombres = [cli.razon_social, cli.nombre_comercial].concat(nunMiembrosDe(cli.razon_social||'')).filter(Boolean).map(x => String(x).trim().toLowerCase()); // v4.33 + clientes de factura
-  return (State.data.ingresos||[]).filter(i => nunPagoCuenta(i) && nombres.includes(String(i.cliente||'').trim().toLowerCase()))
+  const base = conCancelados ? (State.data.ingresos||[]).concat(State.data.ingresosDuplicados||[]) : (State.data.ingresos||[]); // v4.38 los cancelados viven en ingresosDuplicados
+  return base.filter(i => (conCancelados || nunPagoCuenta(i)) && nombres.includes(String(i.cliente||'').trim().toLowerCase()))
     .sort((a, b) => String(b.fecha||'').localeCompare(String(a.fecha||'')));
 }
+// v4.38 — estatus de cada pago (Activo / Cancelado / Duplicado) y botón para cancelarlo desde la ficha
+function nunPagoEstatus(i){
+  const t = String(i.tipo||'');
+  if (/DUPLICADO/i.test(t)) return { txt:'Duplicado', activo:false };
+  if (/CANCELADO/i.test(t) || (+i.monto||0) === 0) return { txt:'Cancelado', activo:false };
+  if ((State.data.ingresosDuplicados||[]).some(x => x.id === i.id)) return { txt:'Duplicado', activo:false }; // pagos viejos del Excel que Bind ya trae
+  return { txt:'Activo', activo:true };
+}
+async function nunPagoCliCancelar(idIngreso, cliId){
+  await nunCancelarIngreso(idIngreso);
+  const sigue = (State.data.ingresos||[]).find(i => String(i.id) === String(idIngreso));
+  if (!sigue || !nunPagoEstatus(sigue).activo) { try { abrirDetalleCliente(cliId); drawerCambiarTab('pagos'); } catch(e){} } // se canceló: vuelve a la ficha en Pagos
+}
+window.nunPagoCliCancelar = nunPagoCliCancelar;
 function nunPagosClienteHTML(cli){
   if (!Array.isArray(State.data.ingresos)) { setTimeout(async () => { try { await cargarTabla('ingresos'); const m = document.getElementById('nunPagosCliMount'); if (m && m.dataset.id === String(cli.id)) m.innerHTML = nunPagosClienteHTML(cli); } catch(e){} }, 0); return '<div style="padding:18px;color:var(--mute);font-size:13px">Cargando pagos…</div>'; }
-  const pagos = nunPagosDeCliente(cli);
-  if (!pagos.length) return '<div style="padding:28px;text-align:center;color:var(--mute);font-size:13px">Sin pagos registrados para este cliente</div>';
+  const todos = nunPagosDeCliente(cli, true);
+  if (!todos.length) return '<div style="padding:28px;text-align:center;color:var(--mute);font-size:13px">Sin pagos registrados para este cliente</div>';
+  const pagos = todos.filter(i => nunPagoEstatus(i).activo), canc = todos.length - pagos.length;
   const total = pagos.reduce((s, i) => s + (+i.monto||0), 0);
-  return `<div style="font-size:12.5px;margin-bottom:8px;color:var(--ink-2)">${pagos.length} pago(s) · total <b>${fmtFull(total)}</b> · el más reciente arriba</div>
+  const puede = (typeof nunEsAdmin === 'function' && nunEsAdmin()) || (typeof esSesionDueno === 'function' && esSesionDueno());
+  const chip = e => e.activo ? '<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;background:#e6f4ea;color:#1e6b34">Activo</span>'
+    : '<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;background:#f1f1f1;color:#777">' + e.txt + '</span>';
+  return `<div style="font-size:12.5px;margin-bottom:8px;color:var(--ink-2)">${pagos.length} pago(s) activos · total <b>${fmtFull(total)}</b>${canc ? ' · ' + canc + ' cancelado(s)/duplicado(s) que no cuentan' : ''} · el más reciente arriba</div>
     <div style="border:1px solid var(--line);border-radius:6px;overflow:hidden"><table class="dt" style="font-size:12px">
-    <thead><tr><th>Fecha</th><th>Referencia</th><th>Cuenta</th><th class="right">Monto</th></tr></thead><tbody>
-    ${pagos.map(i => `<tr title="${escapeHTML(String(i.comentarios||''))}"><td>${fmtFecha(i.fecha)}</td><td class="mono">${escapeHTML(String(i.factura||'—'))}</td><td>${escapeHTML(i.cuenta||'')}</td><td class="right mono">${fmtFull(i.monto)}</td></tr>`).join('')}
+    <thead><tr><th>Fecha</th><th>Referencia</th><th>Cuenta</th><th>Estatus</th><th class="right">Monto</th>${puede ? '<th></th>' : ''}</tr></thead><tbody>
+    ${todos.map(i => { const e = nunPagoEstatus(i); return `<tr title="${escapeHTML(String(i.comentarios||''))}"${e.activo ? '' : ' style="opacity:.55"'}><td>${fmtFecha(i.fecha)}</td><td class="mono">${escapeHTML(String(i.factura||'—'))}</td><td>${escapeHTML(i.cuenta||'')}</td><td>${chip(e)}</td><td class="right mono"${e.activo ? '' : ' style="text-decoration:line-through"'}>${fmtFull(i.monto)}</td>${puede ? `<td class="right">${e.activo ? `<button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:11px" onclick="nunPagoCliCancelar(${escapeHTML(JSON.stringify(String(i.id)))},${escapeHTML(JSON.stringify(String(cli.id)))})">Cancelar</button>` : ''}</td>` : ''}</tr>`; }).join('')}
     </tbody></table></div>`;
 }
 // ============================================================

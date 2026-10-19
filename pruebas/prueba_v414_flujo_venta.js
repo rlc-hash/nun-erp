@@ -39,7 +39,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   r.drawerPedido={hacerFactura:/Hacer factura/.test(dr),confirmar:/✅ Confirmar pedido/.test(dr),saldo:/Saldo \$3,480\.00/.test(dr)};
   try{ w.eval('cerrarDrawer()'); }catch(e){}
   await w.eval(`nunDesdePedidos('${ped.id}','facturas')`); await sleep(300);
-  r.sinRemision=!d.getElementById('dpBotonR')&&!!d.getElementById('dpBoton');
+  r.conRemision=!!d.getElementById('dpBotonR')&&!!d.getElementById('dpBoton'); // v4.41 — Rafa: se cierra con remisiones, el pedido confirmado también lleva remisión (se lleva el cobro)
   const sel=d.getElementById('dpIva'); if(sel){ const op=[...sel.options].find(o=>/NO incluye/.test(o.textContent))||sel.options[1]; sel.value=op.value; sel.dispatchEvent(new w.Event('change')); }
   await w.eval("nunDesdePedidosCrear('facturas')"); await sleep(800);
   await w.eval("Promise.all(['facturas','cobranza','pedidos'].map(t=>cargarTabla(t)))");
@@ -57,7 +57,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(r.cotizacion.folio!=='C0001'||r.cotizacion.stock!=='10/2') r.fallas.push('cotizacion');
   if(!r.botonConfirmar||!r.sinViejoBoton) r.fallas.push('botonCotizacion');
   if(!/^P\d{4}$/.test(r.pedido.folio||'')||r.pedido.estatus!=='confirmado'||r.pedido.stock!=='8/0'||r.pedido.cobros.join()!=='Pedido '+r.pedido.folio+' 3480'||r.pedido.cot!=='convertida') r.fallas.push('confirmar');
-  if(!r.drawerPedido.hacerFactura||r.drawerPedido.confirmar||!r.drawerPedido.saldo||!r.sinRemision) r.fallas.push('pedido');
+  if(!r.drawerPedido.hacerFactura||r.drawerPedido.confirmar||!r.drawerPedido.saldo||!r.conRemision) r.fallas.push('pedido');
   if(!r.factura.folio||r.factura.cobrosNuevos!==0||r.factura.cobroQueUsa!=='cob_'+ped.id) r.fallas.push('factura');
   if(r.tablero.join()!=='3480') r.fallas.push('tablero');
   if(r.cancelarConFactura!==false||r.cancelar!==true||r.trasCancelar.stock!=='10/0'||r.trasCancelar.cobro!=='cancelado') r.fallas.push('cancelar');

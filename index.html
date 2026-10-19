@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.40 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.41 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7676,7 +7676,7 @@ function abrirDoc(tabla, id) {
     if (nunEsAdmin() && /^(pedidos|cotizaciones|remisiones|facturas|notascredito)$/.test(tabla)) acciones += `<button class="btn btn-secondary" onclick="nunHistorialDoc('${id}')" title="Quién lo cambió y cuándo">🕘 Cambios</button>`; // v4.16
     if (tabla === 'pedidos' && nunPuedeLigar() && nunPedidoPorConfirmar(doc)) acciones += `<button class="btn btn-primary" onclick="nunActivarPedido('${id}')" title="Descuenta inventario y entra a Cobranza como venta">✅ Confirmar pedido</button>`;
     if (tabla === 'pedidos' && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn ${nunPedidoPorConfirmar(doc) ? 'btn-secondary' : 'btn-primary'}" onclick="nunDesdePedidos('${id}','facturas')">🧾 Hacer factura</button>`; // v3.88 · v4.14 sin remisión
-    if (tabla === 'pedidos' && nunPedidoViejoRemisionable(doc)) acciones += `<button class="btn btn-secondary" onclick="nunDesdePedidos('${id}','remisiones')" title="Pedido viejo (antes del flujo nuevo): documenta lo que se entregó">📦 Hacer remisión</button>`; // v4.30
+    if (tabla === 'pedidos' && nunPedidoViejoRemisionable(doc)) acciones += `<button class="btn btn-secondary" onclick="nunDesdePedidos('${id}','remisiones')" title="Documenta lo que se entregó. Si el pedido ya tiene su cobro, la remisión se lo lleva (no se cobra doble)">📦 Hacer remisión</button>`; // v4.30
     if (tabla === 'remisiones') acciones += `<button class="btn btn-secondary" onclick="nunFacturarRemisionDesdeDrawer('${id}')">→ Factura</button>`; // v3.72 guarda y luego factura
     if (tabla === 'ordenescompra') acciones += `<button class="btn btn-secondary" onclick="recibirOC('${id}')">Recibir mercancía</button>`;
     if (tabla === 'importaciones') acciones += `<button class="btn btn-secondary" onclick="cerrarImportacion('${id}')">Cerrar importación</button>`;
@@ -15330,7 +15330,7 @@ function nunDondeSalio(p, k, docs, facIds){
 // Los del flujo nuevo (cotización → pedido con su cobro) no llevan remisión: se factura directo.
 function nunPedidoViejoRemisionable(p){
   if (!p || /cancel|duplic/i.test(p.estatus||'') || /borrador/i.test(p.estatus||'')) return false;
-  if (nunCobroPropioPedido(p)) return false;
+  // v4.41 — Rafa (19 oct 2026): se cierra todo con remisiones; un pedido del flujo nuevo (con su cobro) SÍ lleva remisión: la remisión se lleva el cobro
   if (/^ped_vd_/.test(String(p.id))) return false; // pedido creado de una venta directa: ya tiene su documento
   if (nunPedidoPorConfirmar(p)) return false; // v4.31 del flujo nuevo sin confirmar: primero ✅ Confirmar
   return true;
@@ -15521,7 +15521,12 @@ async function nunDesdePedidosCrear(dest){
         nunOcupado(''); btn.disabled = false; btn.textContent = btn.id === 'dpBoton' ? '🧾 Hacer factura' : '📦 Hacer remisión'; return; }
     }
     // v4.14 — si el pedido ya es venta (tiene su cobro), la factura NO crea otro cobro: se cobra en el del pedido
-    if (destino === 'remisiones' && peds.some(p => !nunPedidoViejoRemisionable(p))) throw new Error('Este pedido es del flujo nuevo (ya tiene su cobro): no lleva remisión'); // v4.30
+    if (destino === 'remisiones' && peds.some(p => !nunPedidoViejoRemisionable(p))) throw new Error('Este pedido no lleva remisión (borrador sin confirmar, cancelado o venta directa)'); // v4.30
+    // v4.41 — pedido del flujo nuevo con su cobro: la remisión se lleva ese cobro (no se cobra doble)
+    const _cobMover = destino === 'remisiones' ? (peds.map(p => nunCobroPropioPedido(p)).find(Boolean) || null) : null;
+    if (_cobMover && peds.length > 1) throw new Error('El pedido ' + (_cobMover.numero||'') + ' ya tiene su cobro: haz su remisión solo (sin juntarlo con otros pedidos)');
+    const _cobTodo = _cobMover && Math.abs((+_cobMover.total||0) - t.total) <= 1;
+    if (_cobMover && !_cobTodo && t.total > (+_cobMover.pendiente||0) + 0.01) throw new Error('La remisión (' + fmtFull(t.total) + ') es mayor a lo que falta por cobrar del pedido (' + fmtFull(_cobMover.pendiente) + '). Revisa los pagos del pedido.');
     const _cobsPed = destino === 'facturas' ? peds.map(p => nunCobroPropioPedido(p)) : [];
     const _cobPed = _cobsPed.find(Boolean) || null;
     if (_cobPed && (peds.length > 1)) throw new Error('Este pedido ya es venta: factúralo solo (sin juntarlo con otros pedidos)');
@@ -15530,13 +15535,26 @@ async function nunDesdePedidosCrear(dest){
         pedido_origen: peds.map(p => String(p.folio || p.id)).join(', '), subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: sinIva || (destino === 'facturas' && modo === 'sin'),
         estatus: destino === 'facturas' ? 'borrador' : 'entregada', items_json: JSON.stringify(lineas.map(l => { const o = Object.assign({}, l); delete o._p; delete o._l; delete o._puOrig; delete o._puNuevo; return o; })),
         notas: (destino === 'facturas' ? 'Factura' : 'Remisión') + ' de pedido(s) ' + peds.map(p => p.folio||p.id).join(', ') + (vends.length > 1 ? ' · vendedores: ' + vends.join(', ') : '') + (modo === 'incluye' ? ' · precio con IVA incluido' : '') + (_cobPed ? ' · Cobro en ' + (_cobPed.numero||'') + ' (id ' + _cobPed.id + ')' : '') + (_facA && !nunMismoCliente(_facA, peds[0].cliente) ? ' · Facturada a nombre de ' + _facA + ' (pedido de ' + peds[0].cliente + ')' : '') };
-      if (destino === 'remisiones') { item.fecha_entrega = nunHoy(); item.sin_entregar = false; if (peds.every(p => /^bind_/.test(String(p.id)))) item._sin_inventario = true; } // v4.30 pedido de Bind (mercancía de antes del corte): no mueve inventario
+      if (destino === 'remisiones') { item.fecha_entrega = nunHoy(); item.sin_entregar = false; if (peds.every(p => /^bind_/.test(String(p.id))) || _cobMover) item._sin_inventario = true; } // v4.30 pedido de Bind (mercancía de antes del corte): no mueve inventario · v4.41 pedido confirmado: el inventario ya salió al confirmar
+      if (_cobMover) item.notas += ' · Cobro: ' + (_cobTodo ? 'pasa el cobro del pedido ' + (_cobMover.numero||'') + ' a esta remisión' : 'se resta del cobro del pedido ' + (_cobMover.numero||''));
       const r = await api({ accion:'erp_crear', tabla: destino, item });
       if (!(r && r.ok)) { const chk = await nunListarFresco(destino); doc = chk.find(d => String(d.id) === id); if (!doc) throw new Error((r && r.error) || 'el servidor no confirmó'); }
       else doc = Object.assign({}, item, (r.item && r.item.folio) ? { folio: r.item.folio } : {});
       m.dataset.creado = id;
     }
     if (_facA && !nunClientesRelacionados(peds[0].cliente, _facA)) await nunRelacionAgregar(peds[0].cliente, _facA); // v4.17 queda relacionado para la próxima
+    if (_cobMover) { // v4.41
+      if (_cobTodo) {
+        const ok1 = await nunGuardarSeguro('cobranza', { id: _cobMover.id, numero: doc.folio, tipo: 'Remisión', factura_origen: doc.id, descripcion: String(_cobMover.descripcion||'') + ' · ' + nunHoy() + ': era el cobro del pedido ' + (_cobMover.numero||'') + ', pasó a la remisión ' + doc.folio });
+        if (!ok1) toast('⚠ Se creó ' + doc.folio + ' pero no se pudo pasar el cobro del pedido. Revísalo en Cobranza.', { type:'error', duration:12000 });
+        for (const i of (State.data.ingresos||[]).filter(i => String(i.factura||'').trim() === String(_cobMover.numero||'').trim() && nunCliExacto(i.cliente, _cobMover.cliente)))
+          await nunGuardarSeguro('ingresos', { id: i.id, factura: doc.folio, comentarios: String(i.comentarios||'') + ' · era pago de ' + _cobMover.numero + ' (pasó a ' + doc.folio + ')' });
+      } else {
+        const tot2 = nunR2((+_cobMover.total||0) - t.total);
+        await nunGuardarSeguro('cobranza', { id: _cobMover.id, total: tot2, pendiente: Math.max(0, nunR2(tot2 - (+_cobMover.cobrado||0))), descripcion: String(_cobMover.descripcion||'') + ' · ' + nunHoy() + ': −' + fmtFull(t.total) + ' que pasaron a la remisión ' + doc.folio });
+        if (await nunAltaCobranza(destino, doc, true) === false) toast('⚠ Se creó ' + doc.folio + ' pero NO su cobro en Cobranza. Revísalo.', { type:'error', duration:12000 });
+      }
+    } else
     if (!_cobPed && await nunAltaCobranza(destino, doc, true) === false) toast('⚠ Se creó ' + doc.folio + ' pero NO su cobro en Cobranza. Revísalo.', { type:'error', duration:12000 });
     if (!m.dataset.compensado) { try { await nunCompensarPedidos(lineas, doc, destino); } catch(e){ toast('⚠ No se pudo compensar el precio en el pedido: ' + e.message, { type:'error', duration:9000 }); } m.dataset.compensado = '1'; } // v4.06
     // estatus de cada pedido: si ya salió todo, entregado/facturado (v4.03 — con lo que ya está en pantalla + el documento nuevo)

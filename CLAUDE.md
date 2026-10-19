@@ -81,6 +81,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - Las remisiones ya no se usan (quedan como historial). Pedido capturado directo en borrador → **✅ Confirmar pedido** (`activar_pedido`).
 - Cancelar un pedido-venta: `cancelar_pedido_venta` (no si tiene pagos o factura viva); cancela su cobro y regresa el inventario.
 - Lo anterior (Bind, remisiones y facturas con su propio cobro) se queda igual.
+- **v4.41 (19 oct 2026, Rafa): se cierra todo con remisiones** hasta que arranquen los vendedores. Un pedido confirmado (con su cobro `cob_<pedidoId>`)
+  SÍ lleva 📦 Hacer remisión: si la remisión es por todo, el cobro del pedido PASA a la remisión (numero = folio R, tipo Remisión, factura_origen = id de la
+  remisión, y sus ingresos cambian `factura` al folio R); si es parcial, se resta del cobro del pedido y la remisión lleva su cobro. Va con `_sin_inventario`
+  (el inventario ya salió al confirmar).
+- v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)
 - Mismo cliente = NOMBRE COMPLETO igual (`nunCliNorm`: sin acentos/puntos/espacios dobles/"S.A. de C.V."). Error de 1–2 letras

@@ -40,7 +40,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   r.version=txt(d.querySelector('.rwd-version'));
   if(r.estatus!=='entregado'||!r.nota) r.fallas.push('estatus');
   if(r.cobros!==0) r.fallas.push('no-debe-crear-venta');
-  if(!/v4\.(3[4-9])/.test(r.version)) r.fallas.push('version');
+  if(!/v4\.(3[4-9]|[4-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

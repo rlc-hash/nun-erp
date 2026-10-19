@@ -40,7 +40,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(!/^surtido · faltan \$450\.00/.test(r.sit)) r.fallas.push('situacion');
   if(!/faltan \$450\.00 por documentar y cobrar/.test(r.panel)) r.fallas.push('panel');
   if(!/faltan \$450/.test(r.cuadre)) r.fallas.push('cuadrar');
-  if(!/v4\.(3[6-9])/.test(r.version)) r.fallas.push('version');
+  if(!/v4\.(3[6-9]|[4-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

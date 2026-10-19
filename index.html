@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.39 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.40 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3721,7 +3721,8 @@ function abrirFormGenerico(modKey, id) {
 /* ============================================================
    v3.2 — VISTA DETALLE DE CLIENTE con 5 tabs
    ============================================================ */
-function abrirDetalleCliente(id) {
+function abrirDetalleCliente(id, _opts) {
+  _opts = _opts || {};
   const cli = (State.data.clientes||[]).find(c => c.id === id);
   if (!cli) return;
   const _miembros = nunMiembrosDe(cli.razon_social||''); // v4.33 — lo facturado a nombre de sus clientes de factura cuenta para él
@@ -3886,10 +3887,20 @@ function abrirDetalleCliente(id) {
     ].concat(nunEsAdmin() ? [{ key:'cuadre', label:'🧮 Cuadre', body: `<div id="nunCuadreCliMount">${nunCuadreClienteHTML(cli)}</div>` }] : []), // v3.84
     footer, xwide: true // v4.21 — más grande
   });
-  // v4.20 — si las listas no estaban cargadas, se cargan y se vuelve a pintar la tabla de documentos
-  if (['pedidos','remisiones','facturas','cotizaciones','notascredito'].some(t => !Array.isArray(State.data[t]))) {
-    Promise.all(['pedidos','remisiones','facturas','cotizaciones','notascredito','cobranza'].map(t => cargarTabla(t).catch(()=>{}))).then(() => { const mm = document.getElementById('nunDocsCliMount'); if (mm && mm.dataset.id === String(id)) mm.innerHTML = nunDocsClienteHTML(cli); document.querySelectorAll('.nunCuadrePendMount').forEach(x => { if (x.dataset.id === String(id)) x.innerHTML = nunCuadrePendHTML(cli); }); });
-  }
+  // v4.40 — la ficha siempre se pone al día: se vuelven a pedir las listas y, si algo cambió, se repinta en la misma pestaña
+  //         (antes, con la página abierta mucho rato, la ficha enseñaba datos viejos aunque el servidor ya estuviera bien)
+  if (_opts.sinRecarga) return;
+  const _firma = () => { try { const nom = String(cli.razon_social||'').trim(), mi = nunMiembrosDe(nom), es = n => nunCliExacto(n, nom) || mi.some(m => nunCliExacto(m, n));
+    return JSON.stringify(['cobranza','pedidos','remisiones','facturas','notascredito','ingresos'].map(t => (State.data[t]||[]).filter(d => es(d.cliente || d.contraparte || '')).map(d => [d.id, d.total, d.monto, d.cobrado, d.pendiente, d.estatus, d.tipo, d.pedido_origen]))); } catch(e){ return ''; } };
+  const _antes = _firma();
+  try { const db = document.getElementById('drawerBody'); if (db) { delete db.dataset.editado; db.addEventListener('input', () => { db.dataset.editado = '1'; }, { once:true }); } } catch(e){}
+  Promise.all(['pedidos','remisiones','facturas','cotizaciones','notascredito','cobranza','ingresos'].map(t => cargarTabla(t).catch(()=>{}))).then(() => {
+    const mm = document.getElementById('nunDocsCliMount'); if (!mm || mm.dataset.id !== String(id)) return; // ya cerraron o abrieron otra ficha
+    const db = document.getElementById('drawerBody'); if (db && db.dataset.editado) return; // está escribiendo en la ficha: no se le borra
+    if (_firma() === _antes) return;
+    const act = document.querySelector('.drawer-tabs button.active'), tab = act ? act.dataset.tab : '';
+    abrirDetalleCliente(id, { sinRecarga:true }); if (tab) try { drawerCambiarTab(tab); } catch(e){}
+  });
 }
 // ============================================================
 // v4.20 — DOCUMENTOS DEL CLIENTE en tabla con filtros (Todos / Pedidos / Remisiones / Facturas / Cotizaciones / Notas):

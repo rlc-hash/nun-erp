@@ -63,7 +63,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(!/^R\d{4} 3480 entregada$/.test(r.rem)) r.fallas.push('remision');
   if(!/^3480 /.test(r.cobro)) r.fallas.push('cobro');
   if(r.stockFin!==r.stock0||r.movs!==0) r.fallas.push('mueve-inventario');
-  if(!/v4\.(3\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v4\.(3\d|[4-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

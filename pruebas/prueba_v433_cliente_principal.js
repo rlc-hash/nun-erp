@@ -47,7 +47,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(/OTRO cliente/.test(r.felix)||!/Cliente de factura de NATALIA/.test(r.felix)) r.fallas.push('receptor-sin-error');
   if(!/Pendiente\s*\$1,100|1,100/.test(r.natResumen)||!/incluyen lo facturado a nombre de: FELIX PRUEBA TECUAUTZIN/.test(r.natResumen)) r.fallas.push('resumen-principal');
   if(r.natPagos!==1) r.fallas.push('pagos-principal');
-  if(!/v4\.(3[3-9])/.test(r.version)) r.fallas.push('version');
+  if(!/v4\.(3[3-9]|[4-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

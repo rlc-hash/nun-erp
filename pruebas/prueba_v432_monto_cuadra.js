@@ -38,7 +38,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(!/^surtido.*piezas 8\/10, el monto cuadra/.test(r.sit1)) r.fallas.push('monto-cuadra');
   if(!/^parcial 6\/10/.test(r.sit2)) r.fallas.push('parcial-de-verdad');
   if(r.aldia!=='1029→facturado') r.fallas.push('estatus');
-  if(!/v4\.(3[2-9])/.test(r.version)) r.fallas.push('version');
+  if(!/v4\.(3[2-9]|[4-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

@@ -56,7 +56,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(+cob.cobrado!==0||+cob.pendiente!==1000) r.fallas.push('saldo');
   if(!r.sigueFicha||r.despues.filter(f=>/Activo/.test(f.t)).length!==1) r.fallas.push('repintar');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(3[8-9])/.test(r.version)) r.fallas.push('version');
+  if(!/v4\.(3[8-9]|[4-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

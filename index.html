@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.38 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.39 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3734,11 +3734,16 @@ function abrirDetalleCliente(id) {
   const contactos = (State.data.contactoscrm||[]).filter(c => (c.cliente||'').trim() === (cli.razon_social||'').trim());
   const recordatorios = (State.data.recordatorios||[]).filter(r => (r.cliente||'').trim() === (cli.razon_social||'').trim());
 
+  // v4.39 — cliente de factura (ej. MARKET ARS de RAMIRO): sus montos cuentan SOLO en la ficha del cliente principal, aquí no se suman otra vez
+  let _cuentaEn = ''; try { const _g = nunGrupoDe(cli.razon_social||''); if (_g && !nunCliExacto(_g.principal, cli.razon_social||'') && !_nunEsPublico(cli.razon_social||'')) _cuentaEn = _g.principal; } catch(e){}
   const tabResumen = `<div class="nunCuadrePendMount" data-id="${escapeHTML(String(id))}">${nunCuadrePendHTML(cli)}</div>${_miembros.length ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">Los montos incluyen lo facturado a nombre de: <b>${_miembros.map(escapeHTML).join('</b>, <b>')}</b></div>` : ''}${_ncMonto > 0 ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">"Facturado" ya tiene restadas ${_ncCli.length} nota(s) de crédito por ${fmtFull(_ncMonto)}</div>` : ''}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+    ${_cuentaEn ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+      <div class="kpi" style="padding:12px"><div class="kpi-label">Facturado</div><div class="kpi-value" style="font-size:18px;color:var(--ink-3)">—</div><div class="kpi-sub" style="font-size:11.5px">${fmt(facturado)} a su nombre · cuenta en ${escapeHTML(_cuentaEn)}</div></div>
+      <div class="kpi" style="padding:12px"><div class="kpi-label">Pendiente</div><div class="kpi-value" style="font-size:18px;color:var(--ink-3)">—</div><div class="kpi-sub" style="font-size:11.5px">${fmt(pendiente)} · se cobra en la ficha de ${escapeHTML(_cuentaEn)}</div></div>
+    </div>` : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
       <div class="kpi" style="padding:12px"><div class="kpi-label">Facturado</div><div class="kpi-value" style="font-size:18px">${fmt(facturado)}</div></div>
       <div class="kpi" style="padding:12px"><div class="kpi-label">Pendiente</div><div class="kpi-value red" style="font-size:18px">${fmt(pendiente)}</div></div>
-    </div>
+    </div>`}
     ${buildFormHTML(SCHEMAS.clientes, cli)}
   `;
   const tabCobranza = docs.length === 0

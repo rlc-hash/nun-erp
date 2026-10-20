@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.41 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.42 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3995,13 +3995,48 @@ function nunCuadrePendHTML(cli){
   }
   return rel + _nunCuadrePendCaja(cli);
 }
+// v4.42 — documento VIGENTE sin cobro vivo en Cobranza (ej. Comarca A7/A24: se pasaron de "cancelada" a "timbrada" y su cobro no se
+// creó / siguió cancelado → no sumaban en lo facturado ni en lo que debe). Se avisa en la ficha con botón para arreglarlo.
+function nunDocsSinCobro(cli){
+  const nom = String(cli.razon_social || cli.nombre_comercial || '').trim(); if (!nom || _nunEsPrueba(nom)) return [];
+  const cob = State.data.cobranzaTodos || State.data.cobranza || [], out = [];
+  if (!cob.length) return out; // Cobranza no cargó: no se puede decir que falta un cobro
+  [['remisiones','R'],['facturas','F']].forEach(([t, L]) => (State.data[t]||[]).forEach(d => {
+    if (!nunCliExacto(d.cliente, nom) || /cancel|borrador/i.test(String(d.estatus||'')) || !(+d.total > 0)) return;
+    if (t === 'facturas' && (nunEsDeRemision(d) || /Cobro en [^·(]*\(id /.test(String(d.notas||'')) || /^(R\d{4,}|REM )/.test(String(d.pedido_origen||'')))) return; // se cobra en otro documento
+    const bid = String(d.id).replace(/^bind_(rem_)?/, '');
+    const cs = cob.filter(c => String(c.factura_origen) === String(d.id) || c.id === 'cob_' + d.id || c.id === 'bind_cob_' + bid);
+    if (cs.some(c => !/cancel/i.test(String(c.estatus||'')))) return;
+    out.push({ t, d, L, canc: cs[0] || null });
+  }));
+  return out;
+}
+async function nunArreglarCobro(t, id, cliId){
+  if (!nunPuedeLigar()) { toast('Tu usuario no puede editar ventas', { type:'error' }); return; }
+  await Promise.all([t, 'cobranza'].map(x => cargarTabla(x)));
+  const d = (State.data[t]||[]).find(x => String(x.id) === String(id)); if (!d) return;
+  const cs = (State.data.cobranzaTodos || []).filter(c => String(c.factura_origen) === String(d.id) || c.id === 'cob_' + d.id || c.id === 'bind_cob_' + String(d.id).replace(/^bind_(rem_)?/, ''));
+  const canc = cs.find(c => /cancel/i.test(String(c.estatus||'')));
+  const msg = (t === 'facturas' ? 'Factura ' : 'Remisión ') + nunFolioStr(d) + ' · ' + fmtFull(d.total) + '. ' + (canc ? 'Su cobro ' + (canc.numero||'') + ' está CANCELADO y el documento sigue vigente: se reactiva con saldo ' + fmtFull(Math.max(0, nunR2((+canc.total||0) - (+canc.cobrado||0)))) + '.' : 'No tiene cobro en Cobranza: se crea con saldo ' + fmtFull(d.total) + '.') + ' Si ya lo pagó, después registra el pago.';
+  if (!(await confirmDialog({ title: canc ? '¿Reactivar el cobro?' : '¿Crear el cobro?', message: msg, ok: canc ? 'Reactivar' : 'Crear cobro' }))) return;
+  let ok;
+  if (canc) ok = await nunGuardarSeguro('cobranza', { id: canc.id, estatus: 'pendiente', pendiente: Math.max(0, nunR2((+canc.total||0) - (+canc.cobrado||0))), descripcion: String(canc.descripcion||'') + ' · ' + nunHoy() + ': reactivado, el documento está vigente' });
+  else ok = await nunAltaCobranza(t, d, false);
+  await cargarTabla('cobranza');
+  toast(ok === false ? '✗ No se guardó el cobro' : '✓ Cobro ' + (canc ? 'reactivado' : 'creado') + ' para ' + nunFolioStr(d), { type: ok === false ? 'error' : 'success' });
+  if (cliId) { try { abrirDetalleCliente(cliId); } catch(e){} }
+}
+window.nunArreglarCobro = nunArreglarCobro;
 function _nunCuadrePendCaja(cli){
   const R = nunCuadrePendCalc(cli);
+  const SC = nunDocsSinCobro(cli); // v4.42
+  const scHTML = SC.map(x => `<div style="margin-top:4px">· ${x.L} ${escapeHTML(nunFolioStr(x.d))} (${fmtFull(x.d.total)}) está vigente pero ${x.canc ? 'su cobro está CANCELADO' : 'no tiene cobro en Cobranza'}: no suma en lo facturado ni en lo que debe <button class="btn btn-sm btn-secondary" style="padding:1px 8px;font-size:11px" onclick="nunArreglarCobro('${x.t}',${escapeHTML(JSON.stringify(String(x.d.id)))},${escapeHTML(JSON.stringify(String(cli.id)))})">${x.canc ? '↺ Reactivar cobro' : '＋ Crear cobro'}</button></div>`).join('');
+  if (!R.out.length && SC.length) return `<div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8;font-size:12.5px"><b>🧩 Falta cuadrar (${SC.length})</b>${scHTML}</div>`;
   if (!R.out.length) return '<div style="margin-bottom:12px;padding:8px 12px;border-radius:8px;background:#eef8f0;border:1px solid #cfe8d5;font-size:12.5px">✅ <b>Todo cuadrado</b>: sus pedidos tienen su remisión/factura y no hay documentos sueltos.</div>';
   return `<div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8;font-size:12.5px">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b>🧩 Falta cuadrar (${R.out.length})</b>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><b>🧩 Falta cuadrar (${R.out.length + SC.length})</b>
     <button class="btn btn-sm btn-primary" onclick="cerrarDrawer();nunCuadrarClientes(${R.idx})">Arreglar en Cuadrar por cliente</button></div>
-    <div style="margin-top:6px;line-height:1.6">${R.out.map(t => '· ' + escapeHTML(t)).join('<br>')}</div>
+    <div style="margin-top:6px;line-height:1.6">${R.out.map(t => '· ' + escapeHTML(t)).join('<br>')}</div>${scHTML}
     ${R.sueltos ? `<div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="nunRelacionDesdeSuelto(${escapeHTML(JSON.stringify(String(cli.razon_social||cli.nombre_comercial||'')))},${escapeHTML(JSON.stringify(String(cli.id)))})">🤝 Lo sin pedido lo compró otro cliente (se factura a nombre de este)…</button></div>` : ''}
     ${R.rels.map(r => `<div style="margin-top:6px"><button class="btn btn-sm btn-secondary" onclick="nunRelacionSiFicha(${escapeHTML(JSON.stringify(String(r.principal)))},${escapeHTML(JSON.stringify(String(r.otro)))},${escapeHTML(JSON.stringify(String(cli.id)))})">🤝 Sí, ${escapeHTML(r.otro)} es cliente de factura de ${escapeHTML(r.principal)}</button></div>`).join('')}</div>`;
 }

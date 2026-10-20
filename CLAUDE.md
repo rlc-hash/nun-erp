@@ -85,6 +85,8 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   SÍ lleva 📦 Hacer remisión: si la remisión es por todo, el cobro del pedido PASA a la remisión (numero = folio R, tipo Remisión, factura_origen = id de la
   remisión, y sus ingresos cambian `factura` al folio R); si es parcial, se resta del cobro del pedido y la remisión lleva su cobro. Va con `_sin_inventario`
   (el inventario ya salió al confirmar).
+- v4.42: documento VIGENTE (factura/remisión) sin cobro vivo sale en "Falta cuadrar" de la ficha con ＋ Crear cobro / ↺ Reactivar cobro
+  (`nunDocsSinCobro`, `nunArreglarCobro`). Ojo: si se cambia una factura de cancelada a timbrada a mano, su cobro NO se arregla solo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.42 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.43 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7320,6 +7320,8 @@ function nunSituacionHTML(tabla, r){
     const lista = docs.map(x => (x.t === 'R' ? 'R ' : 'F ') + fol(x.d)).join(', ');
     const _monto = nunR2(docs.reduce((s2, x) => s2 + (+x.d.total||0), 0)); // v4.32 — si el dinero ya cuadra, está completo aunque hayan cambiado modelos
     if (pedidas && salio && salio < pedidas && (+r.total||0) > 0 && _monto >= (+r.total||0) - 1) return `<span class="tag green">surtido</span> ${gris('→ ' + lista + ' · piezas ' + salio + '/' + pedidas + ', el monto cuadra')}${_ncTxt}`;
+    // v4.43 — pedido revisado por Rafa (nota "[revisado"): lo que falta ya está aclarado (ej. 1113: la maleta que falta se cobró en otra factura) → cerrado
+    if (_nunRevisado(r) && ((pedidas && salio < pedidas) || ((+r.total||0) > 0 && _monto < (+r.total||0) - 1))) return `<span class="tag green">cerrado ✓</span> ${gris('→ ' + lista + ' · revisado' + (pedidas && salio < pedidas ? ': piezas ' + salio + '/' + pedidas : '') + ' (ver notas)')}${_ncTxt}`;
     if (pedidas && salio && salio < pedidas) return `<span class="tag amber">parcial ${salio}/${pedidas}</span> ${gris('→ ' + lista)}${_ncTxt}`;
     if ((+r.total||0) > 0 && _monto < (+r.total||0) - 1) return `<span class="tag amber">surtido · faltan ${fmtFull((+r.total||0) - _monto)}</span> ${gris('→ ' + lista + ' suman ' + fmtFull(_monto))}${_ncTxt}`; // v4.36 piezas completas pero el dinero no
     return `<span class="tag green">surtido</span> ${gris('→ ' + lista)}${_ncTxt}`;
@@ -9173,7 +9175,8 @@ function nunPanelDoc(tabla, doc, acciones){
   if (tabla === 'pedidos' && !/cancel/i.test(doc.estatus||'') && !nunCobroPropioPedido(doc)) {
     const _docs = R.remisiones.filter(d => !/cancel/i.test(d.estatus||'')).concat(R.facturas.filter(d => !/cancel/i.test(d.estatus||'') && !nunEsDeRemision(d)));
     const _suma = nunR2(_docs.reduce((s2, d) => s2 + (+d.total||0), 0)), _falta = nunR2((+doc.total||0) - _suma);
-    if (_docs.length && _falta > 1) avisoFalta = `<div style="font-size:12.5px;margin-top:8px;padding:8px 10px;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8">⚠ El pedido es de <b>${fmtFull(doc.total)}</b> pero sus remisiones/facturas suman <b>${fmtFull(_suma)}</b>: <b>faltan ${fmtFull(_falta)}</b> por documentar y cobrar (aunque esos documentos ya estén pagados).</div>`;
+    if (_docs.length && _falta > 1 && _nunRevisado(doc)) avisoFalta = `<div style="font-size:12.5px;margin-top:8px;padding:8px 10px;border-radius:8px;background:#eef8f0;border:1px solid #cfe8d5">✅ <b>Cerrado (revisado)</b>: sus documentos suman ${fmtFull(_suma)} de ${fmtFull(doc.total)}. ${escapeHTML((String(doc.notas||'').split('·').filter(x => /revisado/i.test(x)).pop() || '').replace(/\[revisado[^\]]*\]/i, '').trim())}</div>`; // v4.43
+    else if (_docs.length && _falta > 1) avisoFalta = `<div style="font-size:12.5px;margin-top:8px;padding:8px 10px;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8">⚠ El pedido es de <b>${fmtFull(doc.total)}</b> pero sus remisiones/facturas suman <b>${fmtFull(_suma)}</b>: <b>faltan ${fmtFull(_falta)}</b> por documentar y cobrar (aunque esos documentos ya estén pagados).</div>`;
   }
   return `<div style="border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px;background:var(--bg-2,#fafafa)">
     <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${cadena.join('<span style="color:var(--ink-4)">→</span>') || '<span style="font-size:12px;color:var(--ink-3)">Sin documentos ligados</span>'}</div>

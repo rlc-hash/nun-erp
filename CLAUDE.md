@@ -87,6 +87,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   (el inventario ya salió al confirmar).
 - v4.42: documento VIGENTE (factura/remisión) sin cobro vivo sale en "Falta cuadrar" de la ficha con ＋ Crear cobro / ↺ Reactivar cobro
   (`nunDocsSinCobro`, `nunArreglarCobro`). Ojo: si se cambia una factura de cancelada a timbrada a mano, su cobro NO se arregla solo.
+- v4.43 pedido con nota `[revisado` sale "cerrado ✓". v4.44 ficha: tabla "Pedidos (como tu Excel)" Total · Pagado · Falta (`nunPedidosExcelCalc`):
+  Falta = pendiente de los cobros del pedido (de sus docs, su cobro propio y cobros manuales con `[pedido 1224]` en la descripción). Factura en 2 pedidos
+  (`pedido_origen` "1194, 1113") = "comparte factura"; su saldo cuenta en el primero.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

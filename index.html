@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.43 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.44 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3745,6 +3745,7 @@ function abrirDetalleCliente(id, _opts) {
       <div class="kpi" style="padding:12px"><div class="kpi-label">Facturado</div><div class="kpi-value" style="font-size:18px">${fmt(facturado)}</div></div>
       <div class="kpi" style="padding:12px"><div class="kpi-label">Pendiente</div><div class="kpi-value red" style="font-size:18px">${fmt(pendiente)}</div></div>
     </div>`}
+    ${_cuentaEn ? '' : nunPedidosExcelHTML(cli)}
     ${buildFormHTML(SCHEMAS.clientes, cli)}
   `;
   const tabCobranza = docs.length === 0
@@ -3995,6 +3996,38 @@ function nunCuadrePendHTML(cli){
   }
   return rel + _nunCuadrePendCaja(cli);
 }
+// v4.44 — PEDIDOS COMO EL EXCEL DE RAFA: por pedido, Total · Pagado · Falta.
+//   Falta = lo pendiente de los cobros del pedido (sus remisiones/facturas, su propio cobro y los cobros manuales que digan "[pedido 1224]");
+//   Pagado = Total − Falta. Una factura ligada a 2 pedidos ("1194, 1113") se marca "comparte factura" y su saldo cuenta solo en el primero.
+function nunPedidosExcelCalc(cli){
+  const nom = String(cli.razon_social||'').trim(); if (!nom) return [];
+  const mi = nunMiembrosDe(nom), es = n => nunCliExacto(n, nom) || mi.some(m => nunCliExacto(m, n));
+  const cobs = State.data.cobranza || [];
+  const docs = [];
+  [['remisiones','R'],['facturas','F']].forEach(([t, L]) => (State.data[t]||[]).forEach(d => { if (es(d.cliente) && !/cancel|borrador/i.test(String(d.estatus||''))) docs.push({ t, L, d, peds: String(d.pedido_origen||'').split(/[,;]/).map(x => x.trim().replace(/^REM\s+/, '')).filter(Boolean) }); }));
+  const peds = (State.data.pedidos||[]).filter(p => es(p.cliente) && !/cancel|duplic|borrador/i.test(String(p.estatus||'')) && !_nunEsPrueba(p.cliente));
+  return peds.map(p => {
+    const ks = nunPedClaves(p);
+    const mis = docs.filter(x => x.peds.some(k => ks.includes(k)));
+    const cs = new Map();
+    mis.forEach(x => { if (x.peds.length > 1 && !ks.includes(x.peds[0])) return; let c = null; try { c = nunCobroDeDoc(x.t, x.d); } catch(e){} if (c && es(c.cliente) && !/cancel/i.test(String(c.estatus||''))) cs.set(c.id, c); });
+    cobs.forEach(c => { if (!/cancel/i.test(String(c.estatus||'')) && (String(c.factura_origen) === String(p.id) || ks.some(k => String(c.descripcion||'').toUpperCase().includes('[PEDIDO ' + String(k).toUpperCase() + ']')))) cs.set(c.id, c); });
+    const total = +p.total || 0, falta = Math.max(0, nunR2([...cs.values()].reduce((a, c) => a + Math.max(0, +c.pendiente||0), 0)));
+    return { p, total, falta, pagado: nunR2(total - falta), docs: mis.map(x => ({ L: x.L, folio: nunFolioStr(x.d), comparte: x.peds.length > 1 ? x.peds.filter(k => !ks.includes(k)) : [] })) };
+  }).sort((a, b) => String(a.p.fecha||'').localeCompare(String(b.p.fecha||'')));
+}
+function nunPedidosExcelHTML(cli){
+  const R = nunPedidosExcelCalc(cli); if (!R.length) return '';
+  const T = k => fmtFull(R.reduce((a, x) => a + x[k], 0));
+  return `<details open style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:600;font-size:13px;margin-bottom:6px">📋 Pedidos (como tu Excel)</summary>
+    <div style="border:1px solid var(--line);border-radius:6px;overflow:auto"><table class="dt" style="font-size:12px">
+    <thead><tr><th>Fecha</th><th>Pedido</th><th class="right">Total</th><th class="right">Pagado</th><th class="right">Falta</th><th>Documentos</th></tr></thead><tbody>
+    ${R.map(x => `<tr style="cursor:pointer" onclick="abrirDoc('pedidos',${escapeHTML(JSON.stringify(String(x.p.id)))})"><td>${fmtFecha(x.p.fecha)}</td><td class="mono"><b>${escapeHTML(nunFolioStr(x.p))}</b></td><td class="right mono">${fmtFull(x.total)}</td><td class="right mono">${fmtFull(x.pagado)}</td><td class="right mono" style="color:${x.falta > 0.5 ? 'var(--accent)' : 'var(--green)'}">${x.falta > 0.5 ? fmtFull(x.falta) : '$0 ✓'}</td>
+      <td style="font-size:11.5px">${x.docs.map(d => escapeHTML(d.L + ' ' + d.folio) + (d.comparte.length ? ' <span class="tag amber" style="font-size:10px">comparte factura con ' + escapeHTML(d.comparte.join(', ')) + '</span>' : '')).join(', ') || '<span style="color:var(--mute)">sin documentos</span>'}</td></tr>`).join('')}
+    <tr style="font-weight:600"><td></td><td>Total</td><td class="right mono">${T('total')}</td><td class="right mono">${T('pagado')}</td><td class="right mono">${T('falta')}</td><td></td></tr>
+    </tbody></table></div></details>`;
+}
+window.nunPedidosExcelHTML = nunPedidosExcelHTML;
 // v4.42 — documento VIGENTE sin cobro vivo en Cobranza (ej. Comarca A7/A24: se pasaron de "cancelada" a "timbrada" y su cobro no se
 // creó / siguió cancelado → no sumaban en lo facturado ni en lo que debe). Se avisa en la ficha con botón para arreglarlo.
 function nunDocsSinCobro(cli){

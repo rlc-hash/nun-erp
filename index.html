@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.44 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.45 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7344,6 +7344,7 @@ function nunSituacionHTML(tabla, r){
   const I = nunSituacionIdx(), gris = t => `<span style="color:var(--mute);font-size:11.5px">${t}</span>`, fol = d => escapeHTML(String(d.folio||''));
   if (tabla === 'pedidos') {
     if (/cancel/i.test(r.estatus||'')) return gris('cancelado');
+    if (/duplic/i.test(r.estatus||'')) return gris('duplicado: no cuenta'); // v4.45 — antes salía "sin surtir"
     const docs = nunPedClaves(r).flatMap(k => I.porPedido.get(k) || []).filter((x, i, a) => a.findIndex(y => y.d === x.d) === i);
     let its = []; try { its = JSON.parse(r.items_json||'[]'); } catch(e){}
     const pedidas = its.reduce((s2, it) => s2 + (+it.cantidad||0), 0);

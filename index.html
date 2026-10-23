@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.45 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.46 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7996,6 +7996,7 @@ window.nunFacturarRemisionDesdeDrawer = nunFacturarRemisionDesdeDrawer;
 // v3.74 — Registrar pago directo desde la remisión o la factura (usa el mismo cobro de Cobranza: baja solo a Ingresos)
 async function nunPagoDesdeDoc(tabla, id){
   const doc = (State.data[tabla]||[]).find(d => String(d.id) === String(id)); if (!doc) return;
+  if (tabla === 'facturas' && nunFacturaVariasRem(doc)) { try { cerrarDrawer(); } catch(e){} return nunPagoFacturaVarias(id); } // v4.46
   await cargarTabla('cobranza');
   const cob = State.data.cobranza || [];
   let c = nunCobranzaDeDoc(doc, cob);
@@ -8010,6 +8011,77 @@ async function nunPagoDesdeDoc(tabla, id){
   setTimeout(() => { abrirDrawerCobranza(c.id); setTimeout(() => { try { drawerCambiarTab('pago'); } catch(e){} }, 150); }, 200);
 }
 window.nunPagoDesdeDoc = nunPagoDesdeDoc;
+// v4.46 — FACTURA DE VARIAS REMISIONES (ej. FT0014 = R0022 + REM 317 + R0023): no tiene cobro propio; el pago se reparte entre
+// los cobros de sus remisiones. Lo que toca a cada una sale de sus renglones (campo "pedido" con "(R0022)") o, si no, de la más vieja.
+function nunFacturaVariasRem(f){
+  const po = String(f && f.pedido_origen || '');
+  if (!f || !/[,;]/.test(po) || !/^(R\d{4,}|REM )/.test(po.trim())) return null;
+  const cob = State.data.cobranza || [];
+  const L = po.split(/[,;]/).map(x => x.trim().replace(/^REM\s+/, '')).filter(Boolean).map(fol => {
+    const rems = (State.data.remisiones||[]).filter(r => nunFolioStr(r) === fol && !/cancel/i.test(r.estatus||''));
+    const rem = rems.find(r => nunClientesRelacionados(r.cliente, f.cliente)) || rems[0] || null;
+    return { fol, rem, cob: rem ? nunCobranzaDeDoc(rem, cob) : null, asig: 0 };
+  });
+  let its = []; try { its = JSON.parse(f.items_json||'[]'); } catch(e){}
+  its.forEach(it => { const x = L.find(y => new RegExp('\\(\\s*(R\\s*)?' + y.fol.replace(/^R/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\)').test(String(it.pedido||''))); if (x) { const c = nunCalcLinea(it); x.asig = nunR2(x.asig + c.total); } });
+  L.forEach(x => { if (Math.abs(x.asig - Math.round(x.asig)) < 0.05) x.asig = Math.round(x.asig); }); // centavos del IVA por renglón
+  if (nunR2(L.reduce((a, x) => a + x.asig, 0)) < (+f.total||0) - 1) { // sin renglones marcados: lo más viejo primero
+    let resto = +f.total||0; L.forEach(x => x.asig = 0);
+    L.slice().sort((a, b) => String((a.rem||{}).fecha||'').localeCompare(String((b.rem||{}).fecha||''))).forEach(x => { const t = Math.min(resto, Math.max(0, +(x.cob||{}).pendiente||0)); x.asig = nunR2(t); resto = nunR2(resto - t); });
+  }
+  return L;
+}
+function nunPagosDeFacturaVarias(f){ const k = 'Pago de la factura ' + String(f.folio||''); return (State.data.ingresos||[]).filter(i => nunPagoCuenta(i) && String(i.comentarios||'').includes(k)); }
+async function nunPagoFacturaVarias(id){
+  await Promise.all(['cobranza','remisiones','ingresos','cuentas'].map(t => cargarTabla(t).catch(()=>{})));
+  const f = (State.data.facturas||[]).find(d => String(d.id) === String(id)); if (!f) return;
+  const L = nunFacturaVariasRem(f); if (!L) return;
+  const ya = nunR2(nunPagosDeFacturaVarias(f).reduce((a, i) => a + (+i.monto||0), 0));
+  const cuentas = (State.data.cuentas||[]).map(c => c.nombre).filter(Boolean); if (!cuentas.length) cuentas.push('BBVA','Efectivo','Caja Chica');
+  window._nunPFV = { f, L };
+  let m = document.getElementById('modalPFV'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalPFV'; m.className = 'modal-bg show';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:9999';
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:12px;width:min(640px,94vw);max-height:90vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.25)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line)"><b>💵 Pago de la factura ${escapeHTML(f.folio||'')} · ${fmtFull(f.total)}</b>
+      <button class="icon-btn" onclick="document.getElementById('modalPFV').remove()">✕</button></div>
+    <div style="padding:16px 20px;font-size:13px">
+      <div style="margin-bottom:10px;color:var(--ink-2)">Esta factura cubre varias remisiones: el pago se registra en el cobro de cada una (no es dinero de más).${ya ? ' <b>Ya hay ' + fmtFull(ya) + ' registrados de esta factura.</b>' : ''}</div>
+      <div class="form-grid"><div class="field"><label>Fecha del pago *</label><input type="date" id="pfvFecha" value="${nunHoy()}"></div>
+        <div class="field"><label>Cuenta *</label><select id="pfvCuenta"><option value="">— Selecciona —</option>${cuentas.map(c => `<option>${escapeHTML(c)}</option>`).join('')}</select></div></div>
+      <table class="dt" style="font-size:12px;margin-top:10px"><thead><tr><th>Remisión</th><th class="right">Debe</th><th class="right">Se paga</th></tr></thead><tbody>
+      ${L.map((x, i) => `<tr><td>${escapeHTML(x.rem ? (x.L || 'R ') + nunFolioStr(x.rem) : x.fol + ' (no encontrada)')}</td><td class="right mono">${x.cob ? fmtFull(x.cob.pendiente) : '—'}</td><td class="right"><input type="number" step="0.01" class="pfvMonto" data-i="${i}" value="${x.asig}" style="width:110px;text-align:right" ${x.cob ? '' : 'disabled'}></td></tr>`).join('')}
+      </tbody></table>
+      <div id="pfvError" style="color:var(--red);font-size:12.5px;margin-top:10px;white-space:pre-line"></div></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;padding:14px 20px;border-top:1px solid var(--line)">
+      <button class="btn" onclick="document.getElementById('modalPFV').remove()">Cancelar</button>
+      <button class="btn btn-primary" id="pfvBoton" onclick="nunPagoFacturaVariasGuardar()">Registrar pago</button></div></div>`;
+  document.body.appendChild(m);
+}
+async function nunPagoFacturaVariasGuardar(){
+  const S = window._nunPFV; if (!S) return; const btn = document.getElementById('pfvBoton'), err = document.getElementById('pfvError'); if (btn.disabled) return;
+  const fecha = document.getElementById('pfvFecha').value, cuenta = document.getElementById('pfvCuenta').value;
+  const montos = [...document.querySelectorAll('#modalPFV .pfvMonto')].map(i => ({ x: S.L[+i.dataset.i], m: nunR2(+i.value||0) })).filter(o => o.m > 0);
+  const e = []; if (!fecha) e.push('Pon la fecha del pago'); if (!cuenta) e.push('Escoge la cuenta'); if (!montos.length) e.push('Pon al menos un monto');
+  montos.forEach(o => { if (!o.x.cob) e.push('No encontré el cobro de ' + o.x.fol); else if (o.m > (+o.x.cob.pendiente||0) + 0.01) e.push(o.x.fol + ': el pago (' + fmtFull(o.m) + ') es mayor a lo que debe (' + fmtFull(o.x.cob.pendiente) + ')'); });
+  if (e.length) { err.textContent = '⚠ ' + e.join('\n⚠ '); return; }
+  const tot = nunR2(montos.reduce((a, o) => a + o.m, 0));
+  if (!(await confirmDialog({ title:'¿Registrar el pago de ' + fmtFull(tot) + '?', message:'Factura ' + S.f.folio + ' · ' + fecha + ' · ' + cuenta + '\n' + montos.map(o => o.x.fol + ': ' + fmtFull(o.m)).join(' · '), ok:'Registrar' }))) return;
+  btn.disabled = true; btn.textContent = 'Guardando…'; const hechos = [];
+  try {
+    for (const o of montos) {
+      const r = await api({ accion:'capturar_pago_cliente', id_doc:o.x.cob.id, monto:o.m, fecha, cuenta, notas:'Pago de la factura ' + S.f.folio + ' (' + (S.f.metodo_pago||'') + ')', usuario:_nunQuienSoy(), codigo_usuario:(State.sesion||{}).codigo });
+      if (!(r && r.ok)) throw new Error(o.x.fol + ': ' + ((r && r.error) || 'sin respuesta') + (hechos.length ? ' (ya quedaron: ' + hechos.join(', ') + ')' : ''));
+      hechos.push(o.x.fol);
+    }
+    document.getElementById('modalPFV').remove();
+    await Promise.all(['cobranza','ingresos','pagosclientes'].map(t => cargarTabla(t).catch(()=>{})));
+    try { cerrarDrawer(); } catch(e2){} renderCurrent();
+    toast('✓ Pago de ' + fmtFull(tot) + ' registrado en ' + hechos.join(', '), { type:'success', duration:8000 });
+  } catch(ex) { err.textContent = '✗ ' + ex.message; btn.disabled = false; btn.textContent = 'Registrar pago'; }
+}
+window.nunPagoFacturaVarias = nunPagoFacturaVarias; window.nunPagoFacturaVariasGuardar = nunPagoFacturaVariasGuardar;
+
 // ============================================================
 // v3.75 — Complemento de pago (REP, CFDI tipo P, Pagos 2.0) desde la factura PPD + registro del pago en Cobranza
 // Se guarda en la factura (notas "REP CP0001 …") y el XML en el almacén de CFDI. Serie "CP" (debe existir en Facturama).
@@ -9293,6 +9365,7 @@ function nunSaldoDocBase(r, tabla){
   if (tabla === 'facturas' || (!tabla && r.uuid_sat)) { // v3.77
     const reps = (typeof nunRepsDeFactura === 'function') ? nunRepsDeFactura(r) : [];
     if (reps.length) return nunSaldoTrasReps(r, reps); // v3.81
+    if (typeof nunFacturaVariasRem === 'function' && nunFacturaVariasRem(r)) return Math.max(0, nunR2((+r.total||0) - nunPagosDeFacturaVarias(r).reduce((a, i) => a + (+i.monto||0), 0))); // v4.46
     if ((/^(R\d{4,}|REM )/.test(String(r.pedido_origen||'').trim()) || /Cobro en [^·(]*\(id /.test(String(r.notas||''))) && typeof nunCobroDeDoc === 'function') { const c = nunCobroDeDoc('facturas', r); if (c) return Math.min(+r.total||0, Math.max(0, +c.pendiente||0)); }
   }
   const idx = nunIdxCobranza(); const id = String(r.id||''), bindId = id.replace(/^bind_(rem_|fac_|ord_)?/, '');

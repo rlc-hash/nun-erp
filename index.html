@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.46 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.47 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -1838,6 +1838,10 @@ body.dark .app-main iframe {
   <button class="nav-btn" data-mod="estados_fin" onclick="navegar('estados_fin')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="4" width="3" height="14"/></svg></span>
     <span class="nav-text">Estados Financieros</span>
+  </button>
+  <button class="nav-btn" data-mod="resultados_mes" onclick="navegar('resultados_mes')">
+    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg></span>
+    <span class="nav-text">Resultados por mes</span>
   </button>
   <button class="nav-btn" data-mod="clientes" onclick="navegar('clientes')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
@@ -2959,7 +2963,7 @@ const NUN_MOD_PERMISO = {
   reservations:'ver_inventario', pick_lists:'ver_inventario', shipments:'ver_inventario', importaciones:'ver_inventario',
   ordenescompra:'ver_compras', recepciones:'ver_compras', ap_invoices:'ver_compras',
   ap_holds:'ver_compras', approvals:'ver_compras', pagosproveedores:'ver_compras', requisitions:'ver_compras',
-  estados_fin:'ver_financieros', coa:'ver_financieros', asientos:'ver_financieros',
+  estados_fin:'ver_financieros', resultados_mes:'ver_financieros', coa:'ver_financieros', asientos:'ver_financieros',
   periodos:'ver_financieros', balance:'ver_financieros', estado_resultados:'ver_financieros',
   trial_balance:'ver_financieros', bank_accounts:'ver_financieros', bank_lines:'ver_financieros',
   bank_statements:'ver_financieros', cash_position:'ver_financieros', aging_detail:'ver_financieros',
@@ -7101,6 +7105,7 @@ const MODULOS = {
   cuadre:       { label:'Cuadre Excel vs Sistema', render: renderCuadreModule, afterRender: afterRenderCuadre },
   import_cfdi:  { label:'Importar CFDI (XML)', render: renderImportCFDI, afterRender: afterRenderImportCFDI },
   estados_fin:  { label:'Estados Financieros', render: renderEstadosNUN, afterRender: afterRenderEstadosNUN },
+  resultados_mes: { label:'Resultados por mes', render: () => renderResultadosMes() }, // v4.47
   clientes:     { label:'Clientes',     render: ()=>renderModuloGenerico('clientes'),     afterRender: ()=>afterRenderGenerico('clientes') },
   productos:    { label:'Productos',    render: ()=>renderModuloGenerico('productos'),    afterRender: ()=>afterRenderGenerico('productos') },
   proveedores:  { label:'Proveedores',  render: ()=>renderModuloGenerico('proveedores'),  afterRender: ()=>afterRenderGenerico('proveedores') },
@@ -12570,7 +12575,8 @@ const KV_KEYS_COMPARTIDAS = [
   'nun_bank_accounts','nun_bank_statements','nun_bank_statement_lines',
   'nun_requisitions','nun_reservations','nun_pick_lists','nun_shipments',
   'nun_cfdi_timbres', // v3.48 — timbres compactos (QR) compartidos y persistentes en el backend
-  'nun_relaciones_clientes' // v4.17 — a nombre de quién se factura cada cliente
+  'nun_relaciones_clientes', // v4.17 — a nombre de quién se factura cada cliente
+  'nun_edr_manual' // v4.47 — naviera, impuestos y mes de arranque del Estado de Resultados
 ];
 const _kvSucias = new Set();
 let _kvTimer = null, _kvAplicando = false;
@@ -14942,6 +14948,188 @@ function afterRenderEstadosNUN(){
 window.renderEstadosNUN = renderEstadosNUN;
 window.afterRenderEstadosNUN = afterRenderEstadosNUN;
 window.costoFamiliaDeSku = costoFamiliaDeSku;
+// ============================================================
+// v4.47 — ESTADO DE RESULTADOS GERENCIAL MES POR MES (Rafa, 26 oct 2026)
+// Ventas = las mismas del tablero (remisiones + pedidos-venta + facturas que no son de remisión), SIN IVA (total − iva).
+// Notas de crédito restan. Costo = piezas × costo del producto (Productos). Gastos = módulo Gastos por categoría, sin
+// comisiones (se calculan aparte, igual que en Comisiones, por fecha de pago), sin préstamos a empleados ni compras de
+// mercancía (eso ya está en el costo). Naviera e impuestos los captura Rafa por mes (kv nun_edr_manual, compartido).
+// Lo que falta NO se inventa: sale en "Lo que falta" de cada mes.
+// ============================================================
+const NUN_EDR_KEY = 'nun_edr_manual';
+function nunEdrManual(){ try { const o = JSON.parse(localStorage.getItem(NUN_EDR_KEY) || '{}'); return (o && typeof o === 'object') ? Object.assign({ desde:'', meses:{} }, o, { meses: o.meses || {} }) : { desde:'', meses:{} }; } catch(e){ return { desde:'', meses:{} }; } }
+async function nunEdrGuardar(o){
+  try { localStorage.setItem(NUN_EDR_KEY, JSON.stringify(o)); } catch(e){}
+  try { const r = await api({ accion:'kv_guardar', pares:{ [NUN_EDR_KEY]: JSON.stringify(o) } }); return !!(r && r.ok); } catch(e){ return false; }
+}
+// Costo unitario de una partida: SKU → descripción → familia (costoFamiliaDeSku) → modelo con un solo costo en Productos
+function nunEdrCostoFn(){
+  const porSku = {}, porDesc = {}, porModelo = {};
+  (State.data.productos||[]).forEach(p => {
+    const c = +p.costo || 0; if (!(c > 0)) return;
+    if (p.sku) porSku[String(p.sku).toUpperCase().trim()] = c;
+    if (p.descripcion) porDesc[String(p.descripcion).toUpperCase().trim()] = c;
+    const mo = nunDescomponerProducto(p.descripcion, p.sku).modelo;
+    if (mo && mo !== '(sin modelo)') (porModelo[mo] = porModelo[mo] || new Set()).add(nunR2(c));
+  });
+  return it => {
+    const sku = String(it.sku||'').toUpperCase().trim(), desc = String(it.descripcion||'').toUpperCase().trim();
+    let c = porSku[sku] || porSku[sku.split(' ')[0]] || porDesc[desc];
+    if (!c && typeof costoFamiliaDeSku === 'function') { const f = costoFamiliaDeSku(sku.split(' ')[0]); if (f) c = f.costo; }
+    const mo = nunDescomponerProducto(it.descripcion, it.sku).modelo;
+    if (!c && porModelo[mo] && porModelo[mo].size === 1) c = [...porModelo[mo]][0];
+    return { costo: +c || 0, modelo: mo };
+  };
+}
+function _edrSinIva(d){ const t = +d.total || 0, iva = +d.iva || 0; return nunR2(t - iva); }
+const _edrCatGasto = cat => { const c = String(cat||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (/comisi/.test(c)) return 'comision'; if (/prestamo/.test(c)) return 'prestamo'; if (/impuesto|\bsat\b/.test(c)) return 'impuesto'; if (/mercanc/.test(c)) return 'mercancia'; return 'gasto'; };
+function nunEdrMeses(desde, hasta){ const out = []; let m = desde; for (let k = 0; k < 60 && m <= hasta; k++) { out.push(m); const [y, mm] = m.split('-').map(Number); m = _tabMes(new Date(y, mm, 1)); } return out; }
+function nunEdrCalc(meses){
+  const man = nunEdrManual(), costoDe = nunEdrCostoFn(), set = new Set(meses);
+  const R = {}; meses.forEach(m => R[m] = { ventas:0, nc:0, costo:0, ventaSinCosto:0, docsSinPartidas:0, gastos:{}, gastosExcl:{}, impuestosGastos:0,
+    comVend:0, comSocios:0, cobrado:0, nGastos:0, naviera: man.meses[m] && man.meses[m].naviera, impuestos: man.meses[m] && man.meses[m].impuestos });
+  const sinCosto = new Map(); // modelo → { pzas, venta }
+  nunTableroVentas().forEach(x => {
+    const m = String(x.fecha||'').slice(0,7); if (!set.has(m)) return; const r = R[m];
+    if (x.nc) { r.nc += _edrSinIva(x.doc); return; }
+    const venta = _edrSinIva(x.d); r.ventas += venta;
+    let items = []; try { items = JSON.parse(x.d.items_json || '[]'); } catch(e){}
+    if (!items.length) { r.ventaSinCosto += venta; r.docsSinPartidas++; return; }
+    items.forEach(it => { const q = +it.cantidad || 0, k = costoDe(it);
+      if (k.costo > 0) r.costo += q * k.costo;
+      else { const b = nunCalcLinea(it, true).base; r.ventaSinCosto += b; const s = sinCosto.get(k.modelo + ' · ' + (it.sku||it.descripcion||'')) || { pzas:0, venta:0, mes:new Set() }; s.pzas += q; s.venta += b; s.mes.add(m); sinCosto.set(k.modelo + ' · ' + (it.sku||it.descripcion||''), s); } });
+  });
+  (State.data.gastos||[]).forEach(g => {
+    const m = String(g.fecha||'').slice(0,7); if (!set.has(m)) return; const r = R[m], cat = String(g.categoria||'(sin categoría)').trim() || '(sin categoría)', monto = +g.monto || 0, tipo = _edrCatGasto(cat);
+    r.nGastos++;
+    if (tipo === 'gasto') r.gastos[cat] = (r.gastos[cat]||0) + monto;
+    else if (tipo === 'impuesto') r.impuestosGastos += monto;
+    else r.gastosExcl[cat] = (r.gastosExcl[cat]||0) + monto;
+  });
+  (State.data.ingresos||[]).forEach(i => { const m = String(i.fecha||'').slice(0,7); if (set.has(m) && nunPagoCuenta(i)) R[m].cobrado += +i.monto || 0; });
+  if (typeof calcularComisiones === 'function') { const b = _comBase; _comBase = 'pago';
+    try { meses.forEach(m => { const c = calcularComisiones(m) || {}, g = v => c[v] || {};
+      R[m].comVend = ['EDGAR','LUIS','ESTEBAN','YADAH'].reduce((s, v) => s + (g(v).comisionPropio||0) + (v === 'YADAH' ? 0 : (g(v).comisionOverride||0)), 0);
+      R[m].comSocios = (g('RAFA').comisionOverride||0) + (g('YADAH').comisionOverride||0);
+      }); } finally { _comBase = b; } }
+  meses.forEach(m => { const r = R[m];
+    r.ventasNetas = r.ventas - r.nc;
+    r.navieraN = +r.naviera || 0; r.impuestosN = (+r.impuestos || 0) + r.impuestosGastos;
+    r.utilBruta = r.ventasNetas - r.costo - r.navieraN;
+    r.totGastos = Object.values(r.gastos).reduce((s, v) => s + v, 0);
+    r.gastosOp = r.totGastos + r.comVend + r.comSocios; // el sueldo de Yazmín ya viene en Gastos (Nómina): no se suma el fijo de Comisiones
+    r.utilOp = r.utilBruta - r.gastosOp;
+    r.utilNeta = r.utilOp - r.impuestosN;
+    const f = [];
+    if (r.naviera === undefined || r.naviera === '') f.push('naviera');
+    if ((r.impuestos === undefined || r.impuestos === '') && !r.impuestosGastos) f.push('impuestos');
+    if (!r.nGastos) f.push('no hay gastos capturados');
+    if (r.ventaSinCosto > 0.5) f.push(fmt(r.ventaSinCosto) + ' de venta sin costo' + (r.docsSinPartidas ? ' (' + r.docsSinPartidas + ' doc. sin productos)' : ''));
+    r.faltan = f;
+  });
+  return { R, sinCosto: [...sinCosto.entries()].map(([k, v]) => ({ k, pzas: v.pzas, venta: v.venta, meses: [...v.mes].sort() })).sort((a, b) => b.venta - a.venta) };
+}
+let _edr = null, _edrCargando = false;
+function renderResultadosMes(){
+  const D = State.data, tablas = ['remisiones','facturas','pedidos','notascredito','cobranza','ingresos','gastos','productos'];
+  if (!_edrCargando && tablas.some(t => !Array.isArray(D[t]) || !D[t].length)) {
+    _edrCargando = true;
+    Promise.all(tablas.map(t => cargarTabla(t).catch(()=>{}))).then(() => { if (State.modulo === 'resultados_mes' || document.getElementById('edrMount')) renderCurrent(); });
+  }
+  const man = nunEdrManual(), hoyM = nunHoy().slice(0,7);
+  if (!_edr) { const h = new Date(); _edr = { desde: man.desde || _tabMes(new Date(h.getFullYear(), h.getMonth() - 5, 1)), hasta: hoyM }; }
+  if (_edr.hasta < _edr.desde) _edr.hasta = _edr.desde;
+  const meses = nunEdrMeses(_edr.desde, _edr.hasta), { R, sinCosto } = nunEdrCalc(meses);
+  const opc = []; for (let i = 0; i < 24; i++) { const h = new Date(); opc.push(_tabMes(new Date(h.getFullYear(), h.getMonth() - i, 1))); }
+  const sel = 'padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)';
+  const tot = k => meses.reduce((s, m) => s + (typeof k === 'function' ? k(R[m]) : (R[m][k]||0)), 0);
+  const num = (v, neg) => { const x = Math.round(v||0); if (!x) return '<span style="color:var(--mute)">—</span>'; return `<span style="${x < 0 ? 'color:var(--red)' : ''}">${neg && x > 0 ? '(' + fmt(x) + ')' : fmt(x)}</span>`; };
+  const pct = (a, b) => b ? (a / b * 100).toFixed(1) + '%' : '—';
+  const fila = (lbl, k, o) => { o = o || {}; const st = o.total ? 'font-weight:700;background:var(--bg-3)' : (o.sub ? 'color:var(--ink-2)' : '');
+    return `<tr style="${st}"><td style="position:sticky;left:0;background:var(--bg);${o.total ? 'background:var(--bg-3);' : ''}${o.sub ? 'padding-left:22px' : ''}">${lbl}</td>${meses.map(m => `<td class="right mono">${num(typeof k === 'function' ? k(R[m]) : R[m][k], o.neg)}</td>`).join('')}<td class="right mono" style="font-weight:600">${num(tot(k), o.neg)}</td></tr>`; };
+  const filaPct = (lbl, a, b) => `<tr style="font-size:11.5px;color:var(--mute)"><td style="position:sticky;left:0;background:var(--bg);padding-left:22px">${lbl}</td>${meses.map(m => `<td class="right">${pct(R[m][a], R[m][b])}</td>`).join('')}<td class="right">${pct(tot(a), tot(b))}</td></tr>`;
+  const filaInput = (lbl, campo) => `<tr><td style="position:sticky;left:0;background:var(--bg)">${lbl} <span style="font-size:11px;color:var(--mute)">(tú lo capturas)</span></td>${meses.map(m => { const v = R[m][campo]; const falta = v === undefined || v === '';
+      return `<td class="right"><input type="number" step="0.01" min="0" value="${falta ? '' : escapeHTML(String(v))}" placeholder="falta" onchange="nunEdrCapturar('${m}','${campo}',this.value)" style="width:96px;text-align:right;padding:4px 6px;border:1px solid ${falta ? 'var(--amber,#d97706)' : 'var(--line)'};border-radius:6px;background:var(--bg)"></td>`; }).join('')}<td class="right mono" style="font-weight:600">${num(tot(r => +r[campo] || 0), true)}</td></tr>`;
+  const cats = [...new Set(meses.flatMap(m => Object.keys(R[m].gastos)))].sort((a, b) => tot(r => r.gastos[b]||0) - tot(r => r.gastos[a]||0));
+  const excl = [...new Set(meses.flatMap(m => Object.keys(R[m].gastosExcl)))];
+  const sep = `<tr><td colspan="${meses.length + 2}" style="height:6px;padding:0"></td></tr>`;
+  const mesesFalta = meses.filter(m => R[m].faltan.length);
+  return `
+    <div class="page-title">
+      <div><h1>Estado de Resultados por mes</h1><div class="sub">Gerencial · sin IVA · MXN · ventas = las mismas del tablero (no cuenta dos veces factura y remisión)</div></div>
+      <div class="actions">
+        <button class="btn btn-secondary" onclick="nunEdrCSV()">⬇ Excel</button>
+        <button class="btn btn-secondary" onclick="window.print()">Imprimir</button>
+      </div>
+    </div>
+    <div id="edrMount" class="dt-wrap" style="padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+      <label style="font-size:11px">Desde<br><select style="${sel}" onchange="_edr.desde=this.value; renderCurrent()">${opc.map(m => `<option value="${m}" ${m === _edr.desde ? 'selected' : ''}>${_tabMesTxt(m)}</option>`).join('')}</select></label>
+      <label style="font-size:11px">Hasta<br><select style="${sel}" onchange="_edr.hasta=this.value; renderCurrent()">${opc.map(m => `<option value="${m}" ${m === _edr.hasta ? 'selected' : ''}>${_tabMesTxt(m)}</option>`).join('')}</select></label>
+      <button class="btn btn-sm" onclick="nunEdrFijarInicio()" title="Que el reporte siempre abra desde este mes">📌 Arrancar siempre en ${_tabMesTxt(_edr.desde)}</button>
+      <span style="font-size:12px;color:var(--mute)">${man.desde ? 'Arranque guardado: ' + _tabMesTxt(man.desde) : 'Sin mes de arranque guardado'}</span>
+    </div>
+    ${mesesFalta.length ? `<div class="dt-wrap" style="padding:12px 16px;margin-bottom:12px;border-left:4px solid var(--amber,#d97706)">
+      <div style="font-weight:700;margin-bottom:6px">⚠ Lo que falta (los meses con faltantes no son definitivos)</div>
+      <div style="font-size:12.5px;line-height:1.7">${mesesFalta.map(m => `<b>${_tabMesTxt(m)}:</b> ${R[m].faltan.map(escapeHTML).join(' · ')}`).join('<br>')}</div></div>` : ''}
+    <div class="dt-wrap"><div class="dt-scroll" style="overflow-x:auto"><table class="dt" style="font-size:12.5px;min-width:${220 + meses.length * 110}px">
+      <thead><tr><th style="position:sticky;left:0;background:var(--bg-2,var(--bg));min-width:220px">Concepto</th>${meses.map(m => `<th class="right">${_tabMesTxt(m)}${R[m].faltan.length ? ' <span title="' + escapeHTML(R[m].faltan.join(' · ')) + '" style="color:var(--amber,#d97706)">⚠</span>' : ''}</th>`).join('')}<th class="right">Total</th></tr></thead>
+      <tbody>
+        ${fila('Ventas', 'ventas')}
+        ${fila('(−) Notas de crédito', 'nc', { neg:true, sub:true })}
+        ${fila('= Ventas netas', 'ventasNetas', { total:true })}
+        ${sep}
+        ${fila('(−) Costo de lo vendido', 'costo', { neg:true })}
+        ${filaInput('(−) Naviera / importación', 'naviera')}
+        ${fila('= Utilidad bruta', 'utilBruta', { total:true })}
+        ${filaPct('margen bruto', 'utilBruta', 'ventasNetas')}
+        ${sep}
+        <tr><td colspan="${meses.length + 2}" style="font-weight:700;padding-top:8px">Gastos de operación</td></tr>
+        ${cats.map(c => fila(escapeHTML(c), r => r.gastos[c] || 0, { neg:true, sub:true })).join('')}
+        ${fila('Comisiones de vendedores', 'comVend', { neg:true, sub:true })}
+        ${fila('Comisión socios 4% (Rafa y Yadah)', 'comSocios', { neg:true, sub:true })}
+        ${fila('Total gastos de operación', 'gastosOp', { neg:true })}
+        ${fila('= Utilidad de operación', 'utilOp', { total:true })}
+        ${sep}
+        ${fila('(−) Impuestos registrados en Gastos', 'impuestosGastos', { neg:true, sub:true })}
+        ${filaInput('(−) Otros impuestos (fuera de Gastos)', 'impuestos')}
+        ${fila('= UTILIDAD NETA', 'utilNeta', { total:true })}
+        ${filaPct('margen neto', 'utilNeta', 'ventasNetas')}
+        ${sep}
+        <tr style="font-size:12px;color:var(--mute)"><td style="position:sticky;left:0;background:var(--bg)">Para comparar: cobrado en el mes (Ingresos, con IVA)</td>${meses.map(m => `<td class="right mono">${num(R[m].cobrado)}</td>`).join('')}<td class="right mono">${num(tot('cobrado'))}</td></tr>
+      </tbody></table></div></div>
+    <div style="font-size:12px;color:var(--ink-3);line-height:1.7;margin-top:10px">
+      <b>Cómo se calcula:</b> ventas y notas de crédito sin IVA (total − IVA del documento) por fecha del documento ·
+      costo = piezas × costo de cada producto en Productos · comisiones calculadas por fecha de pago, igual que en Comisiones
+      (por eso NO se toman las comisiones capturadas en Gastos; el sueldo de Yazmín sí sale de Gastos → Nómina${excl.length ? ': ' + excl.map(escapeHTML).join(', ') + ' no se suman aquí' : ''}) ·
+      préstamos a empleados y compras de mercancía no son gasto · las notas de crédito no regresan costo.
+    </div>
+    ${sinCosto.length ? `<div class="dt-wrap" style="margin-top:12px"><div style="padding:12px 16px;border-bottom:1px solid var(--line);font-weight:700">Productos vendidos sin costo (ponles costo en Productos)</div>
+      <div class="dt-scroll"><table class="dt" style="font-size:12.5px"><thead><tr><th>Modelo · SKU</th><th class="right">Piezas</th><th class="right">Venta sin IVA</th><th>Meses</th></tr></thead><tbody>
+      ${sinCosto.slice(0, 60).map(s => `<tr><td>${escapeHTML(s.k)}</td><td class="right mono">${s.pzas}</td><td class="right mono">${fmt(s.venta)}</td><td>${s.meses.map(_tabMesTxt).join(', ')}</td></tr>`).join('')}
+      </tbody></table></div></div>` : ''}`;
+}
+async function nunEdrCapturar(mes, campo, valor){
+  const o = nunEdrManual(); o.meses[mes] = o.meses[mes] || {};
+  const v = String(valor||'').trim();
+  if (v === '') delete o.meses[mes][campo]; else { const n = +v; if (!isFinite(n) || n < 0) { toast('Pon un número (0 si no hubo)', { type:'error' }); return; } o.meses[mes][campo] = nunR2(n); }
+  const ok = await nunEdrGuardar(o);
+  toast(ok ? '✓ Guardado' : '⚠ Se guardó solo en esta computadora; no se pudo mandar al servidor', ok ? {} : { type:'error' });
+  renderCurrent();
+}
+async function nunEdrFijarInicio(){ const o = nunEdrManual(); o.desde = _edr.desde; const ok = await nunEdrGuardar(o); toast(ok ? '✓ El reporte arranca en ' + _tabMesTxt(o.desde) : '⚠ No se pudo guardar en el servidor', ok ? {} : { type:'error' }); renderCurrent(); }
+function nunEdrCSV(){
+  const meses = nunEdrMeses(_edr.desde, _edr.hasta), { R } = nunEdrCalc(meses);
+  const cats = [...new Set(meses.flatMap(m => Object.keys(R[m].gastos)))];
+  const filas = [['Ventas', r => r.ventas], ['Notas de crédito', r => -r.nc], ['Ventas netas', r => r.ventasNetas], ['Costo de lo vendido', r => -r.costo], ['Naviera / importación', r => -r.navieraN], ['Utilidad bruta', r => r.utilBruta]]
+    .concat(cats.map(c => [c, r => -(r.gastos[c]||0)]))
+    .concat([['Comisiones de vendedores', r => -r.comVend], ['Comisión socios 4%', r => -r.comSocios], ['Total gastos de operación', r => -r.gastosOp], ['Utilidad de operación', r => r.utilOp],
+      ['Impuestos', r => -r.impuestosN], ['Utilidad neta', r => r.utilNeta], ['Lo que falta', r => r.faltan.join(' · ')]]);
+  const q = v => typeof v === 'number' ? nunR2(v).toFixed(2) : '"' + String(v).replace(/"/g, '""') + '"';
+  const csv = [['Concepto'].concat(meses).map(q).join(',')].concat(filas.map(([l, f]) => [q(l)].concat(meses.map(m => q(f(R[m])))).join(','))).join('\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type:'text/csv;charset=utf-8' })); a.download = 'estado_resultados_' + _edr.desde + '_' + _edr.hasta + '.csv'; a.click();
+}
+window.renderResultadosMes = renderResultadosMes; window.nunEdrCalc = nunEdrCalc; window.nunEdrCapturar = nunEdrCapturar; window.nunEdrFijarInicio = nunEdrFijarInicio; window.nunEdrCSV = nunEdrCSV;
 
 /* ============================================================
    v3.38 — TIMBRADO DIRECTO con Facturama (PAC)

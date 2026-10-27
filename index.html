@@ -1701,7 +1701,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.49 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.50 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -14976,10 +14976,27 @@ async function nunEdrGuardar(o){
   try { localStorage.setItem(NUN_EDR_KEY, JSON.stringify(o)); } catch(e){}
   try { const r = await api({ accion:'kv_guardar', pares:{ [NUN_EDR_KEY]: JSON.stringify(o) } }); return !!(r && r.ok); } catch(e){ return false; }
 }
-// Costo unitario de una partida: SKU → descripción → familia (costoFamiliaDeSku) → modelo con un solo costo en Productos
+// v4.50 — Pieza suelta de un set (regla de Rafa, 27 oct 2026): costo del set ÷ pulgadas del set × pulgadas de la pieza.
+// Set de 3 (18+20+22 = 60"): SF004 y RL001. SF001–SF003 son de 5 (18+20+22+24+28 = 112"): así sale la ZSF0011 de 18" en $291, como ya estaba.
+// ZSF00XY = set SF00X, tamaño Y (1=18, 2=20, 3=22, 4=24, 5=28). Maleta PP sin modelo = RL001.
+const NUN_SET_PULGADAS = { SF001:112, SF002:112, SF003:112 }, NUN_SET_PULGADAS_STD = 60;
+function nunCostoPiezaDeSet(desc, sku){
+  const d = String(desc||'').toUpperCase(), code = String(sku||'').toUpperCase().trim().split(' ')[0] || d.trim().split(/\s+/)[0] || '';
+  let fam = '', pulg = 0;
+  const z = code.match(/^Z?SF00(\d)(\d)$/);
+  if (z) { fam = 'SF00' + z[1]; pulg = ({ 1:18, 2:20, 3:22, 4:24, 5:28 })[z[2]] || 0; }
+  const m = d.match(/(\d{2})\s*(PULGADAS|PULG|")/); if (m) pulg = +m[1];
+  if (!fam && /\bPP\b/.test(d) && nunDescomponerProducto(desc, sku).modelo === '(sin modelo)') fam = 'RL001';
+  const set = fam ? +COSTOS_NUN[fam] || 0 : 0;
+  const tot = NUN_SET_PULGADAS[fam] || NUN_SET_PULGADAS_STD;
+  return set && pulg ? { fam, pulg, setPulgadas: tot, costo: nunR2(set / tot * pulg) } : null;
+}
+// Costo unitario de una partida: SKU → descripción → pieza de set (v4.50) → familia (costoFamiliaDeSku) → modelo con un solo costo en Productos
+// v4.50 — también regresa el costo CON factura del producto (si lo tiene) para documentos con IVA
 function nunEdrCostoFn(){
-  const porSku = {}, porDesc = {}, porModelo = {};
+  const porSku = {}, porDesc = {}, porModelo = {}, cfSku = {};
   (State.data.productos||[]).forEach(p => {
+    if (p.sku && +p.costo_factura > 0) cfSku[String(p.sku).toUpperCase().trim()] = +p.costo_factura;
     const c = +p.costo || 0; if (!(c > 0)) return;
     if (p.sku) porSku[String(p.sku).toUpperCase().trim()] = c;
     if (p.descripcion) porDesc[String(p.descripcion).toUpperCase().trim()] = c;
@@ -14988,11 +15005,13 @@ function nunEdrCostoFn(){
   });
   return it => {
     const sku = String(it.sku||'').toUpperCase().trim(), desc = String(it.descripcion||'').toUpperCase().trim();
-    let c = porSku[sku] || porSku[sku.split(' ')[0]] || porDesc[desc];
-    if (!c && typeof costoFamiliaDeSku === 'function') { const f = costoFamiliaDeSku(sku.split(' ')[0]); if (f) c = f.costo; }
+    const code = sku.split(' ')[0] || desc.split(/\s+/)[0] || ''; // sin SKU: el código suele venir al inicio de la descripción
+    let c = porSku[sku] || porSku[code] || porDesc[desc];
+    if (!c) { const ps = nunCostoPiezaDeSet(it.descripcion, it.sku); if (ps) c = ps.costo; }
+    if (!c && typeof costoFamiliaDeSku === 'function') { const f = costoFamiliaDeSku(code); if (f) c = f.costo; }
     const mo = nunDescomponerProducto(it.descripcion, it.sku).modelo;
     if (!c && porModelo[mo] && porModelo[mo].size === 1) c = [...porModelo[mo]][0];
-    return { costo: +c || 0, modelo: mo };
+    return { costo: +c || 0, costoFactura: cfSku[sku] || cfSku[code] || 0, modelo: mo };
   };
 }
 function _edrSinIva(d){ const t = +d.total || 0, iva = +d.iva || 0; return nunR2(t - iva); }
@@ -15010,8 +15029,9 @@ function nunEdrCalc(meses){
     const venta = _edrSinIva(x.d); r.ventas += venta;
     let items = []; try { items = JSON.parse(x.d.items_json || '[]'); } catch(e){}
     if (!items.length) { r.ventaSinCosto += venta; r.docsSinPartidas++; return; }
-    items.forEach(it => { const q = +it.cantidad || 0, k = costoDe(it);
-      if (k.costo > 0) r.costo += q * k.costo;
+    const conIva = (+x.d.iva || 0) > 0; // v4.50 documento con IVA → costo con factura (igual que Márgenes reales)
+    items.forEach(it => { const q = +it.cantidad || 0, k = costoDe(it), cu = conIva && k.costoFactura > 0 ? k.costoFactura : k.costo;
+      if (cu > 0) r.costo += q * cu;
       else { const b = nunCalcLinea(it, true).base; r.ventaSinCosto += b; const s = sinCosto.get(k.modelo + ' · ' + (it.sku||it.descripcion||'')) || { pzas:0, venta:0, mes:new Set() }; s.pzas += q; s.venta += b; s.mes.add(m); sinCosto.set(k.modelo + ' · ' + (it.sku||it.descripcion||''), s); } });
   });
   (State.data.gastos||[]).forEach(g => {
@@ -15036,7 +15056,6 @@ function nunEdrCalc(meses){
     r.utilOp = r.utilBruta - r.gastosOp;
     r.utilNeta = r.utilOp - r.impuestosN;
     const f = [];
-    if (r.naviera === undefined || r.naviera === '') f.push('naviera');
     if ((r.impuestos === undefined || r.impuestos === '') && !r.impuestosGastos) f.push('impuestos');
     if (!r.nGastos) f.push('no hay gastos capturados');
     if (r.ventaSinCosto > 0.5) f.push(fmt(r.ventaSinCosto) + ' de venta sin costo' + (r.docsSinPartidas ? ' (' + r.docsSinPartidas + ' doc. sin productos)' : ''));
@@ -15094,7 +15113,7 @@ function renderResultadosMes(){
         ${fila('= Ventas netas', 'ventasNetas', { total:true })}
         ${sep}
         ${fila('(−) Costo de lo vendido', 'costo', { neg:true })}
-        ${filaInput('(−) Naviera / importación', 'naviera')}
+        ${filaInput('(−) Otros de importación (fuera del costeo)', 'naviera')}
         ${fila('= Utilidad bruta', 'utilBruta', { total:true })}
         ${filaPct('margen bruto', 'utilBruta', 'ventasNetas')}
         ${sep}
@@ -15114,7 +15133,7 @@ function renderResultadosMes(){
       </tbody></table></div></div>
     <div style="font-size:12px;color:var(--ink-3);line-height:1.7;margin-top:10px">
       <b>Cómo se calcula:</b> ventas y notas de crédito sin IVA (total − IVA del documento) por fecha del documento ·
-      costo = piezas × costo de cada producto en Productos · comisiones calculadas por fecha de pago, igual que en Comisiones
+      costo = piezas × costo de cada producto en Productos (el de tu costeo: China + arancel + flete + maniobras + pedimento; con factura si el documento lleva IVA; pieza suelta de un set = costo del set ÷ pulgadas del set (60 o 112) × sus pulgadas) · "Otros de importación" es solo para lo que NO esté en el costeo · comisiones calculadas por fecha de pago, igual que en Comisiones
       (por eso NO se toman las comisiones capturadas en Gastos; el sueldo de Yazmín sí sale de Gastos → Nómina${excl.length ? ': ' + excl.map(escapeHTML).join(', ') + ' no se suman aquí' : ''}) ·
       préstamos a empleados y compras de mercancía no son gasto · las notas de crédito no regresan costo.
     </div>
@@ -15135,7 +15154,7 @@ async function nunEdrFijarInicio(){ const o = nunEdrManual(); o.desde = _edr.des
 function nunEdrCSV(){
   const meses = nunEdrMeses(_edr.desde, _edr.hasta), { R } = nunEdrCalc(meses);
   const cats = [...new Set(meses.flatMap(m => Object.keys(R[m].gastos)))];
-  const filas = [['Ventas', r => r.ventas], ['Notas de crédito', r => -r.nc], ['Ventas netas', r => r.ventasNetas], ['Costo de lo vendido', r => -r.costo], ['Naviera / importación', r => -r.navieraN], ['Utilidad bruta', r => r.utilBruta]]
+  const filas = [['Ventas', r => r.ventas], ['Notas de crédito', r => -r.nc], ['Ventas netas', r => r.ventasNetas], ['Costo de lo vendido', r => -r.costo], ['Otros de importación (fuera del costeo)', r => -r.navieraN], ['Utilidad bruta', r => r.utilBruta]]
     .concat(cats.map(c => [c, r => -(r.gastos[c]||0)]))
     .concat([['Comisiones de vendedores', r => -r.comVend], ['Comisión socios 4%', r => -r.comSocios], ['Total gastos de operación', r => -r.gastosOp], ['Utilidad de operación', r => r.utilOp],
       ['Impuestos', r => -r.impuestosN], ['Utilidad neta', r => r.utilNeta], ['Lo que falta', r => r.faltan.join(' · ')]]);

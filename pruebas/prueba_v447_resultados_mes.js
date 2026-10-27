@@ -1,6 +1,7 @@
 // v4.47 — Estado de Resultados gerencial mes por mes: ventas sin IVA (las mismas del tablero, sin contar dos veces),
 // notas de crédito restan, costo = piezas × costo del producto, gastos por categoría sin comisiones/préstamos/mercancía,
 // impuestos de Gastos aparte, naviera e impuestos capturados por Rafa (kv nun_edr_manual) y "Lo que falta" por mes.
+// v4.50: la naviera ya no sale como faltante (va dentro del costeo de cada producto).
 // Sin red; datos inventados.
 const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
 (async()=>{
@@ -43,7 +44,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   ok(a.cobrado===4000,'cobrado sin duplicados de Bind');
   ok(a.faltan.some(f=>/venta sin costo/.test(f)) && !a.faltan.includes('naviera'),'faltantes de agosto');
   ok(s.ventas===5000 && s.costo===2500,'pedido-venta de sep cuenta (5000 sin IVA, costo 2500)');
-  ok(s.faltan.includes('naviera') && s.faltan.includes('impuestos') && s.faltan.includes('no hay gastos capturados'),'sep: falta naviera, impuestos y gastos');
+  ok(!s.faltan.includes('naviera') && s.faltan.includes('impuestos') && s.faltan.includes('no hay gastos capturados'),'sep: falta impuestos y gastos (desde v4.50 la naviera va en el costeo y ya no se pide)');
   ok(Math.abs(a.utilNeta-(a.utilBruta-a.gastosOp-a.impuestosN))<0.01,'utilidad neta cuadra');
   // pantalla
   w.eval("_edr={desde:'2026-08',hasta:'2026-09'}");

@@ -1643,6 +1643,11 @@ body.sidenav-collapsed .rwd-sidenav-toggle svg {
 @media (max-width: 640px) {
   .rwd-create-btn span { display: none; }
   .rwd-search-central { max-width: 200px; }
+  /* v4.49 — en el teléfono el encabezado se salía de la pantalla (botones de la derecha invisibles) */
+  .rwd-search-central, .nun-brand-text { display: none; }
+  .rwd-header-right { margin-left: auto; gap: 6px; }
+  .conn-pill { max-width: 26px; overflow: hidden; white-space: nowrap; padding-left: 6px; padding-right: 6px; }
+  .rwd-user-badge { max-width: 64px; overflow: hidden; }
 }
 
 /* ============================================================
@@ -1696,7 +1701,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.48 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.49 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3117,7 +3122,8 @@ const SCHEMAS = {
       { key:'descripcion', label:'Descripción' },
       { key:'categoria', label:'Categoría', render:r=>r.categoria?`<span class="tag">${escapeHTML(r.categoria)}</span>`:'—' },
       { key:'costo', label:'Costo', right:true, render:r=>fmt(r.costo||0) },
-      { key:'precio', label:'Precio', right:true, render:r=>fmt(r.precio||0) },
+      { key:'precio', label:'Precio s/fact.', right:true, render:r=>fmt(r.precio||0) },
+      { key:'precio_factura', label:'Precio c/fact.', right:true, render:r=>+r.precio_factura ? fmt(r.precio_factura) + ' + IVA' : '<span style="color:var(--ink-4)">—</span>' }, // v4.49
       { key:'margen', label:'Margen', right:true, render:r=>{
         const c=+r.costo||0, p=+r.precio||0;
         if (!c||!p) return '<span style="color:var(--ink-4)">—</span>';
@@ -3138,8 +3144,10 @@ const SCHEMAS = {
       { key:'descripcion_larga', label:'Descripción larga', type:'textarea', full:true },
       { key:'unidad', label:'Unidad', default:'PZA' },
       { key:'clave_sat', label:'Clave SAT' },
-      { key:'costo', label:'Costo MXN', type:'number' },
-      { key:'precio', label:'Precio MXN', type:'number' },
+      { key:'costo', label:'Costo sin factura (con IVA de importación)', type:'number' },
+      { key:'precio', label:'Precio SIN factura', type:'number' },
+      { key:'costo_factura', label:'Costo con factura (sin IVA)', type:'number' }, // v4.49
+      { key:'precio_factura', label:'Precio CON factura (sin IVA)', type:'number' }, // v4.49
       { key:'precio_min', label:'Precio mínimo', type:'number' },
       { key:'stock_actual', label:'Stock actual', type:'number' },
       { key:'stock_minimo', label:'Stock mínimo', type:'number' },
@@ -15139,193 +15147,234 @@ window.renderResultadosMes = renderResultadosMes; window.nunEdrCalc = nunEdrCalc
 
 // ============================================================
 // v4.48 — COTIZADOR DE IMPORTACIÓN + MÁRGENES (Rafa, 27 oct 2026)
-// Reemplaza su Excel "Costeo China": por contenedor captura piezas y costo USD por producto + tipo de cambio + gastos
-// (flete marítimo, flete terrestre, maniobras/almacenaje, agente aduanal, DTA, otros). Arancel (IGI) sobre el valor en
-// aduana (mercancía + flete marítimo). El IVA de importación se ACREDITA: se muestra aparte y no es costo (casilla para
-// contarlo si Rafa quiere). Precio = costo ÷ (1 − margen) — su "÷ 0.6" = 40% de margen sobre el precio. Los costeos se
-// guardan compartidos (kv nun_costeos); nunca se borran: se archivan. "Márgenes reales" = lo vendido (mismas ventas
-// del tablero) contra el costo de Productos.
+// v4.49 — Rehecho como el Excel de Rafa: UN RENGLÓN (tarjeta) POR PRODUCTO, cada uno con su MOQ, costo China (USD), arancel
+// aproximado (factor 1.15/1.25), flete, maniobras y almacenaje, otros y PEDIMENTO real — cada monto con su moneda (USD/MXN).
+// Calcula mientras escribes (no redibuja la pantalla) y sirve en el teléfono (tarjetas que se acomodan).
+// Dos precios (Rafa, 27 oct 2026):
+//  · SIN factura: el IVA de importación es costo → costo China × (arancel + 16% IVA) … ÷ MOQ ÷ (1 − margen). No se le suma IVA.
+//  · CON factura: el IVA de importación se aparta (se recupera) → costo sin ese IVA ÷ (1 − margen) y AL FINAL + 16% sobre el total.
+//  Con pedimento real: IVA del pedimento = 16% del valor de China en pesos; pedimento sin IVA = pedimento − ese IVA.
+// Se guardan compartidos (kv nun_costeos); nunca se borran: se archivan. El borrador se queda en esta computadora mientras escribes.
+// Productos: costo / precio = SIN factura; costo_factura / precio_factura = CON factura (sin IVA). Servidor v0.9.17 agrega esas columnas.
+// "Márgenes reales" = lo vendido (ventas del tablero, sin IVA) contra el costo: documento con IVA usa costo_factura.
 // ============================================================
-const NUN_COSTEOS_KEY = 'nun_costeos';
-const NUN_COT_GASTOS = [['flete_mar','Flete marítimo'],['flete_ter','Flete terrestre'],['maniobras','Maniobras y almacenaje'],['agente','Agente aduanal'],['dta','DTA y otros del pedimento (sin IVA)'],['otros','Otros']];
-function nunCosteos(){ try { const a = JSON.parse(localStorage.getItem(NUN_COSTEOS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch(e){ return []; } }
+const NUN_COSTEOS_KEY = 'nun_costeos', NUN_COSTEO_BORRADOR = 'nun_costeo_borrador';
+function nunCosteos(){ try { const a = JSON.parse(localStorage.getItem(NUN_COSTEOS_KEY) || '[]'); return Array.isArray(a) ? a.map(nunCosteoMigrar) : []; } catch(e){ return []; } }
 async function nunCosteosGuardar(a){
   try { localStorage.setItem(NUN_COSTEOS_KEY, JSON.stringify(a)); } catch(e){}
   try { const r = await api({ accion:'kv_guardar', pares:{ [NUN_COSTEOS_KEY]: JSON.stringify(a) } }); return !!(r && r.ok); } catch(e){ return false; }
 }
-function nunCosteoNuevo(){
-  return { id:'cst_' + Date.now(), nombre:'', fecha:nunHoy(), tc:18, reparto:'valor', margen:40, ivaCosto:false, pedimento_real:'',
-    gastos:{ flete_mar:'', flete_ter:'', maniobras:'', agente:'', dta:'', otros:'' }, lineas:[{ sku:'', desc:'', pzas:'', usd:'', arancel:'', margen:'', precio_real:'' }], estatus:'activo', notas:'' };
+const _cotMonto = (monto, moneda) => ({ monto: monto == null ? '' : String(monto), moneda: moneda || 'MXN' });
+function nunCotFilaNueva(){ return { sku:'', desc:'', moq:'', usd:'', arancel:'1.15', tc:'', flete:_cotMonto('', 'USD'), maniobras:_cotMonto('', 'MXN'), pedimento:_cotMonto('', 'MXN'), otros:_cotMonto('', 'MXN'), margen:'', vendo:'' }; }
+function nunCosteoNuevo(){ return { v:2, id:'cst_' + Date.now(), nombre:'', fecha:nunHoy(), tc:'18', margen:'40', filas:[nunCotFilaNueva()], estatus:'activo', notas:'' }; }
+// Costeos de la v4.48 (un contenedor con gastos repartidos) → renglones de la v4.49
+function nunCosteoMigrar(c){
+  if (!c || c.v === 2 || !Array.isArray(c.lineas)) return c;
+  const g = c.gastos || {}, n = Object.assign({}, c, { v:2, filas: c.lineas.map(l => Object.assign(nunCotFilaNueva(), { sku:l.sku||'', desc:l.desc||'', moq:l.pzas||'', usd:l.usd||'',
+    arancel: String(l.arancel||'') !== '' ? String(1 + (+l.arancel||0) / 100) : '1', margen:l.margen||'', vendo:l.precio_real||'' })) });
+  if (n.filas.length === 1) { const f = n.filas[0]; f.flete = _cotMonto(g.flete_mar, 'MXN'); f.maniobras = _cotMonto((+g.maniobras||0) + (+g.flete_ter||0) + (+g.agente||0) || '', 'MXN');
+    f.otros = _cotMonto((+g.otros||0) + (+g.dta||0) || '', 'MXN'); f.pedimento = _cotMonto(c.pedimento_real, 'MXN'); }
+  delete n.lineas; delete n.gastos; delete n.pedimento_real; delete n.reparto; delete n.ivaCosto;
+  return n;
 }
 const _cotN = v => { const x = parseFloat(String(v == null ? '' : v).replace(/[$,\s]/g, '')); return isFinite(x) ? x : 0; };
-// Cálculo puro (lo usa la pantalla y la prueba)
+const _cotVacio = v => String(v == null ? '' : v).trim() === '';
+// Cálculo puro de un renglón (lo usa la pantalla y la prueba)
+function nunCotCalcFila(f, c){
+  c = c || {};
+  const tc = _cotN(_cotVacio(f.tc) ? c.tc : f.tc), moq = _cotN(f.moq), usd = _cotN(f.usd);
+  const m = _cotN(_cotVacio(f.margen) ? (_cotVacio(c.margen) ? 40 : c.margen) : f.margen);
+  const mx = x => { x = x || {}; const v = _cotN(x.monto); return x.moneda === 'USD' ? v * tc : v; };
+  const valor = usd * moq * tc, flete = mx(f.flete), maniobras = mx(f.maniobras), otros = mx(f.otros);
+  const conPed = !_cotVacio((f.pedimento || {}).monto), ped = mx(f.pedimento), iva = valor * 0.16;
+  let ar = _cotN(f.arancel); if (ar >= 3) ar = 1 + ar / 100; if (!(ar > 0)) ar = 1; // 1.25 o 25 (%)
+  const impSin = conPed ? ped : valor * (ar - 1) + iva;                 // lo que pagas en aduana (con IVA)
+  const impFac = conPed ? Math.max(0, ped - iva) : valor * (ar - 1);     // sin el IVA que se aparta
+  const almacen = valor + impSin + flete + maniobras + otros, costoFacTot = valor + impFac + flete + maniobras + otros;
+  const ok = moq > 0 && m < 100, d = 1 - m / 100;
+  const cuSin = ok ? almacen / moq : 0, cuFac = ok ? costoFacTot / moq : 0;
+  const pSin = ok ? cuSin / d : 0, pFac = ok ? cuFac / d : 0, vendo = _cotN(f.vendo);
+  return { ok, tc, moq, m, valor, flete, maniobras, otros, conPed, ped, iva, impSin, impFac, almacen, costoFacTot, cuSin, cuFac,
+    pSin, pFac, pFacIva: pFac * 1.16, uSin: pSin - cuSin, uFac: pFac - cuFac, ventaSin: pSin * moq, gananciaSin: (pSin - cuSin) * moq,
+    vendo, margenVendo: vendo > 0 && cuSin ? (vendo - cuSin) / vendo * 100 : null, ivaAparte: conPed ? Math.min(iva, ped) : iva };
+}
 function nunCosteoCalc(c){
-  const tc = _cotN(c.tc), g = k => _cotN((c.gastos||{})[k]), mg = _cotN(c.margen);
-  const L = (c.lineas||[]).map(l => ({ l, pzas:_cotN(l.pzas), valor: nunR2(_cotN(l.pzas) * _cotN(l.usd) * tc) })).filter(x => x.pzas > 0);
-  const totValor = L.reduce((s, x) => s + x.valor, 0), totPzas = L.reduce((s, x) => s + x.pzas, 0);
-  const pedReal = String(c.pedimento_real == null ? '' : c.pedimento_real).trim() !== '' ? _cotN(c.pedimento_real) : null;
-  const otrosG = g('flete_ter') + g('maniobras') + g('agente') + g('otros');
-  const T = { valor:0, flete_mar:0, impuestos:0, otros:0, iva:0, costo:0, venta:0, utilidad:0, pzas:totPzas, ventaReal:0, costoReal:0 };
-  const filas = L.map(x => {
-    const peso = c.reparto === 'piezas' ? (totPzas ? x.pzas / totPzas : 0) : (totValor ? x.valor / totValor : (totPzas ? x.pzas / totPzas : 0));
-    const fleteMar = g('flete_mar') * peso, aduana = x.valor + fleteMar;
-    const arancel = aduana * _cotN(x.l.arancel) / 100;
-    const impuestos = pedReal != null ? pedReal * peso : arancel + g('dta') * peso;
-    const iva = (aduana + impuestos) * 0.16, otros = otrosG * peso;
-    const costoTot = x.valor + fleteMar + impuestos + otros + (c.ivaCosto ? iva : 0);
-    const costoU = costoTot / x.pzas;
-    const m = String(x.l.margen == null ? '' : x.l.margen).trim() !== '' ? _cotN(x.l.margen) : mg;
-    const precio = m < 100 ? costoU / (1 - m / 100) : 0;
-    const pr = _cotN(x.l.precio_real), margenReal = pr > 0 ? (pr - costoU) / pr * 100 : null;
-    T.valor += x.valor; T.flete_mar += fleteMar; T.impuestos += impuestos; T.otros += otros; T.iva += iva; T.costo += costoTot;
-    T.venta += precio * x.pzas; T.utilidad += (precio - costoU) * x.pzas;
-    if (pr > 0) { T.ventaReal += pr * x.pzas; T.costoReal += costoTot; }
-    return { l:x.l, pzas:x.pzas, valor:x.valor, fleteMar, impuestos, iva, otros, costoTot, costoU, margen:m, precio, precioIva: precio * 1.16,
-      utilU: precio - costoU, markup: costoU ? (precio - costoU) / costoU * 100 : 0, precioReal: pr, margenReal };
-  });
-  T.margen = T.venta ? T.utilidad / T.venta * 100 : 0;
-  T.margenReal = T.ventaReal ? (T.ventaReal - T.costoReal) / T.ventaReal * 100 : null;
-  T.gastosSinRepartir = totPzas ? 0 : g('flete_mar') + otrosG + (pedReal || 0);
+  const filas = (c.filas || []).map(f => ({ f, r: nunCotCalcFila(f, c) }));
+  const T = filas.reduce((t, x) => { if (!x.r.ok) return t; t.almacen += x.r.almacen; t.venta += x.r.ventaSin; t.ganancia += x.r.gananciaSin; t.pzas += x.r.moq; t.iva += x.r.ivaAparte; return t; }, { almacen:0, venta:0, ganancia:0, pzas:0, iva:0 });
+  T.margen = T.venta ? T.ganancia / T.venta * 100 : 0;
   return { filas, T };
 }
 let _cot = null;
 function _cotEstado(){
-  if (!_cot) { const a = nunCosteos().filter(c => c.estatus !== 'archivado'); _cot = { tab:'costeo', actual: a.length ? JSON.parse(JSON.stringify(a[a.length - 1])) : nunCosteoNuevo(), sucio:false, dias:90, calcCosto:'', calcPrecio:'', verArch:false }; }
+  if (!_cot) {
+    let act = null; try { const b = JSON.parse(localStorage.getItem(NUN_COSTEO_BORRADOR) || 'null'); if (b && b.c) act = { c: nunCosteoMigrar(b.c), sucio: !!b.sucio }; } catch(e){}
+    if (!act) { const a = nunCosteos().filter(c => c.estatus !== 'archivado'); act = { c: a.length ? JSON.parse(JSON.stringify(a[a.length - 1])) : nunCosteoNuevo(), sucio:false }; }
+    _cot = { tab:'costeo', actual: act.c, sucio: act.sucio, dias:90, calcCosto:'', calcPrecio:'', calcMargen:'40', verArch:false };
+  }
   return _cot;
 }
+function _cotBorrador(){ const S = _cotEstado(); try { localStorage.setItem(NUN_COSTEO_BORRADOR, JSON.stringify({ c:S.actual, sucio:S.sucio })); } catch(e){} }
+const _cotCss = `<style>
+  .cot-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .cot-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+  .cot-g .field{margin:0} .cot-g label{font-size:11.5px;color:var(--ink-2);display:block;margin-bottom:3px}
+  .cot-in{padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);width:100%;box-sizing:border-box;font-size:15px}
+  .cot-mon{display:flex;gap:4px} .cot-mon .cot-in{flex:1;min-width:0} .cot-mon select{width:62px;flex:none;padding:8px 4px;border:1px solid var(--line);border-radius:8px;background:var(--bg-3);font-size:13px}
+  .cot-card{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px;background:var(--bg)}
+  .cot-res{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:10px}
+  .cot-box{border-radius:10px;padding:9px 10px;background:var(--bg-3)} .cot-box .l{font-size:11px;color:var(--mute)} .cot-box .v{font-size:17px;font-weight:700;font-family:JetBrains Mono,monospace}
+  .cot-box.sin{background:rgba(46,160,67,.10)} .cot-box.fac{background:rgba(56,132,255,.10)} .cot-box .s{font-size:11px;color:var(--mute)}
+  .cot-tabla{width:100%;border-collapse:collapse;font-size:13px} .cot-tabla th,.cot-tabla td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right} .cot-tabla th:first-child,.cot-tabla td:first-child{text-align:left}
+  @media (max-width:640px){ .cot-res{grid-template-columns:1fr 1fr} .cot-g{grid-template-columns:1fr 1fr} .cot-box .v{font-size:15px} .cot-hide-m{display:none} }
+</style>`;
 function renderCotizador(){
   const S = _cotEstado();
-  if (!S.prodCargado && !(State.data.productos||[]).length) (S.prodCargado = true, cargarTabla('productos')).then(() => { if (State.modulo === 'cotizador') renderCurrent(); }).catch(()=>{});
+  if (!S.prodCargado && !(State.data.productos||[]).length) { S.prodCargado = true; cargarTabla('productos').then(() => { if (State.modulo === 'cotizador') renderCurrent(); }).catch(()=>{}); }
   const tab = (k, t) => `<button class="btn ${S.tab === k ? 'btn-primary' : 'btn-ghost'}" onclick="nunCotTab('${k}')">${t}</button>`;
-  return `
-    <div class="page-title"><div><h1>Cotizador y márgenes</h1><div class="sub">Cuánto te cuesta puesto en tu almacén, a cuánto venderlo y cuánto ganas · MXN</div></div></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">${tab('costeo','🚢 Costeo de importación')}${tab('margenes','📊 Márgenes reales')}${tab('calc','🧮 Calculadora rápida')}</div>
+  return `${_cotCss}
+    <div class="page-title"><div><h1>Cotizador y márgenes</h1><div class="sub">Cuánto te cuesta puesto en tu almacén, a cuánto venderlo con y sin factura, y cuánto ganas</div></div></div>
+    <div class="cot-tabs">${tab('costeo','🚢 Costeo')}${tab('calc','🧮 Calculadora')}${tab('margenes','📊 Márgenes reales')}</div>
     <div id="cotMount">${S.tab === 'margenes' ? nunCotMargenesHTML() : S.tab === 'calc' ? nunCotCalcHTML() : nunCotCosteoHTML()}</div>`;
 }
 function nunCotTab(k){ _cotEstado().tab = k; renderCurrent(); }
-const _cotInp = 'padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);width:100%;box-sizing:border-box';
 const _cotMon = v => '$' + (Number(v)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
 const _cotPct = v => v == null ? '—' : (Number(v)||0).toFixed(1) + '%';
+const _cotEsc = v => escapeHTML(String(v == null ? '' : v));
+function _cotResHTML(r){
+  if (!r.ok) return `<div style="color:var(--mute);font-size:13px;margin-top:8px">Pon el MOQ y el costo en USD para ver el resultado.</div>`;
+  const b = (cls, l, v, s) => `<div class="cot-box ${cls}"><div class="l">${l}</div><div class="v">${v}</div>${s ? `<div class="s">${s}</div>` : ''}</div>`;
+  return `<div class="cot-res">
+    ${b('', 'Puesto en almacén (todo)', fmt(r.almacen), 'c/u ' + _cotMon(r.cuSin))}
+    ${b('', r.conPed ? 'Pedimento real' : 'Arancel + IVA aprox.', fmt(r.impSin), 'IVA que se aparta ' + fmt(r.ivaAparte))}
+    ${b('sin', 'Precio SIN factura', _cotMon(r.pSin), 'ganas ' + _cotMon(r.uSin) + ' c/u · ' + _cotPct(r.m))}
+    ${b('fac', 'Precio CON factura', _cotMon(r.pFacIva), _cotMon(r.pFac) + ' + IVA · ganas ' + _cotMon(r.uFac))}
+    ${b('', 'Ganancia del lote (sin factura)', fmt(r.gananciaSin), 'venta ' + fmt(r.ventaSin))}
+    ${r.margenVendo != null ? b(r.margenVendo < 25 ? '' : 'sin', 'Si lo vendo en ' + _cotMon(r.vendo), _cotPct(r.margenVendo), '<span style="color:var(--' + (r.margenVendo < 25 ? 'red' : 'green') + ')">margen sin factura</span>') : ''}
+  </div>`;
+}
+function _cotTotHTML(T){
+  return `<div class="cot-res" style="margin:0">
+    <div class="cot-box"><div class="l">Inversión total</div><div class="v">${fmt(T.almacen)}</div><div class="s">${T.pzas.toLocaleString('en-US')} piezas</div></div>
+    <div class="cot-box sin"><div class="l">Venta (sin factura)</div><div class="v">${fmt(T.venta)}</div></div>
+    <div class="cot-box sin"><div class="l">Ganancia esperada</div><div class="v">${fmt(T.ganancia)}</div><div class="s">margen ${_cotPct(T.margen)}</div></div>
+    <div class="cot-box"><div class="l">IVA de importación</div><div class="v">${fmt(T.iva)}</div><div class="s">se aparta (con factura lo recuperas)</div></div></div>`;
+}
 function nunCotCosteoHTML(){
-  const S = _cotEstado(), c = S.actual, { filas, T } = nunCosteoCalc(c), esc = v => escapeHTML(String(v == null ? '' : v));
+  const S = _cotEstado(), c = S.actual, { filas, T } = nunCosteoCalc(c);
   const lista = nunCosteos().filter(x => S.verArch || x.estatus !== 'archivado');
   const prods = State.data.productos || [], porSku = new Map(prods.map(p => [String(p.sku||'').toUpperCase().trim(), p]));
-  const fld = (lbl, campo, v, extra) => `<div class="field" style="min-width:130px;flex:1"><label>${lbl}</label><input style="${_cotInp}" value="${esc(v)}" ${extra||''} onchange="nunCotSet('${campo}',this.value)"></div>`;
-  const filaPorLinea = new Map(filas.map(f => [f.l, f]));
-  const linea = (l, i) => { const f = filaPorLinea.get(l), p = porSku.get(String(l.sku||'').toUpperCase().trim());
-    const inp = (k, w, ph) => `<input style="${_cotInp};min-width:${w}px" value="${esc(l[k])}" placeholder="${ph||''}" onchange="nunCotLinea(${i},'${k}',this.value)"${k === 'sku' ? ' list="cotSkus"' : ''}>`;
-    const mr = f && f.margenReal != null ? `<div style="font-size:11px;color:var(--${f.margenReal < 25 ? 'red' : 'green'})">margen ${_cotPct(f.margenReal)}</div>` : '';
-    return `<tr>
-      <td>${inp('sku', 80, 'RL010')}${p ? `<div style="font-size:11px;color:var(--mute)">hoy: costo ${_cotMon(p.costo)} · precio ${_cotMon(p.precio)}</div>` : ''}</td>
-      <td>${inp('desc', 120, 'Maleta set 3')}</td><td>${inp('pzas', 60)}</td><td>${inp('usd', 60)}</td><td>${inp('arancel', 50, '%')}</td>
-      <td class="right mono">${f ? _cotMon(f.costoU) : '—'}</td>
-      <td>${inp('margen', 50, String(c.margen))}</td>
-      <td class="right mono"><strong>${f ? _cotMon(f.precio) : '—'}</strong><div style="font-size:11px;color:var(--mute)">${f ? 'con IVA ' + _cotMon(f.precioIva) : ''}</div></td>
-      <td class="right mono">${f ? _cotMon(f.utilU) : '—'}<div style="font-size:11px;color:var(--mute)">${f ? 'sobre costo ' + _cotPct(f.markup) : ''}</div></td>
-      <td>${inp('precio_real', 70, 'sin IVA')}${mr}</td>
-      <td><button class="btn btn-ghost" title="Quitar renglón" onclick="nunCotQuitarLinea(${i})">✕</button></td></tr>`; };
-  const kpi = (l, v, cls, sub) => `<div class="kpi"><div class="kpi-label">${l}</div><div class="kpi-value ${cls||''}">${v}</div>${sub ? `<div style="font-size:11.5px;color:var(--mute)">${sub}</div>` : ''}</div>`;
+  const inp = (lbl, campo, v, extra) => `<div class="field"><label>${lbl}</label><input class="cot-in" ${extra || 'inputmode="decimal"'} value="${_cotEsc(v)}" oninput="nunCotSet('${campo}',this.value)"></div>`;
+  const tarjeta = (x, i) => { const f = x.f, p = porSku.get(String(f.sku||'').toUpperCase().trim());
+    const t = (lbl, k, ph, txt) => `<div class="field"><label>${lbl}</label><input class="cot-in" id="cot_${k}${i}" ${txt ? '' : 'inputmode="decimal"'} value="${_cotEsc(f[k])}" placeholder="${ph||''}" oninput="nunCotFila(${i},'${k}',this.value)"${k === 'sku' ? ' list="cotSkus"' : ''}></div>`;
+    const mon = (lbl, k) => `<div class="field"><label>${lbl}</label><div class="cot-mon"><input class="cot-in" inputmode="decimal" value="${_cotEsc((f[k]||{}).monto)}" oninput="nunCotFilaMonto(${i},'${k}','monto',this.value)">
+      <select onchange="nunCotFilaMonto(${i},'${k}','moneda',this.value)"><option ${(f[k]||{}).moneda !== 'USD' ? 'selected' : ''}>MXN</option><option ${(f[k]||{}).moneda === 'USD' ? 'selected' : ''}>USD</option></select></div></div>`;
+    return `<div class="cot-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><strong>Producto ${i + 1}</strong>
+        <span><button class="btn btn-ghost" title="Duplicar renglón" onclick="nunCotDupFila(${i})">⧉</button><button class="btn btn-ghost" title="Quitar" onclick="nunCotQuitarFila(${i})">✕</button></span></div>
+      <div class="cot-g">
+        ${t('SKU', 'sku', 'RL009', true)}${t('Descripción', 'desc', 'Carry on', true)}
+        ${t('MOQ (piezas)', 'moq')}${t('Costo China c/u (USD)', 'usd')}
+        ${t('Arancel aprox. (ej. 1.15)', 'arancel')}${t('Tipo de cambio', 'tc', String(c.tc || ''))}
+        ${mon('Flete marítimo', 'flete')}${mon('Maniobras y almacenaje', 'maniobras')}
+        ${mon('Pedimento real (opcional)', 'pedimento')}${mon('Otros (estadía, etc.)', 'otros')}
+        ${t('Margen % (sobre precio)', 'margen', String(c.margen || 40))}${t('Si lo vendo en (sin factura)', 'vendo')}
+      </div>
+      ${p ? `<div style="font-size:11.5px;color:var(--mute);margin-top:6px">En Productos hoy: costo ${_cotMon(p.costo)} · precio ${_cotMon(p.precio)}${+p.precio_factura ? ' · con factura ' + _cotMon(p.precio_factura) + ' + IVA' : ''}</div>` : ''}
+      <div id="cotRes${i}">${_cotResHTML(x.r)}</div></div>`; };
   return `
-    <div class="card" style="padding:14px;margin-bottom:14px">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <div class="field" style="min-width:220px;flex:2"><label>Costeo guardado</label><select style="${_cotInp}" onchange="nunCotAbrir(this.value)">
-          <option value="">— Nuevo (sin guardar) —</option>${lista.map(x => `<option value="${esc(x.id)}" ${x.id === c.id ? 'selected' : ''}>${esc(x.nombre || '(sin nombre)')} · ${esc(x.fecha)}${x.estatus === 'archivado' ? ' · archivado' : ''}</option>`).join('')}</select></div>
-        <button class="btn btn-primary" onclick="nunCotGuardar()">💾 Guardar${S.sucio ? ' *' : ''}</button>
-        <button class="btn btn-ghost" onclick="nunCotNuevo()">＋ Nuevo</button>
-        <button class="btn btn-ghost" onclick="nunCotDuplicar()">⧉ Duplicar</button>
+    <div class="cot-card">
+      <div class="cot-g" style="align-items:end">
+        <div class="field" style="grid-column:span 2"><label>Costeo guardado</label><select class="cot-in" onchange="nunCotAbrir(this.value)">
+          <option value="">— Nuevo —</option>${lista.map(x => `<option value="${_cotEsc(x.id)}" ${x.id === c.id ? 'selected' : ''}>${_cotEsc(x.nombre || '(sin nombre)')} · ${_cotEsc(x.fecha)}${x.estatus === 'archivado' ? ' · archivado' : ''}</option>`).join('')}</select></div>
+        ${inp('Nombre (contenedor)', 'nombre', c.nombre, 'placeholder="RL010 · oct"')}
+        ${inp('Tipo de cambio', 'tc', c.tc)}${inp('Margen % (todos)', 'margen', c.margen)}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center">
+        <button class="btn btn-primary" onclick="nunCotGuardar()">💾 Guardar<span id="cotSucio">${S.sucio ? ' *' : ''}</span></button>
+        <button class="btn btn-ghost" onclick="nunCotNuevo()">＋ Nuevo costeo</button>
+        <button class="btn btn-ghost" onclick="nunCotDuplicar()">⧉ Duplicar costeo</button>
         <button class="btn btn-ghost" onclick="nunCotArchivar()">${c.estatus === 'archivado' ? '↺ Sacar del archivo' : '🗄 Archivar'}</button>
         <label style="font-size:12px;color:var(--mute)"><input type="checkbox" ${S.verArch ? 'checked' : ''} onchange="_cotEstado().verArch=this.checked;renderCurrent()"> ver archivados</label>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-        ${fld('Nombre (contenedor / proveedor)', 'nombre', c.nombre, 'placeholder="RL010 · contenedor oct"')}
-        ${fld('Fecha', 'fecha', c.fecha, 'type="date"')}
-        ${fld('Tipo de cambio (MXN por USD)', 'tc', c.tc)}
-        ${fld('Margen que quieres (% sobre el precio)', 'margen', c.margen)}
-        <div class="field" style="min-width:150px;flex:1"><label>Repartir gastos por</label><select style="${_cotInp}" onchange="nunCotSet('reparto',this.value)">
-          <option value="valor" ${c.reparto !== 'piezas' ? 'selected' : ''}>Valor de la mercancía</option><option value="piezas" ${c.reparto === 'piezas' ? 'selected' : ''}>Piezas</option></select></div>
-      </div>
-      <div style="font-weight:600;margin:12px 0 4px">Gastos del contenedor (MXN, sin IVA)</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        ${NUN_COT_GASTOS.map(([k, t]) => `<div class="field" style="min-width:130px;flex:1"><label>${t}</label><input style="${_cotInp}" value="${esc(c.gastos[k])}" onchange="nunCotGasto('${k}',this.value)"></div>`).join('')}
-        <div class="field" style="min-width:170px;flex:1"><label>Impuestos reales del pedimento (opcional)</label><input style="${_cotInp}" value="${esc(c.pedimento_real)}" placeholder="arancel + DTA, sin IVA" onchange="nunCotSet('pedimento_real',this.value)"></div>
-      </div>
-      <div style="font-size:12px;color:var(--mute);margin-top:6px">El arancel se calcula sobre la mercancía + flete marítimo (valor en aduana). Si ya tienes el pedimento, pon sus impuestos sin IVA y se usan esos en lugar del arancel y DTA.</div>
-      <label style="display:block;font-size:12.5px;margin-top:8px"><input type="checkbox" ${c.ivaCosto ? 'checked' : ''} onchange="nunCotSet('ivaCosto',this.checked)"> Contar el IVA de importación como costo <span style="color:var(--mute)">(normalmente NO: ese IVA lo recuperas en tu declaración)</span></label>
+      <div style="font-size:12px;color:var(--mute);margin-top:8px">Calcula mientras escribes. <strong>Guardar</strong> es solo para que se quede y lo vea Yazmín; lo que escribes no se pierde aunque cambies de pantalla.</div>
     </div>
-    <div class="card" style="padding:0;margin-bottom:14px"><div class="dt-wrap"><div class="dt-scroll"><table class="dt">
-      <thead><tr><th>SKU</th><th>Descripción</th><th>Piezas</th><th>Costo USD c/u</th><th>Arancel %</th><th class="right">Costo puesto c/u</th><th>Margen %</th><th class="right">Precio sugerido (sin IVA)</th><th class="right">Ganas c/u</th><th>Si lo vendo en…</th><th></th></tr></thead>
-      <tbody>${(c.lineas||[]).map(linea).join('')}</tbody></table></div></div>
-      <div style="padding:10px"><button class="btn btn-ghost" onclick="nunCotAgregarLinea()">＋ Agregar producto</button>
-        ${nunEsDueno() ? `<button class="btn btn-ghost" onclick="nunCotAplicarProductos()">📦 Pasar costo (y precio) a Productos</button>` : ''}</div>
-      <datalist id="cotSkus">${prods.slice(0, 600).map(p => `<option value="${esc(p.sku)}">${esc(p.descripcion)}</option>`).join('')}</datalist>
+    ${filas.map(tarjeta).join('')}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <button class="btn btn-primary" onclick="nunCotAgregarFila()">＋ Agregar producto</button>
+      ${nunEsDueno() ? `<button class="btn btn-ghost" onclick="nunCotAplicarProductos()">📦 Pasar costos y precios a Productos</button>` : ''}
     </div>
-    <div class="kpi-grid">
-      ${kpi('Te cuesta todo (sin IVA)', fmt(T.costo), '', T.pzas ? T.pzas.toLocaleString('en-US') + ' piezas' : '')}
-      ${kpi('Mercancía en pesos', fmt(T.valor), '', 'flete marítimo ' + fmt(T.flete_mar) + ' · otros ' + fmt(T.otros))}
-      ${kpi('Arancel / pedimento', fmt(T.impuestos), '', 'sin IVA')}
-      ${kpi('IVA de importación', fmt(T.iva), '', c.ivaCosto ? 'contado como costo' : 'lo recuperas (no es costo)')}
-      ${kpi('Venta al precio sugerido', fmt(T.venta), 'green', 'sin IVA')}
-      ${kpi('Ganancia esperada', fmt(T.utilidad), 'green', 'margen ' + _cotPct(T.margen))}
-      ${T.margenReal != null ? kpi('Con tus precios de "si lo vendo en"', _cotPct(T.margenReal), T.margenReal < 25 ? 'red' : 'green', 'ganancia ' + fmt(T.ventaReal - T.costoReal)) : ''}
-    </div>
-    ${T.gastosSinRepartir ? `<div style="color:var(--red);margin-top:8px">⚠ Hay gastos capturados pero ningún producto con piezas: no hay a quién repartirlos.</div>` : ''}
-    <div class="field" style="margin-top:12px"><label>Notas</label><textarea style="${_cotInp};min-height:60px" onchange="nunCotSet('notas',this.value)">${esc(c.notas)}</textarea></div>`;
+    <div id="cotTot">${_cotTotHTML(T)}</div>
+    <div style="font-size:12px;color:var(--mute);margin-top:8px">Sin pedimento se usa tu arancel aproximado + 16% de IVA sobre el costo de China. Con pedimento real: el IVA que se aparta es 16% del costo de China en pesos y se le resta al pedimento para el precio con factura.</div>
+    <div class="field" style="margin-top:12px"><label>Notas</label><textarea class="cot-in" style="min-height:60px" oninput="nunCotSet('notas',this.value)">${_cotEsc(c.notas)}</textarea></div>
+    <datalist id="cotSkus">${prods.slice(0, 600).map(p => `<option value="${_cotEsc(p.sku)}">${_cotEsc(p.descripcion)}</option>`).join('')}</datalist>`;
 }
-function nunCotMarcar(){ const S = _cotEstado(); S.sucio = true; renderCurrent(); }
-function nunCotSet(campo, v){ _cotEstado().actual[campo] = v; nunCotMarcar(); }
-function nunCotGasto(k, v){ _cotEstado().actual.gastos[k] = v; nunCotMarcar(); }
-function nunCotLinea(i, k, v){
-  const c = _cotEstado().actual, l = c.lineas[i]; if (!l) return; l[k] = v;
-  if (k === 'sku' && !l.desc) { const p = (State.data.productos||[]).find(p => String(p.sku||'').toUpperCase().trim() === String(v||'').toUpperCase().trim()); if (p) l.desc = p.descripcion || ''; }
-  nunCotMarcar();
+// Actualiza solo los resultados (no redibuja: no se pierde el cursor)
+function nunCotRefrescar(){
+  const S = _cotEstado(); S.sucio = true; _cotBorrador();
+  const { filas, T } = nunCosteoCalc(S.actual);
+  filas.forEach((x, i) => { const el = document.getElementById('cotRes' + i); if (el) el.innerHTML = _cotResHTML(x.r); });
+  const t = document.getElementById('cotTot'); if (t) t.innerHTML = _cotTotHTML(T);
+  const s = document.getElementById('cotSucio'); if (s) s.textContent = ' *';
 }
-function nunCotAgregarLinea(){ _cotEstado().actual.lineas.push({ sku:'', desc:'', pzas:'', usd:'', arancel:'', margen:'', precio_real:'' }); nunCotMarcar(); }
-function nunCotQuitarLinea(i){ const c = _cotEstado().actual; c.lineas.splice(i, 1); if (!c.lineas.length) c.lineas.push({ sku:'', desc:'', pzas:'', usd:'', arancel:'', margen:'', precio_real:'' }); nunCotMarcar(); }
+function nunCotSet(campo, v){ _cotEstado().actual[campo] = v; nunCotRefrescar(); }
+function nunCotFila(i, k, v){
+  const f = _cotEstado().actual.filas[i]; if (!f) return; f[k] = v;
+  if (k === 'sku' && _cotVacio(f.desc)) { const p = (State.data.productos||[]).find(p => String(p.sku||'').toUpperCase().trim() === String(v||'').toUpperCase().trim()); if (p) { f.desc = p.descripcion || ''; const el = document.getElementById('cot_desc' + i); if (el) el.value = f.desc; } }
+  nunCotRefrescar();
+}
+function nunCotFilaMonto(i, k, sub, v){ const f = _cotEstado().actual.filas[i]; if (!f) return; f[k] = Object.assign(_cotMonto(), f[k] || {}, { [sub]: v }); nunCotRefrescar(); }
+function _cotEstructura(fn){ const S = _cotEstado(); fn(S.actual); S.sucio = true; _cotBorrador(); renderCurrent(); }
+function nunCotAgregarFila(){ _cotEstructura(c => { const u = c.filas[c.filas.length - 1], n = nunCotFilaNueva(); if (u) { n.flete.moneda = (u.flete||{}).moneda || 'USD'; n.maniobras.moneda = (u.maniobras||{}).moneda || 'MXN'; } c.filas.push(n); }); }
+function nunCotDupFila(i){ _cotEstructura(c => { const f = JSON.parse(JSON.stringify(c.filas[i])); f.sku = ''; c.filas.splice(i + 1, 0, f); }); }
+function nunCotQuitarFila(i){ _cotEstructura(c => { c.filas.splice(i, 1); if (!c.filas.length) c.filas.push(nunCotFilaNueva()); }); }
 function nunCotAbrir(id){
   const S = _cotEstado();
   if (S.sucio && !confirm('Tienes cambios sin guardar en este costeo. ¿Cambiar de todos modos?')) { renderCurrent(); return; }
-  const x = nunCosteos().find(c => c.id === id); S.actual = x ? JSON.parse(JSON.stringify(x)) : nunCosteoNuevo(); S.sucio = false; renderCurrent();
+  const x = nunCosteos().find(c => c.id === id); S.actual = x ? JSON.parse(JSON.stringify(x)) : nunCosteoNuevo(); S.sucio = false; _cotBorrador(); renderCurrent();
 }
 function nunCotNuevo(){ nunCotAbrir(''); }
-function nunCotDuplicar(){ const S = _cotEstado(), c = JSON.parse(JSON.stringify(S.actual)); c.id = 'cst_' + Date.now(); c.nombre = (c.nombre || 'Costeo') + ' (copia)'; c.fecha = nunHoy(); c.estatus = 'activo'; S.actual = c; S.sucio = true; renderCurrent(); }
+function nunCotDuplicar(){ _cotEstructura(c0 => { const S = _cotEstado(), c = JSON.parse(JSON.stringify(c0)); c.id = 'cst_' + Date.now(); c.nombre = (c.nombre || 'Costeo') + ' (copia)'; c.fecha = nunHoy(); c.estatus = 'activo'; S.actual = c; }); }
 async function nunCotGuardar(){
   const S = _cotEstado(), c = S.actual;
-  if (!String(c.nombre||'').trim()) { toast('Ponle nombre al costeo (ej. el contenedor)', { type:'error' }); return; }
+  if (_cotVacio(c.nombre)) { toast('Ponle nombre al costeo (ej. el contenedor)', { type:'error' }); return; }
   c.actualizado = new Date().toISOString(); c.por = (State.sesion && State.sesion.usuario && State.sesion.usuario.nombre) || '';
   const a = nunCosteos(), i = a.findIndex(x => x.id === c.id);
   if (i >= 0) a[i] = JSON.parse(JSON.stringify(c)); else a.push(JSON.parse(JSON.stringify(c)));
-  const ok = await nunCosteosGuardar(a); S.sucio = false; renderCurrent();
+  const ok = await nunCosteosGuardar(a); S.sucio = !ok; _cotBorrador(); renderCurrent();
   toast(ok ? '✓ Costeo guardado' : '⚠ Se guardó en esta computadora, pero no en el servidor. Inténtalo de nuevo.', { type: ok ? 'success' : 'error' });
 }
 async function nunCotArchivar(){ const S = _cotEstado(); S.actual.estatus = S.actual.estatus === 'archivado' ? 'activo' : 'archivado'; await nunCotGuardar(); }
-// Pasa el costo puesto (y si quiere el precio sugerido) a Productos: SKU exacto, o si no hay, los SKU que empiezan igual (colores)
+// Pasa a Productos: costo/precio = SIN factura; costo_factura/precio_factura = CON factura (sin IVA). SKU exacto, o los que empiezan igual (colores)
 async function nunCotAplicarProductos(){
   if (!nunEsDueno()) return;
   const { filas } = nunCosteoCalc(_cotEstado().actual), prods = State.data.productos || [], cambios = [];
-  filas.forEach(f => { const s = String(f.l.sku||'').toUpperCase().trim(); if (!s) return;
+  filas.forEach(x => { const s = String(x.f.sku||'').toUpperCase().trim(); if (!s || !x.r.ok) return;
     let ps = prods.filter(p => String(p.sku||'').toUpperCase().trim() === s);
     if (!ps.length) ps = prods.filter(p => String(p.sku||'').toUpperCase().trim().startsWith(s));
-    ps.forEach(p => cambios.push({ p, costo: nunR2(f.costoU), precio: nunR2(f.precio) })); });
+    ps.forEach(p => cambios.push({ p, costo: nunR2(x.r.cuSin), precio: nunR2(x.r.pSin), costo_factura: nunR2(x.r.cuFac), precio_factura: nunR2(x.r.pFac) })); });
   if (!cambios.length) { toast('Ningún SKU del costeo coincide con Productos', { type:'error' }); return; }
-  const conPrecio = confirm(`Voy a poner el costo puesto a ${cambios.length} producto(s):\n\n` + cambios.slice(0, 15).map(x => `${x.p.sku}: ${_cotMon(x.p.costo)} → ${_cotMon(x.costo)}`).join('\n') + (cambios.length > 15 ? '\n…' : '') +
-    '\n\n¿También quieres cambiar su PRECIO de lista al precio sugerido? (Aceptar = sí, Cancelar = solo el costo)');
-  if (!(await confirmDialog({ title:'¿Pasar a Productos?', message: cambios.length + ' producto(s) · costo' + (conPrecio ? ' y precio' : '') + '. Esto cambia el costo con el que se calcula tu utilidad.', ok:'Pasar' }))) return;
+  const ok1 = await confirmDialog({ title:'¿Pasar a Productos?', message: cambios.length + ' producto(s): ' + cambios.slice(0, 6).map(x => `${x.p.sku} costo ${_cotMon(x.costo)}, precio ${_cotMon(x.precio)} / con factura ${_cotMon(x.precio_factura)} + IVA`).join(' · ') + (cambios.length > 6 ? ' …' : '') + '. Esto cambia el costo con el que se calcula tu utilidad.', ok:'Pasar' });
+  if (!ok1) return;
   let ok = 0;
-  for (const x of cambios) { const it = { id:x.p.id, costo:x.costo }; if (conPrecio) it.precio = x.precio; if (await nunGuardarSeguro('productos', it, 2)) ok++; }
+  for (const x of cambios) { if (await nunGuardarSeguro('productos', { id:x.p.id, costo:x.costo, precio:x.precio, costo_factura:x.costo_factura, precio_factura:x.precio_factura }, 2)) ok++; }
   await cargarTabla('productos'); renderCurrent();
   toast(`✓ ${ok} producto(s) actualizados` + (ok < cambios.length ? ` · ⚠ ${cambios.length - ok} no se guardaron` : ''), { type: ok < cambios.length ? 'error' : 'success', duration:7000 });
 }
-// ---- Márgenes reales: lo vendido contra el costo de Productos ----
+// ---- Márgenes reales: por pieza (ganancia total ÷ venta total), sin IVA; documento con IVA usa el costo con factura ----
 function nunCotMargenesCalc(dias){
   const desde = nunHoy(new Date(Date.now() - dias * 864e5)), costoDe = nunEdrCostoFn(), M = new Map(); let sinPartidas = 0;
+  const porSku = new Map((State.data.productos||[]).map(p => [String(p.sku||'').toUpperCase().trim(), p]));
   nunTableroVentas().forEach(x => {
     if (x.nc || x.fecha < desde) return;
     let items = []; try { items = JSON.parse(x.d.items_json || '[]'); } catch(e){}
     if (!items.length) { sinPartidas++; return; }
-    items.forEach(it => { const q = +it.cantidad || 0; if (!q) return; const k = costoDe(it), base = nunCalcLinea(it, true).base;
+    const conIva = (+x.d.iva || 0) > 0;
+    items.forEach(it => { const q = +it.cantidad || 0; if (!q) return; const base = nunCalcLinea(it, true).base;
+      const p = porSku.get(String(it.sku||'').toUpperCase().trim());
+      let cu = conIva && p && +p.costo_factura > 0 ? +p.costo_factura : 0; const k = costoDe(it); if (!cu) cu = k.costo;
       const key = String(it.sku || it.descripcion || '(sin SKU)').toUpperCase().trim();
-      const r = M.get(key) || { sku: it.sku || '', desc: it.descripcion || '', modelo: k.modelo, pzas:0, venta:0, costo:0, sinCosto:0, docs:0 };
-      r.pzas += q; r.venta += base; r.docs++; if (k.costo > 0) r.costo += q * k.costo; else r.sinCosto += base; M.set(key, r); });
+      const r = M.get(key) || { sku: it.sku || '', desc: it.descripcion || '', pzas:0, venta:0, costo:0, sinCosto:0, pzasFac:0 };
+      r.pzas += q; r.venta += base; if (conIva) r.pzasFac += q; if (cu > 0) r.costo += q * cu; else r.sinCosto += base; M.set(key, r); });
   });
   const filas = [...M.values()].map(r => { const vc = r.venta - r.sinCosto; return Object.assign(r, { precioProm: r.pzas ? r.venta / r.pzas : 0,
     utilidad: r.costo ? vc - r.costo : null, margen: r.costo && vc ? (vc - r.costo) / vc * 100 : null }); }).sort((a, b) => b.venta - a.venta);
@@ -15337,43 +15386,51 @@ function nunCotMargenesHTML(){
   if (!S.cargado && ['remisiones','facturas','pedidos','productos'].some(t => !Array.isArray(D[t]) || !D[t].length)) { S.cargado = true; // una sola vez (si una tabla está vacía de verdad no se cicla)
     Promise.all(['remisiones','facturas','pedidos','productos','notascredito','cobranza'].map(t => cargarTabla(t).catch(()=>{}))).then(() => { if (State.modulo === 'cotizador') renderCurrent(); });
   }
-  const R = nunCotMargenesCalc(S.dias), esc = v => escapeHTML(String(v == null ? '' : v));
-  const sel = `<select style="${_cotInp};width:auto" onchange="_cotEstado().dias=+this.value;renderCurrent()">${[30,90,180,365].map(d => `<option value="${d}" ${S.dias === d ? 'selected' : ''}>Últimos ${d} días</option>`).join('')}</select>`;
-  const col = m => m == null ? 'var(--mute)' : m < 25 ? 'var(--red)' : m < 35 ? 'var(--amber, #b7791f)' : 'var(--green)';
+  const R = nunCotMargenesCalc(S.dias);
+  const sel = `<select class="cot-in" style="width:auto" onchange="_cotEstado().dias=+this.value;renderCurrent()">${[30,90,180,365].map(d => `<option value="${d}" ${S.dias === d ? 'selected' : ''}>Últimos ${d} días</option>`).join('')}</select>`;
+  const col = m => m == null ? 'var(--mute)' : m < 25 ? 'var(--red)' : m < 35 ? '#b7791f' : 'var(--green)';
   return `
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">${sel}<span style="font-size:12.5px;color:var(--mute)">Ventas del tablero, sin IVA, contra el costo de Productos. Rojo = menos de 25% de margen.</span></div>
-    <div class="kpi-grid">
-      <div class="kpi"><div class="kpi-label">Vendido (sin IVA)</div><div class="kpi-value">${fmt(R.venta)}</div></div>
-      <div class="kpi"><div class="kpi-label">Costo de lo vendido</div><div class="kpi-value">${fmt(R.costo)}</div></div>
-      <div class="kpi"><div class="kpi-label">Ganancia</div><div class="kpi-value green">${fmt(R.utilidad)}</div><div style="font-size:11.5px;color:var(--mute)">margen ${_cotPct(R.margen)}</div></div>
-      <div class="kpi"><div class="kpi-label">Venta sin costo</div><div class="kpi-value ${R.sinCosto > 0.5 ? 'red' : ''}">${fmt(R.sinCosto)}</div><div style="font-size:11.5px;color:var(--mute)">${R.sinPartidas ? R.sinPartidas + ' doc. sin productos' : 'productos sin costo en Productos'}</div></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">${sel}<span style="font-size:12.5px;color:var(--mute)">Ventas del tablero sin IVA contra el costo de Productos. El margen es por pieza: ganancia total ÷ venta total (pesan más los que vendes más). Rojo = menos de 25%.</span></div>
+    <div class="cot-res" style="margin:0 0 12px">
+      <div class="cot-box"><div class="l">Vendido (sin IVA)</div><div class="v">${fmt(R.venta)}</div></div>
+      <div class="cot-box"><div class="l">Costo de lo vendido</div><div class="v">${fmt(R.costo)}</div></div>
+      <div class="cot-box sin"><div class="l">Ganancia</div><div class="v">${fmt(R.utilidad)}</div><div class="s">margen ${_cotPct(R.margen)}</div></div>
+      <div class="cot-box"><div class="l">Venta sin costo (no cuenta)</div><div class="v" style="color:${R.sinCosto > 0.5 ? 'var(--red)' : 'inherit'}">${fmt(R.sinCosto)}</div><div class="s">${R.sinPartidas ? R.sinPartidas + ' doc. sin productos · ' : ''}productos sin costo</div></div>
     </div>
-    <div class="dt-wrap"><div class="dt-scroll"><table class="dt"><thead><tr><th>SKU</th><th>Descripción</th><th class="right">Piezas</th><th class="right">Precio promedio</th><th class="right">Costo c/u</th><th class="right">Vendido</th><th class="right">Ganancia</th><th class="right">Margen</th></tr></thead><tbody>
-    ${R.filas.map(r => `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.desc)}</td><td class="right mono">${r.pzas.toLocaleString('en-US')}</td><td class="right mono">${_cotMon(r.precioProm)}</td>
-      <td class="right mono">${r.costo ? _cotMon(r.costo / r.pzas) : '<span style="color:var(--red)">sin costo</span>'}</td><td class="right mono">${fmt(r.venta)}</td>
-      <td class="right mono">${r.utilidad == null ? '—' : fmt(r.utilidad)}</td><td class="right mono" style="color:${col(r.margen)};font-weight:600">${_cotPct(r.margen)}</td></tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--mute)">Sin ventas con productos en este periodo</td></tr>'}
+    <div class="dt-wrap"><div class="dt-scroll"><table class="cot-tabla"><thead><tr><th>Producto</th><th>Piezas</th><th class="cot-hide-m">Precio prom.</th><th class="cot-hide-m">Costo c/u</th><th>Vendido</th><th>Ganancia</th><th>Margen</th></tr></thead><tbody>
+    ${R.filas.map(r => `<tr><td><span class="mono">${_cotEsc(r.sku)}</span><div style="font-size:11px;color:var(--mute)">${_cotEsc(r.desc)}</div></td><td class="mono">${r.pzas.toLocaleString('en-US')}</td><td class="mono cot-hide-m">${_cotMon(r.precioProm)}</td>
+      <td class="mono cot-hide-m">${r.costo ? _cotMon(r.costo / r.pzas) : '<span style="color:var(--red)">sin costo</span>'}</td><td class="mono">${fmt(r.venta)}</td>
+      <td class="mono">${r.utilidad == null ? '—' : fmt(r.utilidad)}</td><td class="mono" style="color:${col(r.margen)};font-weight:600">${_cotPct(r.margen)}</td></tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--mute)">Sin ventas con productos en este periodo</td></tr>'}
     </tbody></table></div></div>`;
 }
-// ---- Calculadora rápida ----
+// ---- Calculadora rápida: con y sin factura ----
 function nunCotCalcHTML(){
   const S = _cotEstado(), c = _cotN(S.calcCosto), p = _cotN(S.calcPrecio);
   const tiers = [20,25,30,35,40,45,50,55,60];
+  const cSin = c * 1.16; // sin factura: el IVA de inicio se mete al costo
+  const inp = (lbl, k) => `<div class="field"><label>${lbl}</label><input class="cot-in" inputmode="decimal" value="${_cotEsc(S[k])}" oninput="_cotEstado()['${k}']=this.value;nunCotCalcRefrescar()"></div>`;
   return `
-    <div class="card" style="padding:14px;margin-bottom:14px;max-width:760px">
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <div class="field" style="flex:1;min-width:180px"><label>Me cuesta (c/u, sin IVA)</label><input style="${_cotInp}" value="${escapeHTML(String(S.calcCosto))}" onchange="_cotEstado().calcCosto=this.value;renderCurrent()"></div>
-        <div class="field" style="flex:1;min-width:180px"><label>Lo quiero vender en (sin IVA)</label><input style="${_cotInp}" value="${escapeHTML(String(S.calcPrecio))}" onchange="_cotEstado().calcPrecio=this.value;renderCurrent()"></div>
-      </div>
-      ${c > 0 && p > 0 ? `<div style="margin-top:10px;font-size:15px">Ganas <strong>${_cotMon(p - c)}</strong> por pieza · margen <strong style="color:${(p - c) / p * 100 < 25 ? 'var(--red)' : 'var(--green)'}">${_cotPct((p - c) / p * 100)}</strong> sobre el precio · ${_cotPct((p - c) / c * 100)} sobre el costo · con IVA ${_cotMon(p * 1.16)}</div>` : ''}
+    <div class="cot-card" style="max-width:820px">
+      <div class="cot-g">${inp('Me cuesta c/u, puesto y SIN IVA', 'calcCosto')}${inp('Lo quiero vender en (sin IVA)', 'calcPrecio')}</div>
+      <div style="font-size:12px;color:var(--mute);margin-top:6px">Sin factura: al costo se le suma el 16% de IVA de inicio. Con factura: el IVA se cobra al final sobre el total.</div>
     </div>
-    ${c > 0 ? `<div class="dt-wrap" style="max-width:760px"><div class="dt-scroll"><table class="dt"><thead><tr><th>Margen sobre el precio</th><th class="right">Precio sin IVA</th><th class="right">Precio con IVA</th><th class="right">Ganas c/u</th><th class="right">Sobre el costo</th></tr></thead><tbody>
-      ${tiers.map(m => { const pr = c / (1 - m / 100); return `<tr${m === 40 ? ' style="font-weight:700"' : ''}><td>${m}%${m === 40 ? ' (tu ÷ 0.6)' : ''}</td><td class="right mono">${_cotMon(pr)}</td><td class="right mono">${_cotMon(pr * 1.16)}</td><td class="right mono">${_cotMon(pr - c)}</td><td class="right mono">${_cotPct((pr - c) / c * 100)}</td></tr>`; }).join('')}
-    </tbody></table></div></div>` : '<div style="color:var(--mute)">Pon cuánto te cuesta para ver los precios por margen.</div>'}`;
+    <div id="cotCalcRes">${_cotCalcResHTML(c, p, cSin, tiers)}</div>`;
 }
-window.renderCotizador = renderCotizador; window.nunCosteoCalc = nunCosteoCalc; window.nunCotTab = nunCotTab; window.nunCotSet = nunCotSet; window.nunCotGasto = nunCotGasto;
-window.nunCotLinea = nunCotLinea; window.nunCotAgregarLinea = nunCotAgregarLinea; window.nunCotQuitarLinea = nunCotQuitarLinea; window.nunCotAbrir = nunCotAbrir; window.nunCotNuevo = nunCotNuevo;
-window.nunCotDuplicar = nunCotDuplicar; window.nunCotGuardar = nunCotGuardar; window.nunCotArchivar = nunCotArchivar; window.nunCotAplicarProductos = nunCotAplicarProductos;
-window.nunCotMargenesCalc = nunCotMargenesCalc; window._cotEstado = _cotEstado;
+function _cotCalcResHTML(c, p, cSin, tiers){
+  if (!(c > 0)) return '<div style="color:var(--mute)">Pon cuánto te cuesta para ver los precios por margen.</div>';
+  const mg = (pr, co) => (pr - co) / pr * 100;
+  const vendo = p > 0 ? `<div class="cot-res" style="max-width:820px;margin:0 0 12px">
+      <div class="cot-box sin"><div class="l">Vendiéndolo en ${_cotMon(p)} SIN factura</div><div class="v" style="color:${mg(p, cSin) < 25 ? 'var(--red)' : 'inherit'}">${_cotPct(mg(p, cSin))}</div><div class="s">ganas ${_cotMon(p - cSin)} c/u (costo con IVA ${_cotMon(cSin)})</div></div>
+      <div class="cot-box fac"><div class="l">Vendiéndolo en ${_cotMon(p)} + IVA CON factura</div><div class="v" style="color:${mg(p, c) < 25 ? 'var(--red)' : 'inherit'}">${_cotPct(mg(p, c))}</div><div class="s">ganas ${_cotMon(p - c)} c/u · cobras ${_cotMon(p * 1.16)}</div></div></div>` : '';
+  return vendo + `<div class="dt-wrap" style="max-width:820px"><div class="dt-scroll"><table class="cot-tabla"><thead><tr><th>Margen</th><th>SIN factura</th><th>CON factura sin IVA</th><th>CON factura + IVA</th><th class="cot-hide-m">Ganas c/u (con factura)</th></tr></thead><tbody>
+    ${tiers.map(m => { const d = 1 - m / 100; return `<tr${m === 40 ? ' style="font-weight:700"' : ''}><td>${m}%${m === 40 ? ' (÷ 0.6)' : ''}</td><td class="mono">${_cotMon(cSin / d)}</td><td class="mono">${_cotMon(c / d)}</td><td class="mono">${_cotMon(c / d * 1.16)}</td><td class="mono cot-hide-m">${_cotMon(c / d - c)}</td></tr>`; }).join('')}
+  </tbody></table></div></div>`;
+}
+function nunCotCalcRefrescar(){ const S = _cotEstado(), c = _cotN(S.calcCosto), el = document.getElementById('cotCalcRes'); if (el) el.innerHTML = _cotCalcResHTML(c, _cotN(S.calcPrecio), c * 1.16, [20,25,30,35,40,45,50,55,60]); }
+window.renderCotizador = renderCotizador; window.nunCosteoCalc = nunCosteoCalc; window.nunCotCalcFila = nunCotCalcFila; window.nunCotTab = nunCotTab; window.nunCotSet = nunCotSet;
+window.nunCotFila = nunCotFila; window.nunCotFilaMonto = nunCotFilaMonto; window.nunCotAgregarFila = nunCotAgregarFila; window.nunCotDupFila = nunCotDupFila; window.nunCotQuitarFila = nunCotQuitarFila;
+window.nunCotAbrir = nunCotAbrir; window.nunCotNuevo = nunCotNuevo; window.nunCotDuplicar = nunCotDuplicar; window.nunCotGuardar = nunCotGuardar; window.nunCotArchivar = nunCotArchivar;
+window.nunCotAplicarProductos = nunCotAplicarProductos; window.nunCotMargenesCalc = nunCotMargenesCalc; window.nunCotCalcRefrescar = nunCotCalcRefrescar; window._cotEstado = _cotEstado; window.nunCosteoMigrar = nunCosteoMigrar;
 
 /* ============================================================
    v3.38 — TIMBRADO DIRECTO con Facturama (PAC)

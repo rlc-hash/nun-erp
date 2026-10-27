@@ -17,6 +17,8 @@
 //  · Bind apagado (ya no se usa desde el 29-sep-2026): sincronización y proxy desactivados; el
 //    activador automático se borra solo si llega a correr.
 //
+// v0.9.17 (27-oct-2026) — Productos lleva costo_factura y precio_factura (precio CON factura, sin IVA). Se agregan solas al guardar.
+//
 // v0.9.16 (13-oct-2026) — erp_crear de pedidos/remisiones con item._sin_inventario=true NO aparta ni descuenta inventario
 //   (pedido de una venta directa ya entregada y remisión de un pedido VIEJO de Bind: esa mercancía es de antes del corte).
 //
@@ -33,7 +35,7 @@
 //  Nadie más puede crear códigos de dueño (RAFA-, YADAH-, MASTER-NUN-), porque esos dan permisos de dueño.
 // ============================================================
 
-const VERSION_ERP = 'v0.9.15';
+const VERSION_ERP = 'v0.9.17';
 
 // v0.9.2 — Mapeo de tablas que el CRM pide por nombre "corto" a la hoja real del ERP.
 // El CRM usa 'clientes' para su catálogo de vendedores (NO el catálogo fiscal 'clientes' del ERP).
@@ -74,7 +76,7 @@ const TABLAS = {
 
   // Catálogos
   clientes:    { nombre:'Clientes',    cols:['id','rfc','razon_social','nombre_comercial','contacto','email','telefono','direccion','ciudad','estado','cp','regimen_fiscal','uso_cfdi','credito_dias','limite_credito','vendedor','activo','fecha_alta','notas'] },
-  productos:   { nombre:'Productos',   cols:['id','sku','descripcion','descripcion_larga','categoria','unidad','clave_sat','costo','precio','precio_min','stock_actual','stock_comprometido','stock_minimo','activo','fecha_alta','notas'] },
+  productos:   { nombre:'Productos',   cols:['id','sku','descripcion','descripcion_larga','categoria','unidad','clave_sat','costo','precio','precio_min','stock_actual','stock_comprometido','stock_minimo','activo','fecha_alta','notas','costo_factura','precio_factura'] }, // v0.9.17 dos precios (Rafa)
   proveedores: { nombre:'Proveedores', cols:['id','rfc','razon_social','contacto','email','telefono','direccion','condiciones_pago','dias_credito','activo','fecha_alta','notas'] },
 
   // Inventario

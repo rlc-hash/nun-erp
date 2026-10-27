@@ -28,7 +28,7 @@ Este repo puede ser público: no escribas aquí datos de clientes, montos, RFC n
 - `index.html` — ERP completo (~800 KB, un solo archivo, JS en línea). Publicado en GitHub Pages:
   https://rlc-hash.github.io/nun-erp/ (tarda ~1 min en actualizarse después del push).
 - `crm.html` — app de vendedores (misma base de datos). `importar.html` — importador de XML.
-- Backend: Google Apps Script. Su código está en `backend/Codigo.gs` (v0.9.15: flujo cotización→pedido; bitácora/inventario guardan solo el inicio del código (RAFA-…), nunca el código completo; v0.9.14: erp_upsert_batch vacía un campo solo con item._vaciar=['campo'] — un '' normal se ignora; en Google ya NO se guarda, solo entrar/usuarios/Facturama/lecturas; en Supabase la propiedad `en_supabase=1` deja todo normal; el usuario RAFA- solo lo ve y cambia Rafa; sin códigos de acceso: el maestro va en
+- Backend: Google Apps Script. Su código está en `backend/Codigo.gs` (v0.9.17: productos con costo_factura/precio_factura; v0.9.15: flujo cotización→pedido; bitácora/inventario guardan solo el inicio del código (RAFA-…), nunca el código completo; v0.9.14: erp_upsert_batch vacía un campo solo con item._vaciar=['campo'] — un '' normal se ignora; en Google ya NO se guarda, solo entrar/usuarios/Facturama/lecturas; en Supabase la propiedad `en_supabase=1` deja todo normal; el usuario RAFA- solo lo ve y cambia Rafa; sin códigos de acceso: el maestro va en
   Propiedades del script → `codigo_maestro`). Claude NO puede publicarlo: Rafa lo pega en el editor de Apps Script y hace
   Implementar → Administrar implementaciones → editar la activa (…Dt2A) → Versión nueva (la URL no cambia).
   Prueba: `node pruebas/prueba_backend_v099.js` (hoja simulada). Nunca usar el backend viejo `AKfycbz9oHW…`.
@@ -93,10 +93,14 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - v4.46 factura de VARIAS remisiones (`pedido_origen` "R0022, REM 317, R0023", sin cobro propio): 💵 Registrar pago abre un reparto
   (`nunPagoFacturaVarias`) que registra el pago en el cobro de cada remisión (monto por renglón con `pedido` "… (R0022)"; si no, la más vieja
   primero). Su saldo = total − ingresos con "Pago de la factura FT…".
-- v4.48 **Cotizador y márgenes** (menú, permiso ver_financieros): costeo por contenedor (piezas × USD × TC + flete marítimo + arancel sobre valor en aduana o
-  impuestos reales del pedimento + flete terrestre/maniobras/agente/otros, repartidos por valor o piezas; IVA de importación aparte, NO es costo salvo casilla),
-  precio = costo ÷ (1 − margen); guarda en kv `nun_costeos` (se archivan, no se borran); 📦 pasa costo/precio a Productos (SKU exacto o los que empiezan igual).
-  Pestañas Márgenes reales (ventas del tablero vs costo de Productos) y Calculadora rápida. Prueba `prueba_v448_cotizador.js`.
+- v4.48/v4.49 **Cotizador y márgenes** (menú, permiso ver_financieros), como el Excel de Rafa: una tarjeta por producto (MOQ, costo China USD,
+  arancel aprox. 1.15/1.25, TC, flete/maniobras/pedimento real/otros cada uno en USD o MXN, margen). Calcula mientras escribe (no redibuja).
+  DOS precios: SIN factura = costo China × (arancel + 16% IVA) + gastos ÷ MOQ ÷ (1 − margen), sin IVA; CON factura = sin ese IVA ÷ (1 − margen) y
+  + 16% al final. Con pedimento real: IVA que se aparta = 16% del valor China en pesos, se resta al pedimento para el precio con factura.
+  kv `nun_costeos` (v:2, `filas`; los v4.48 se migran con `nunCosteoMigrar`), se archivan, no se borran; borrador en localStorage `nun_costeo_borrador`.
+  📦 pasa a Productos: costo/precio = sin factura, costo_factura/precio_factura = con factura sin IVA (columnas nuevas, servidor v0.9.17).
+  Márgenes reales por pieza (ganancia total ÷ venta total, sin IVA; doc con IVA usa costo_factura). Calculadora con y sin factura.
+  En el teléfono el encabezado esconde el buscador para que quepan los botones. Prueba `prueba_v449_cotizador.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

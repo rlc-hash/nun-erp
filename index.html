@@ -1696,7 +1696,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.47 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.48 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -1842,6 +1842,10 @@ body.dark .app-main iframe {
   <button class="nav-btn" data-mod="resultados_mes" onclick="navegar('resultados_mes')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg></span>
     <span class="nav-text">Resultados por mes</span>
+  </button>
+  <button class="nav-btn" data-mod="cotizador" onclick="navegar('cotizador')">
+    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg></span>
+    <span class="nav-text">Cotizador y márgenes</span>
   </button>
   <button class="nav-btn" data-mod="clientes" onclick="navegar('clientes')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
@@ -2963,7 +2967,7 @@ const NUN_MOD_PERMISO = {
   reservations:'ver_inventario', pick_lists:'ver_inventario', shipments:'ver_inventario', importaciones:'ver_inventario',
   ordenescompra:'ver_compras', recepciones:'ver_compras', ap_invoices:'ver_compras',
   ap_holds:'ver_compras', approvals:'ver_compras', pagosproveedores:'ver_compras', requisitions:'ver_compras',
-  estados_fin:'ver_financieros', resultados_mes:'ver_financieros', coa:'ver_financieros', asientos:'ver_financieros',
+  estados_fin:'ver_financieros', resultados_mes:'ver_financieros', cotizador:'ver_financieros', coa:'ver_financieros', asientos:'ver_financieros',
   periodos:'ver_financieros', balance:'ver_financieros', estado_resultados:'ver_financieros',
   trial_balance:'ver_financieros', bank_accounts:'ver_financieros', bank_lines:'ver_financieros',
   bank_statements:'ver_financieros', cash_position:'ver_financieros', aging_detail:'ver_financieros',
@@ -7106,6 +7110,7 @@ const MODULOS = {
   import_cfdi:  { label:'Importar CFDI (XML)', render: renderImportCFDI, afterRender: afterRenderImportCFDI },
   estados_fin:  { label:'Estados Financieros', render: renderEstadosNUN, afterRender: afterRenderEstadosNUN },
   resultados_mes: { label:'Resultados por mes', render: () => renderResultadosMes() }, // v4.47
+  cotizador:    { label:'Cotizador y márgenes', render: () => renderCotizador() }, // v4.48
   clientes:     { label:'Clientes',     render: ()=>renderModuloGenerico('clientes'),     afterRender: ()=>afterRenderGenerico('clientes') },
   productos:    { label:'Productos',    render: ()=>renderModuloGenerico('productos'),    afterRender: ()=>afterRenderGenerico('productos') },
   proveedores:  { label:'Proveedores',  render: ()=>renderModuloGenerico('proveedores'),  afterRender: ()=>afterRenderGenerico('proveedores') },
@@ -12576,7 +12581,8 @@ const KV_KEYS_COMPARTIDAS = [
   'nun_requisitions','nun_reservations','nun_pick_lists','nun_shipments',
   'nun_cfdi_timbres', // v3.48 — timbres compactos (QR) compartidos y persistentes en el backend
   'nun_relaciones_clientes', // v4.17 — a nombre de quién se factura cada cliente
-  'nun_edr_manual' // v4.47 — naviera, impuestos y mes de arranque del Estado de Resultados
+  'nun_edr_manual', // v4.47 — naviera, impuestos y mes de arranque del Estado de Resultados
+  'nun_costeos' // v4.48 — costeos de importación del Cotizador
 ];
 const _kvSucias = new Set();
 let _kvTimer = null, _kvAplicando = false;
@@ -15130,6 +15136,244 @@ function nunEdrCSV(){
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type:'text/csv;charset=utf-8' })); a.download = 'estado_resultados_' + _edr.desde + '_' + _edr.hasta + '.csv'; a.click();
 }
 window.renderResultadosMes = renderResultadosMes; window.nunEdrCalc = nunEdrCalc; window.nunEdrCapturar = nunEdrCapturar; window.nunEdrFijarInicio = nunEdrFijarInicio; window.nunEdrCSV = nunEdrCSV;
+
+// ============================================================
+// v4.48 — COTIZADOR DE IMPORTACIÓN + MÁRGENES (Rafa, 27 oct 2026)
+// Reemplaza su Excel "Costeo China": por contenedor captura piezas y costo USD por producto + tipo de cambio + gastos
+// (flete marítimo, flete terrestre, maniobras/almacenaje, agente aduanal, DTA, otros). Arancel (IGI) sobre el valor en
+// aduana (mercancía + flete marítimo). El IVA de importación se ACREDITA: se muestra aparte y no es costo (casilla para
+// contarlo si Rafa quiere). Precio = costo ÷ (1 − margen) — su "÷ 0.6" = 40% de margen sobre el precio. Los costeos se
+// guardan compartidos (kv nun_costeos); nunca se borran: se archivan. "Márgenes reales" = lo vendido (mismas ventas
+// del tablero) contra el costo de Productos.
+// ============================================================
+const NUN_COSTEOS_KEY = 'nun_costeos';
+const NUN_COT_GASTOS = [['flete_mar','Flete marítimo'],['flete_ter','Flete terrestre'],['maniobras','Maniobras y almacenaje'],['agente','Agente aduanal'],['dta','DTA y otros del pedimento (sin IVA)'],['otros','Otros']];
+function nunCosteos(){ try { const a = JSON.parse(localStorage.getItem(NUN_COSTEOS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch(e){ return []; } }
+async function nunCosteosGuardar(a){
+  try { localStorage.setItem(NUN_COSTEOS_KEY, JSON.stringify(a)); } catch(e){}
+  try { const r = await api({ accion:'kv_guardar', pares:{ [NUN_COSTEOS_KEY]: JSON.stringify(a) } }); return !!(r && r.ok); } catch(e){ return false; }
+}
+function nunCosteoNuevo(){
+  return { id:'cst_' + Date.now(), nombre:'', fecha:nunHoy(), tc:18, reparto:'valor', margen:40, ivaCosto:false, pedimento_real:'',
+    gastos:{ flete_mar:'', flete_ter:'', maniobras:'', agente:'', dta:'', otros:'' }, lineas:[{ sku:'', desc:'', pzas:'', usd:'', arancel:'', margen:'', precio_real:'' }], estatus:'activo', notas:'' };
+}
+const _cotN = v => { const x = parseFloat(String(v == null ? '' : v).replace(/[$,\s]/g, '')); return isFinite(x) ? x : 0; };
+// Cálculo puro (lo usa la pantalla y la prueba)
+function nunCosteoCalc(c){
+  const tc = _cotN(c.tc), g = k => _cotN((c.gastos||{})[k]), mg = _cotN(c.margen);
+  const L = (c.lineas||[]).map(l => ({ l, pzas:_cotN(l.pzas), valor: nunR2(_cotN(l.pzas) * _cotN(l.usd) * tc) })).filter(x => x.pzas > 0);
+  const totValor = L.reduce((s, x) => s + x.valor, 0), totPzas = L.reduce((s, x) => s + x.pzas, 0);
+  const pedReal = String(c.pedimento_real == null ? '' : c.pedimento_real).trim() !== '' ? _cotN(c.pedimento_real) : null;
+  const otrosG = g('flete_ter') + g('maniobras') + g('agente') + g('otros');
+  const T = { valor:0, flete_mar:0, impuestos:0, otros:0, iva:0, costo:0, venta:0, utilidad:0, pzas:totPzas, ventaReal:0, costoReal:0 };
+  const filas = L.map(x => {
+    const peso = c.reparto === 'piezas' ? (totPzas ? x.pzas / totPzas : 0) : (totValor ? x.valor / totValor : (totPzas ? x.pzas / totPzas : 0));
+    const fleteMar = g('flete_mar') * peso, aduana = x.valor + fleteMar;
+    const arancel = aduana * _cotN(x.l.arancel) / 100;
+    const impuestos = pedReal != null ? pedReal * peso : arancel + g('dta') * peso;
+    const iva = (aduana + impuestos) * 0.16, otros = otrosG * peso;
+    const costoTot = x.valor + fleteMar + impuestos + otros + (c.ivaCosto ? iva : 0);
+    const costoU = costoTot / x.pzas;
+    const m = String(x.l.margen == null ? '' : x.l.margen).trim() !== '' ? _cotN(x.l.margen) : mg;
+    const precio = m < 100 ? costoU / (1 - m / 100) : 0;
+    const pr = _cotN(x.l.precio_real), margenReal = pr > 0 ? (pr - costoU) / pr * 100 : null;
+    T.valor += x.valor; T.flete_mar += fleteMar; T.impuestos += impuestos; T.otros += otros; T.iva += iva; T.costo += costoTot;
+    T.venta += precio * x.pzas; T.utilidad += (precio - costoU) * x.pzas;
+    if (pr > 0) { T.ventaReal += pr * x.pzas; T.costoReal += costoTot; }
+    return { l:x.l, pzas:x.pzas, valor:x.valor, fleteMar, impuestos, iva, otros, costoTot, costoU, margen:m, precio, precioIva: precio * 1.16,
+      utilU: precio - costoU, markup: costoU ? (precio - costoU) / costoU * 100 : 0, precioReal: pr, margenReal };
+  });
+  T.margen = T.venta ? T.utilidad / T.venta * 100 : 0;
+  T.margenReal = T.ventaReal ? (T.ventaReal - T.costoReal) / T.ventaReal * 100 : null;
+  T.gastosSinRepartir = totPzas ? 0 : g('flete_mar') + otrosG + (pedReal || 0);
+  return { filas, T };
+}
+let _cot = null;
+function _cotEstado(){
+  if (!_cot) { const a = nunCosteos().filter(c => c.estatus !== 'archivado'); _cot = { tab:'costeo', actual: a.length ? JSON.parse(JSON.stringify(a[a.length - 1])) : nunCosteoNuevo(), sucio:false, dias:90, calcCosto:'', calcPrecio:'', verArch:false }; }
+  return _cot;
+}
+function renderCotizador(){
+  const S = _cotEstado();
+  if (!S.prodCargado && !(State.data.productos||[]).length) (S.prodCargado = true, cargarTabla('productos')).then(() => { if (State.modulo === 'cotizador') renderCurrent(); }).catch(()=>{});
+  const tab = (k, t) => `<button class="btn ${S.tab === k ? 'btn-primary' : 'btn-ghost'}" onclick="nunCotTab('${k}')">${t}</button>`;
+  return `
+    <div class="page-title"><div><h1>Cotizador y márgenes</h1><div class="sub">Cuánto te cuesta puesto en tu almacén, a cuánto venderlo y cuánto ganas · MXN</div></div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">${tab('costeo','🚢 Costeo de importación')}${tab('margenes','📊 Márgenes reales')}${tab('calc','🧮 Calculadora rápida')}</div>
+    <div id="cotMount">${S.tab === 'margenes' ? nunCotMargenesHTML() : S.tab === 'calc' ? nunCotCalcHTML() : nunCotCosteoHTML()}</div>`;
+}
+function nunCotTab(k){ _cotEstado().tab = k; renderCurrent(); }
+const _cotInp = 'padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);width:100%;box-sizing:border-box';
+const _cotMon = v => '$' + (Number(v)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
+const _cotPct = v => v == null ? '—' : (Number(v)||0).toFixed(1) + '%';
+function nunCotCosteoHTML(){
+  const S = _cotEstado(), c = S.actual, { filas, T } = nunCosteoCalc(c), esc = v => escapeHTML(String(v == null ? '' : v));
+  const lista = nunCosteos().filter(x => S.verArch || x.estatus !== 'archivado');
+  const prods = State.data.productos || [], porSku = new Map(prods.map(p => [String(p.sku||'').toUpperCase().trim(), p]));
+  const fld = (lbl, campo, v, extra) => `<div class="field" style="min-width:130px;flex:1"><label>${lbl}</label><input style="${_cotInp}" value="${esc(v)}" ${extra||''} onchange="nunCotSet('${campo}',this.value)"></div>`;
+  const filaPorLinea = new Map(filas.map(f => [f.l, f]));
+  const linea = (l, i) => { const f = filaPorLinea.get(l), p = porSku.get(String(l.sku||'').toUpperCase().trim());
+    const inp = (k, w, ph) => `<input style="${_cotInp};min-width:${w}px" value="${esc(l[k])}" placeholder="${ph||''}" onchange="nunCotLinea(${i},'${k}',this.value)"${k === 'sku' ? ' list="cotSkus"' : ''}>`;
+    const mr = f && f.margenReal != null ? `<div style="font-size:11px;color:var(--${f.margenReal < 25 ? 'red' : 'green'})">margen ${_cotPct(f.margenReal)}</div>` : '';
+    return `<tr>
+      <td>${inp('sku', 80, 'RL010')}${p ? `<div style="font-size:11px;color:var(--mute)">hoy: costo ${_cotMon(p.costo)} · precio ${_cotMon(p.precio)}</div>` : ''}</td>
+      <td>${inp('desc', 120, 'Maleta set 3')}</td><td>${inp('pzas', 60)}</td><td>${inp('usd', 60)}</td><td>${inp('arancel', 50, '%')}</td>
+      <td class="right mono">${f ? _cotMon(f.costoU) : '—'}</td>
+      <td>${inp('margen', 50, String(c.margen))}</td>
+      <td class="right mono"><strong>${f ? _cotMon(f.precio) : '—'}</strong><div style="font-size:11px;color:var(--mute)">${f ? 'con IVA ' + _cotMon(f.precioIva) : ''}</div></td>
+      <td class="right mono">${f ? _cotMon(f.utilU) : '—'}<div style="font-size:11px;color:var(--mute)">${f ? 'sobre costo ' + _cotPct(f.markup) : ''}</div></td>
+      <td>${inp('precio_real', 70, 'sin IVA')}${mr}</td>
+      <td><button class="btn btn-ghost" title="Quitar renglón" onclick="nunCotQuitarLinea(${i})">✕</button></td></tr>`; };
+  const kpi = (l, v, cls, sub) => `<div class="kpi"><div class="kpi-label">${l}</div><div class="kpi-value ${cls||''}">${v}</div>${sub ? `<div style="font-size:11.5px;color:var(--mute)">${sub}</div>` : ''}</div>`;
+  return `
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field" style="min-width:220px;flex:2"><label>Costeo guardado</label><select style="${_cotInp}" onchange="nunCotAbrir(this.value)">
+          <option value="">— Nuevo (sin guardar) —</option>${lista.map(x => `<option value="${esc(x.id)}" ${x.id === c.id ? 'selected' : ''}>${esc(x.nombre || '(sin nombre)')} · ${esc(x.fecha)}${x.estatus === 'archivado' ? ' · archivado' : ''}</option>`).join('')}</select></div>
+        <button class="btn btn-primary" onclick="nunCotGuardar()">💾 Guardar${S.sucio ? ' *' : ''}</button>
+        <button class="btn btn-ghost" onclick="nunCotNuevo()">＋ Nuevo</button>
+        <button class="btn btn-ghost" onclick="nunCotDuplicar()">⧉ Duplicar</button>
+        <button class="btn btn-ghost" onclick="nunCotArchivar()">${c.estatus === 'archivado' ? '↺ Sacar del archivo' : '🗄 Archivar'}</button>
+        <label style="font-size:12px;color:var(--mute)"><input type="checkbox" ${S.verArch ? 'checked' : ''} onchange="_cotEstado().verArch=this.checked;renderCurrent()"> ver archivados</label>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        ${fld('Nombre (contenedor / proveedor)', 'nombre', c.nombre, 'placeholder="RL010 · contenedor oct"')}
+        ${fld('Fecha', 'fecha', c.fecha, 'type="date"')}
+        ${fld('Tipo de cambio (MXN por USD)', 'tc', c.tc)}
+        ${fld('Margen que quieres (% sobre el precio)', 'margen', c.margen)}
+        <div class="field" style="min-width:150px;flex:1"><label>Repartir gastos por</label><select style="${_cotInp}" onchange="nunCotSet('reparto',this.value)">
+          <option value="valor" ${c.reparto !== 'piezas' ? 'selected' : ''}>Valor de la mercancía</option><option value="piezas" ${c.reparto === 'piezas' ? 'selected' : ''}>Piezas</option></select></div>
+      </div>
+      <div style="font-weight:600;margin:12px 0 4px">Gastos del contenedor (MXN, sin IVA)</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${NUN_COT_GASTOS.map(([k, t]) => `<div class="field" style="min-width:130px;flex:1"><label>${t}</label><input style="${_cotInp}" value="${esc(c.gastos[k])}" onchange="nunCotGasto('${k}',this.value)"></div>`).join('')}
+        <div class="field" style="min-width:170px;flex:1"><label>Impuestos reales del pedimento (opcional)</label><input style="${_cotInp}" value="${esc(c.pedimento_real)}" placeholder="arancel + DTA, sin IVA" onchange="nunCotSet('pedimento_real',this.value)"></div>
+      </div>
+      <div style="font-size:12px;color:var(--mute);margin-top:6px">El arancel se calcula sobre la mercancía + flete marítimo (valor en aduana). Si ya tienes el pedimento, pon sus impuestos sin IVA y se usan esos en lugar del arancel y DTA.</div>
+      <label style="display:block;font-size:12.5px;margin-top:8px"><input type="checkbox" ${c.ivaCosto ? 'checked' : ''} onchange="nunCotSet('ivaCosto',this.checked)"> Contar el IVA de importación como costo <span style="color:var(--mute)">(normalmente NO: ese IVA lo recuperas en tu declaración)</span></label>
+    </div>
+    <div class="card" style="padding:0;margin-bottom:14px"><div class="dt-wrap"><div class="dt-scroll"><table class="dt">
+      <thead><tr><th>SKU</th><th>Descripción</th><th>Piezas</th><th>Costo USD c/u</th><th>Arancel %</th><th class="right">Costo puesto c/u</th><th>Margen %</th><th class="right">Precio sugerido (sin IVA)</th><th class="right">Ganas c/u</th><th>Si lo vendo en…</th><th></th></tr></thead>
+      <tbody>${(c.lineas||[]).map(linea).join('')}</tbody></table></div></div>
+      <div style="padding:10px"><button class="btn btn-ghost" onclick="nunCotAgregarLinea()">＋ Agregar producto</button>
+        ${nunEsDueno() ? `<button class="btn btn-ghost" onclick="nunCotAplicarProductos()">📦 Pasar costo (y precio) a Productos</button>` : ''}</div>
+      <datalist id="cotSkus">${prods.slice(0, 600).map(p => `<option value="${esc(p.sku)}">${esc(p.descripcion)}</option>`).join('')}</datalist>
+    </div>
+    <div class="kpi-grid">
+      ${kpi('Te cuesta todo (sin IVA)', fmt(T.costo), '', T.pzas ? T.pzas.toLocaleString('en-US') + ' piezas' : '')}
+      ${kpi('Mercancía en pesos', fmt(T.valor), '', 'flete marítimo ' + fmt(T.flete_mar) + ' · otros ' + fmt(T.otros))}
+      ${kpi('Arancel / pedimento', fmt(T.impuestos), '', 'sin IVA')}
+      ${kpi('IVA de importación', fmt(T.iva), '', c.ivaCosto ? 'contado como costo' : 'lo recuperas (no es costo)')}
+      ${kpi('Venta al precio sugerido', fmt(T.venta), 'green', 'sin IVA')}
+      ${kpi('Ganancia esperada', fmt(T.utilidad), 'green', 'margen ' + _cotPct(T.margen))}
+      ${T.margenReal != null ? kpi('Con tus precios de "si lo vendo en"', _cotPct(T.margenReal), T.margenReal < 25 ? 'red' : 'green', 'ganancia ' + fmt(T.ventaReal - T.costoReal)) : ''}
+    </div>
+    ${T.gastosSinRepartir ? `<div style="color:var(--red);margin-top:8px">⚠ Hay gastos capturados pero ningún producto con piezas: no hay a quién repartirlos.</div>` : ''}
+    <div class="field" style="margin-top:12px"><label>Notas</label><textarea style="${_cotInp};min-height:60px" onchange="nunCotSet('notas',this.value)">${esc(c.notas)}</textarea></div>`;
+}
+function nunCotMarcar(){ const S = _cotEstado(); S.sucio = true; renderCurrent(); }
+function nunCotSet(campo, v){ _cotEstado().actual[campo] = v; nunCotMarcar(); }
+function nunCotGasto(k, v){ _cotEstado().actual.gastos[k] = v; nunCotMarcar(); }
+function nunCotLinea(i, k, v){
+  const c = _cotEstado().actual, l = c.lineas[i]; if (!l) return; l[k] = v;
+  if (k === 'sku' && !l.desc) { const p = (State.data.productos||[]).find(p => String(p.sku||'').toUpperCase().trim() === String(v||'').toUpperCase().trim()); if (p) l.desc = p.descripcion || ''; }
+  nunCotMarcar();
+}
+function nunCotAgregarLinea(){ _cotEstado().actual.lineas.push({ sku:'', desc:'', pzas:'', usd:'', arancel:'', margen:'', precio_real:'' }); nunCotMarcar(); }
+function nunCotQuitarLinea(i){ const c = _cotEstado().actual; c.lineas.splice(i, 1); if (!c.lineas.length) c.lineas.push({ sku:'', desc:'', pzas:'', usd:'', arancel:'', margen:'', precio_real:'' }); nunCotMarcar(); }
+function nunCotAbrir(id){
+  const S = _cotEstado();
+  if (S.sucio && !confirm('Tienes cambios sin guardar en este costeo. ¿Cambiar de todos modos?')) { renderCurrent(); return; }
+  const x = nunCosteos().find(c => c.id === id); S.actual = x ? JSON.parse(JSON.stringify(x)) : nunCosteoNuevo(); S.sucio = false; renderCurrent();
+}
+function nunCotNuevo(){ nunCotAbrir(''); }
+function nunCotDuplicar(){ const S = _cotEstado(), c = JSON.parse(JSON.stringify(S.actual)); c.id = 'cst_' + Date.now(); c.nombre = (c.nombre || 'Costeo') + ' (copia)'; c.fecha = nunHoy(); c.estatus = 'activo'; S.actual = c; S.sucio = true; renderCurrent(); }
+async function nunCotGuardar(){
+  const S = _cotEstado(), c = S.actual;
+  if (!String(c.nombre||'').trim()) { toast('Ponle nombre al costeo (ej. el contenedor)', { type:'error' }); return; }
+  c.actualizado = new Date().toISOString(); c.por = (State.sesion && State.sesion.usuario && State.sesion.usuario.nombre) || '';
+  const a = nunCosteos(), i = a.findIndex(x => x.id === c.id);
+  if (i >= 0) a[i] = JSON.parse(JSON.stringify(c)); else a.push(JSON.parse(JSON.stringify(c)));
+  const ok = await nunCosteosGuardar(a); S.sucio = false; renderCurrent();
+  toast(ok ? '✓ Costeo guardado' : '⚠ Se guardó en esta computadora, pero no en el servidor. Inténtalo de nuevo.', { type: ok ? 'success' : 'error' });
+}
+async function nunCotArchivar(){ const S = _cotEstado(); S.actual.estatus = S.actual.estatus === 'archivado' ? 'activo' : 'archivado'; await nunCotGuardar(); }
+// Pasa el costo puesto (y si quiere el precio sugerido) a Productos: SKU exacto, o si no hay, los SKU que empiezan igual (colores)
+async function nunCotAplicarProductos(){
+  if (!nunEsDueno()) return;
+  const { filas } = nunCosteoCalc(_cotEstado().actual), prods = State.data.productos || [], cambios = [];
+  filas.forEach(f => { const s = String(f.l.sku||'').toUpperCase().trim(); if (!s) return;
+    let ps = prods.filter(p => String(p.sku||'').toUpperCase().trim() === s);
+    if (!ps.length) ps = prods.filter(p => String(p.sku||'').toUpperCase().trim().startsWith(s));
+    ps.forEach(p => cambios.push({ p, costo: nunR2(f.costoU), precio: nunR2(f.precio) })); });
+  if (!cambios.length) { toast('Ningún SKU del costeo coincide con Productos', { type:'error' }); return; }
+  const conPrecio = confirm(`Voy a poner el costo puesto a ${cambios.length} producto(s):\n\n` + cambios.slice(0, 15).map(x => `${x.p.sku}: ${_cotMon(x.p.costo)} → ${_cotMon(x.costo)}`).join('\n') + (cambios.length > 15 ? '\n…' : '') +
+    '\n\n¿También quieres cambiar su PRECIO de lista al precio sugerido? (Aceptar = sí, Cancelar = solo el costo)');
+  if (!(await confirmDialog({ title:'¿Pasar a Productos?', message: cambios.length + ' producto(s) · costo' + (conPrecio ? ' y precio' : '') + '. Esto cambia el costo con el que se calcula tu utilidad.', ok:'Pasar' }))) return;
+  let ok = 0;
+  for (const x of cambios) { const it = { id:x.p.id, costo:x.costo }; if (conPrecio) it.precio = x.precio; if (await nunGuardarSeguro('productos', it, 2)) ok++; }
+  await cargarTabla('productos'); renderCurrent();
+  toast(`✓ ${ok} producto(s) actualizados` + (ok < cambios.length ? ` · ⚠ ${cambios.length - ok} no se guardaron` : ''), { type: ok < cambios.length ? 'error' : 'success', duration:7000 });
+}
+// ---- Márgenes reales: lo vendido contra el costo de Productos ----
+function nunCotMargenesCalc(dias){
+  const desde = nunHoy(new Date(Date.now() - dias * 864e5)), costoDe = nunEdrCostoFn(), M = new Map(); let sinPartidas = 0;
+  nunTableroVentas().forEach(x => {
+    if (x.nc || x.fecha < desde) return;
+    let items = []; try { items = JSON.parse(x.d.items_json || '[]'); } catch(e){}
+    if (!items.length) { sinPartidas++; return; }
+    items.forEach(it => { const q = +it.cantidad || 0; if (!q) return; const k = costoDe(it), base = nunCalcLinea(it, true).base;
+      const key = String(it.sku || it.descripcion || '(sin SKU)').toUpperCase().trim();
+      const r = M.get(key) || { sku: it.sku || '', desc: it.descripcion || '', modelo: k.modelo, pzas:0, venta:0, costo:0, sinCosto:0, docs:0 };
+      r.pzas += q; r.venta += base; r.docs++; if (k.costo > 0) r.costo += q * k.costo; else r.sinCosto += base; M.set(key, r); });
+  });
+  const filas = [...M.values()].map(r => { const vc = r.venta - r.sinCosto; return Object.assign(r, { precioProm: r.pzas ? r.venta / r.pzas : 0,
+    utilidad: r.costo ? vc - r.costo : null, margen: r.costo && vc ? (vc - r.costo) / vc * 100 : null }); }).sort((a, b) => b.venta - a.venta);
+  const conC = filas.filter(r => r.costo > 0), venta = filas.reduce((s, r) => s + r.venta, 0), vc = conC.reduce((s, r) => s + r.venta - r.sinCosto, 0), costo = conC.reduce((s, r) => s + r.costo, 0);
+  return { filas, venta, costo, utilidad: vc - costo, margen: vc ? (vc - costo) / vc * 100 : null, sinCosto: filas.reduce((s, r) => s + r.sinCosto, 0), sinPartidas };
+}
+function nunCotMargenesHTML(){
+  const S = _cotEstado(), D = State.data;
+  if (!S.cargado && ['remisiones','facturas','pedidos','productos'].some(t => !Array.isArray(D[t]) || !D[t].length)) { S.cargado = true; // una sola vez (si una tabla está vacía de verdad no se cicla)
+    Promise.all(['remisiones','facturas','pedidos','productos','notascredito','cobranza'].map(t => cargarTabla(t).catch(()=>{}))).then(() => { if (State.modulo === 'cotizador') renderCurrent(); });
+  }
+  const R = nunCotMargenesCalc(S.dias), esc = v => escapeHTML(String(v == null ? '' : v));
+  const sel = `<select style="${_cotInp};width:auto" onchange="_cotEstado().dias=+this.value;renderCurrent()">${[30,90,180,365].map(d => `<option value="${d}" ${S.dias === d ? 'selected' : ''}>Últimos ${d} días</option>`).join('')}</select>`;
+  const col = m => m == null ? 'var(--mute)' : m < 25 ? 'var(--red)' : m < 35 ? 'var(--amber, #b7791f)' : 'var(--green)';
+  return `
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">${sel}<span style="font-size:12.5px;color:var(--mute)">Ventas del tablero, sin IVA, contra el costo de Productos. Rojo = menos de 25% de margen.</span></div>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi-label">Vendido (sin IVA)</div><div class="kpi-value">${fmt(R.venta)}</div></div>
+      <div class="kpi"><div class="kpi-label">Costo de lo vendido</div><div class="kpi-value">${fmt(R.costo)}</div></div>
+      <div class="kpi"><div class="kpi-label">Ganancia</div><div class="kpi-value green">${fmt(R.utilidad)}</div><div style="font-size:11.5px;color:var(--mute)">margen ${_cotPct(R.margen)}</div></div>
+      <div class="kpi"><div class="kpi-label">Venta sin costo</div><div class="kpi-value ${R.sinCosto > 0.5 ? 'red' : ''}">${fmt(R.sinCosto)}</div><div style="font-size:11.5px;color:var(--mute)">${R.sinPartidas ? R.sinPartidas + ' doc. sin productos' : 'productos sin costo en Productos'}</div></div>
+    </div>
+    <div class="dt-wrap"><div class="dt-scroll"><table class="dt"><thead><tr><th>SKU</th><th>Descripción</th><th class="right">Piezas</th><th class="right">Precio promedio</th><th class="right">Costo c/u</th><th class="right">Vendido</th><th class="right">Ganancia</th><th class="right">Margen</th></tr></thead><tbody>
+    ${R.filas.map(r => `<tr><td class="mono">${esc(r.sku)}</td><td>${esc(r.desc)}</td><td class="right mono">${r.pzas.toLocaleString('en-US')}</td><td class="right mono">${_cotMon(r.precioProm)}</td>
+      <td class="right mono">${r.costo ? _cotMon(r.costo / r.pzas) : '<span style="color:var(--red)">sin costo</span>'}</td><td class="right mono">${fmt(r.venta)}</td>
+      <td class="right mono">${r.utilidad == null ? '—' : fmt(r.utilidad)}</td><td class="right mono" style="color:${col(r.margen)};font-weight:600">${_cotPct(r.margen)}</td></tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--mute)">Sin ventas con productos en este periodo</td></tr>'}
+    </tbody></table></div></div>`;
+}
+// ---- Calculadora rápida ----
+function nunCotCalcHTML(){
+  const S = _cotEstado(), c = _cotN(S.calcCosto), p = _cotN(S.calcPrecio);
+  const tiers = [20,25,30,35,40,45,50,55,60];
+  return `
+    <div class="card" style="padding:14px;margin-bottom:14px;max-width:760px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="field" style="flex:1;min-width:180px"><label>Me cuesta (c/u, sin IVA)</label><input style="${_cotInp}" value="${escapeHTML(String(S.calcCosto))}" onchange="_cotEstado().calcCosto=this.value;renderCurrent()"></div>
+        <div class="field" style="flex:1;min-width:180px"><label>Lo quiero vender en (sin IVA)</label><input style="${_cotInp}" value="${escapeHTML(String(S.calcPrecio))}" onchange="_cotEstado().calcPrecio=this.value;renderCurrent()"></div>
+      </div>
+      ${c > 0 && p > 0 ? `<div style="margin-top:10px;font-size:15px">Ganas <strong>${_cotMon(p - c)}</strong> por pieza · margen <strong style="color:${(p - c) / p * 100 < 25 ? 'var(--red)' : 'var(--green)'}">${_cotPct((p - c) / p * 100)}</strong> sobre el precio · ${_cotPct((p - c) / c * 100)} sobre el costo · con IVA ${_cotMon(p * 1.16)}</div>` : ''}
+    </div>
+    ${c > 0 ? `<div class="dt-wrap" style="max-width:760px"><div class="dt-scroll"><table class="dt"><thead><tr><th>Margen sobre el precio</th><th class="right">Precio sin IVA</th><th class="right">Precio con IVA</th><th class="right">Ganas c/u</th><th class="right">Sobre el costo</th></tr></thead><tbody>
+      ${tiers.map(m => { const pr = c / (1 - m / 100); return `<tr${m === 40 ? ' style="font-weight:700"' : ''}><td>${m}%${m === 40 ? ' (tu ÷ 0.6)' : ''}</td><td class="right mono">${_cotMon(pr)}</td><td class="right mono">${_cotMon(pr * 1.16)}</td><td class="right mono">${_cotMon(pr - c)}</td><td class="right mono">${_cotPct((pr - c) / c * 100)}</td></tr>`; }).join('')}
+    </tbody></table></div></div>` : '<div style="color:var(--mute)">Pon cuánto te cuesta para ver los precios por margen.</div>'}`;
+}
+window.renderCotizador = renderCotizador; window.nunCosteoCalc = nunCosteoCalc; window.nunCotTab = nunCotTab; window.nunCotSet = nunCotSet; window.nunCotGasto = nunCotGasto;
+window.nunCotLinea = nunCotLinea; window.nunCotAgregarLinea = nunCotAgregarLinea; window.nunCotQuitarLinea = nunCotQuitarLinea; window.nunCotAbrir = nunCotAbrir; window.nunCotNuevo = nunCotNuevo;
+window.nunCotDuplicar = nunCotDuplicar; window.nunCotGuardar = nunCotGuardar; window.nunCotArchivar = nunCotArchivar; window.nunCotAplicarProductos = nunCotAplicarProductos;
+window.nunCotMargenesCalc = nunCotMargenesCalc; window._cotEstado = _cotEstado;
 
 /* ============================================================
    v3.38 — TIMBRADO DIRECTO con Facturama (PAC)

@@ -93,6 +93,10 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - v4.46 factura de VARIAS remisiones (`pedido_origen` "R0022, REM 317, R0023", sin cobro propio): 💵 Registrar pago abre un reparto
   (`nunPagoFacturaVarias`) que registra el pago en el cobro de cada remisión (monto por renglón con `pedido` "… (R0022)"; si no, la más vieja
   primero). Su saldo = total − ingresos con "Pago de la factura FT…".
+- v4.48 **Cotizador y márgenes** (menú, permiso ver_financieros): costeo por contenedor (piezas × USD × TC + flete marítimo + arancel sobre valor en aduana o
+  impuestos reales del pedimento + flete terrestre/maniobras/agente/otros, repartidos por valor o piezas; IVA de importación aparte, NO es costo salvo casilla),
+  precio = costo ÷ (1 − margen); guarda en kv `nun_costeos` (se archivan, no se borran); 📦 pasa costo/precio a Productos (SKU exacto o los que empiezan igual).
+  Pestañas Márgenes reales (ventas del tablero vs costo de Productos) y Calculadora rápida. Prueba `prueba_v448_cotizador.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

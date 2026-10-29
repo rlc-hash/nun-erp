@@ -120,6 +120,8 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - v4.58 **App instalable** con el logo NUN: `manifest.webmanifest` + `icons/` (192, 512, maskable 512, apple-touch-icon 180, del mismo trazo del logo)
   y `sw.js` mínimo SIN caché (solo para que Chrome la instale; nunca sirve versiones viejas). Antes el manifest era data:URL con "NUN" en texto y
   Chrome hacía acceso directo con su insignia. Instalar: Chrome ⋮ → Instalar app / Agregar a pantalla principal. Prueba `prueba_v458_app.js`.
+- v4.59 Tarjetas del modo teléfono compactas: `tr` en grid de 2 columnas (título arriba, dato con su etiqueta chica), título = nombre (razón social/cliente)
+  si la 1a columna es RFC/SKU/fecha (esa va chiquita como `cel-sub`), se ocultan vacíos y lo que repite el nombre (`cel-vacio`); ≥560px = 2 tarjetas por fila.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

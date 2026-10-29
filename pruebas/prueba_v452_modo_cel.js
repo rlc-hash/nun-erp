@@ -19,13 +19,17 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   const td=d.querySelector('table.dt tbody tr td:nth-child(2)'); r.etiqueta=td&&td.getAttribute('data-l');
   r.activo=txt(d.querySelector('#nunBarraCel button.activo'));
   if(!r.etiqueta||!/Pedidos/.test(r.activo)) r.fallas.push('tarjetas');
+  // v4.59 — tarjeta de cliente: el nombre es el título (no el RFC)
+  w.eval("nunBarraIr('clientes')"); await sleep(1500);
+  r.titCliente=txt(d.querySelector('table.dt tbody tr td.cel-tit'));
+  if(r.titCliente!=='CLIENTE PRUEBA') r.fallas.push('titulo-cliente');
   w.eval("nunCambiarModo()"); await sleep(300);
   r.compu=!d.body.classList.contains('modo-cel')&&w.localStorage.getItem('nun_modo')==='compu'&&txt(d.getElementById('nunModoBtn'))==='💻';
   if(!r.compu) r.fallas.push('compu');
   w.eval("nunCambiarModo()"); await sleep(300);
   if(!d.body.classList.contains('modo-cel')) r.fallas.push('regresa');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(5[2-9]|[6-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v4\.(59|[6-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

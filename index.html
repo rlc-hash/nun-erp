@@ -1748,16 +1748,26 @@ body.dark .app-main iframe {
 body.modo-cel { font-size:15px; }
 body.modo-cel table.dt thead { display:none; }
 body.modo-cel table.dt, body.modo-cel table.dt tbody { display:block; width:100% !important; min-width:0 !important; }
-body.modo-cel table.dt tr { display:block; background:var(--bg, #fff); border:1px solid var(--line); border-radius:12px; margin:0 0 10px; padding:10px 12px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
-body.modo-cel table.dt td { display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:4px 0 !important; border:none !important;
-  text-align:right; position:static !important; background:transparent !important; white-space:normal !important; min-height:0; max-width:none !important; overflow:visible !important; }
-body.modo-cel table.dt td::before { content:attr(data-l); color:var(--mute, #888); font-size:12px; font-weight:500; text-align:left; flex:none; max-width:45%; }
+/* v4.59 — tarjetas compactas: título (nombre) arriba, folio/RFC chiquito, datos en 2 columnas, sin los vacíos; 2 tarjetas por fila si cabe */
+body.modo-cel table.dt tr { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:4px 14px; background:var(--bg, #fff); border:1px solid var(--line);
+  border-radius:12px; margin:0 0 8px; padding:9px 12px; box-shadow:0 1px 2px rgba(0,0,0,.04); align-content:start; }
+body.modo-cel table.dt td { display:block; padding:0 !important; border:none !important; text-align:left !important; position:static !important; background:transparent !important;
+  white-space:normal !important; min-height:0; max-width:none !important; overflow:hidden !important; text-overflow:ellipsis; font-size:13.5px; line-height:1.3; min-width:0; }
+body.modo-cel table.dt td::before { content:attr(data-l); display:block; color:var(--mute, #888); font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; margin-bottom:1px; }
 body.modo-cel table.dt td[data-l=""]::before { display:none; }
-body.modo-cel table.dt td:first-child { font-size:16px; font-weight:700; justify-content:flex-start; text-align:left; }
-body.modo-cel table.dt td:first-child::before { display:none; }
-body.modo-cel table.dt td[colspan] { justify-content:center; text-align:center; }
+body.modo-cel table.dt td.cel-tit { grid-column:1 / -1; order:-2; font-size:15.5px; font-weight:700; }
+body.modo-cel table.dt td.cel-sub { grid-column:1 / -1; order:-1; font-size:12px; color:var(--ink-3); margin-top:-3px; }
+body.modo-cel table.dt td.cel-tit::before, body.modo-cel table.dt td.cel-sub::before { display:none; }
+body.modo-cel table.dt td.cel-vacio, body.modo-cel table.dt td:empty { display:none; }
+body.modo-cel table.dt td.cel-acc { grid-column:1 / -1; text-align:right !important; }
+body.modo-cel table.dt td.cel-acc::before { display:none; }
+body.modo-cel table.dt td[colspan] { grid-column:1 / -1; text-align:center !important; }
 body.modo-cel table.dt td[colspan]::before { display:none; }
-body.modo-cel table.dt td:empty { display:none; }
+@media (min-width: 560px) {
+  body.modo-cel table.dt tbody { display:grid !important; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px; }
+  body.modo-cel table.dt tbody tr { margin:0; }
+  body.modo-cel table.dt tbody tr:only-child, body.modo-cel table.dt tbody tr td[colspan] { grid-column:1 / -1; }
+}
 body.modo-cel .dt-wrap, body.modo-cel .dt-scroll { overflow:visible !important; border:none !important; background:transparent !important; box-shadow:none !important; }
 body.modo-cel input, body.modo-cel select, body.modo-cel textarea { font-size:16px !important; }
 body.modo-cel .btn { min-height:42px; }
@@ -1807,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.58 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.59 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -12240,8 +12250,20 @@ function nunCambiarModo(){
 function nunCelEtiquetar(raiz){
   (raiz || document).querySelectorAll('table.dt').forEach(t => {
     const ths = [...t.querySelectorAll('thead tr:last-child th')].map(th => th.textContent.replace(/\s+/g, ' ').trim());
+    // v4.59 — título de la tarjeta: el nombre (razón social / cliente / descripción) si la 1a columna es RFC, SKU o folio; esa 1a va chiquita abajo
+    const iNom = ths.findIndex(h => /raz[oó]n social|^cliente$|^nombre|descripci|^producto/i.test(h));
+    const iTit = iNom > 0 && /^(rfc|sku|c[oó]digo|clave|fecha|entrega)/i.test(ths[0] || '') ? iNom : 0, iSub = iTit > 0 ? 0 : -1;
     t.querySelectorAll('tbody tr').forEach(tr => { if (tr.dataset.cel === '1') return; tr.dataset.cel = '1'; let c = 0;
-      [...tr.children].forEach(td => { if (td.tagName === 'TD' && !td.hasAttribute('data-l')) td.setAttribute('data-l', ths[c] || ''); c += +(td.getAttribute('colspan') || 1); }); });
+      [...tr.children].forEach(td => { if (td.tagName !== 'TD') return;
+        if (!td.hasAttribute('data-l')) td.setAttribute('data-l', ths[c] || '');
+        if (!td.hasAttribute('colspan')) {
+          if (c === iTit) td.classList.add('cel-tit'); else if (c === iSub) td.classList.add('cel-sub');
+          const v = td.textContent.replace(/\s+/g, ' ').trim();
+          const tit = iTit >= 0 && tr.children[iTit] ? tr.children[iTit].textContent.replace(/\s+/g, ' ').trim() : '';
+          if (c !== iTit && (v === '' || v === '—' || v === '-' || v === '–' || (v && v === tit))) td.classList.add('cel-vacio'); // vacío o repite el nombre (contacto = razón social)
+          if (td.querySelector('button') && !v.replace(/[^\wÁÉÍÓÚÑáéíóúñ$]/g, '').length) td.classList.add('cel-acc');
+        }
+        c += +(td.getAttribute('colspan') || 1); }); });
   });
   const b = document.getElementById('nunBarraCel');
   if (b) b.querySelectorAll('button[data-mod]').forEach(x => x.classList.toggle('activo', x.dataset.mod === (State && State.modulo)));

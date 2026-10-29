@@ -122,6 +122,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   Chrome hacía acceso directo con su insignia. Instalar: Chrome ⋮ → Instalar app / Agregar a pantalla principal. Prueba `prueba_v458_app.js`.
 - v4.59 Tarjetas del modo teléfono compactas: `tr` en grid de 2 columnas (título arriba, dato con su etiqueta chica), título = nombre (razón social/cliente)
   si la 1a columna es RFC/SKU/fecha (esa va chiquita como `cel-sub`), se ocultan vacíos y lo que repite el nombre (`cel-vacio`); ≥560px = 2 tarjetas por fila.
+- v4.60 Tocar el **logo NUN** = actualizar (`nunActualizarTodo`): si hay versión publicada más nueva recarga con ?v=…; si no, vuelve a bajar las tablas
+  y el kv y redibuja. Factura de remisiones (pedido_origen "R…, REM …") se ve en "Pedidos (como tu Excel)" en el pedido de cada remisión (solo
+  mostrar: no suma cobros; marca borrador). Prueba `prueba_v460_actualizar_y_factura_en_pedido.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

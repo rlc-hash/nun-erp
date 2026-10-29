@@ -1806,7 +1806,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
   <button class="rwd-home-btn" onclick="navegar('oracle_dashboard')" title="Home" aria-label="Home">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
   </button>
-  <div class="brand rwd-brand" onclick="navegar('oracle_dashboard')">
+  <div class="brand rwd-brand" onclick="nunActualizarTodo()" title="Toca para actualizar (datos y versión)">
     <!-- Logo NUN real (vectorizado de Logo_NUN_negro_transparente_cuadrado.png) -->
     <span class="nun-logo-box" title="NUN">
       <svg class="nun-logo-svg" viewBox="-2 170 599 309" xmlns="http://www.w3.org/2000/svg" aria-label="NUN">
@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.59 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.60 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4175,15 +4175,21 @@ function nunPedidosExcelCalc(cli){
   const cobs = State.data.cobranza || [];
   const docs = [];
   [['remisiones','R'],['facturas','F']].forEach(([t, L]) => (State.data[t]||[]).forEach(d => { if (es(d.cliente) && !/cancel|borrador/i.test(String(d.estatus||''))) docs.push({ t, L, d, peds: String(d.pedido_origen||'').split(/[,;]/).map(x => x.trim().replace(/^REM\s+/, '')).filter(Boolean) }); }));
+  // v4.60 — factura de remisiones (ej. FT0014/FT0016 = "R0023, R0024, REM 262"): se ve también en el pedido de cada remisión (solo para mostrar:
+  // su dinero ya se cobra en el cobro de cada remisión). Si está en borrador también se muestra, marcada.
+  const _rems = State.data.remisiones || [];
+  (State.data.facturas||[]).forEach(d => { if (!es(d.cliente) || /cancel/i.test(String(d.estatus||''))) return; const po = String(d.pedido_origen||'').trim(); if (!/^(R\d{4,}|REM )/.test(po)) return;
+    const pp = new Set(); po.split(/[,;]/).map(x => x.trim().replace(/^REM\s+/, '')).filter(Boolean).forEach(fol => { const r = _rems.find(r => nunFolioStr(r) === fol && es(r.cliente) && !/cancel/i.test(r.estatus||'')); if (r) String(r.pedido_origen||'').split(/[,;]/).map(x => x.trim()).filter(Boolean).forEach(k => pp.add(k)); });
+    if (pp.size) docs.push({ t:'facturas', L:'F', d, peds:[...pp], soloVer:true, bor: /borrador/i.test(String(d.estatus||'')) }); });
   const peds = (State.data.pedidos||[]).filter(p => es(p.cliente) && !/cancel|duplic|borrador/i.test(String(p.estatus||'')) && !_nunEsPrueba(p.cliente));
   return peds.map(p => {
     const ks = nunPedClaves(p);
     const mis = docs.filter(x => x.peds.some(k => ks.includes(k)));
     const cs = new Map();
-    mis.forEach(x => { if (x.peds.length > 1 && !ks.includes(x.peds[0])) return; let c = null; try { c = nunCobroDeDoc(x.t, x.d); } catch(e){} if (c && es(c.cliente) && !/cancel/i.test(String(c.estatus||''))) cs.set(c.id, c); });
+    mis.forEach(x => { if (x.soloVer || (x.peds.length > 1 && !ks.includes(x.peds[0]))) return; let c = null; try { c = nunCobroDeDoc(x.t, x.d); } catch(e){} if (c && es(c.cliente) && !/cancel/i.test(String(c.estatus||''))) cs.set(c.id, c); });
     cobs.forEach(c => { if (!/cancel/i.test(String(c.estatus||'')) && (String(c.factura_origen) === String(p.id) || ks.some(k => String(c.descripcion||'').toUpperCase().includes('[PEDIDO ' + String(k).toUpperCase() + ']')))) cs.set(c.id, c); });
     const total = +p.total || 0, falta = Math.max(0, nunR2([...cs.values()].reduce((a, c) => a + Math.max(0, +c.pendiente||0), 0)));
-    return { p, total, falta, pagado: nunR2(total - falta), docs: mis.map(x => ({ L: x.L, folio: nunFolioStr(x.d), comparte: x.peds.length > 1 ? x.peds.filter(k => !ks.includes(k)) : [] })) };
+    return { p, total, falta, pagado: nunR2(total - falta), docs: mis.map(x => ({ L: x.L, folio: nunFolioStr(x.d), comparte: !x.soloVer && x.peds.length > 1 ? x.peds.filter(k => !ks.includes(k)) : [], bor: !!x.bor })) };
   }).sort((a, b) => String(a.p.fecha||'').localeCompare(String(b.p.fecha||'')));
 }
 function nunPedidosExcelHTML(cli){
@@ -4193,7 +4199,7 @@ function nunPedidosExcelHTML(cli){
     <div style="border:1px solid var(--line);border-radius:6px;overflow:auto"><table class="dt" style="font-size:12px">
     <thead><tr><th>Fecha</th><th>Pedido</th><th class="right">Total</th><th class="right">Pagado</th><th class="right">Falta</th><th>Documentos</th></tr></thead><tbody>
     ${R.map(x => `<tr style="cursor:pointer" onclick="abrirDoc('pedidos',${escapeHTML(JSON.stringify(String(x.p.id)))})"><td>${fmtFecha(x.p.fecha)}</td><td class="mono"><b>${escapeHTML(nunFolioStr(x.p))}</b></td><td class="right mono">${fmtFull(x.total)}</td><td class="right mono">${fmtFull(x.pagado)}</td><td class="right mono" style="color:${x.falta > 0.5 ? 'var(--accent)' : 'var(--green)'}">${x.falta > 0.5 ? fmtFull(x.falta) : '$0 ✓'}</td>
-      <td style="font-size:11.5px">${x.docs.map(d => escapeHTML(d.L + ' ' + d.folio) + (d.comparte.length ? ' <span class="tag amber" style="font-size:10px">comparte factura con ' + escapeHTML(d.comparte.join(', ')) + '</span>' : '')).join(', ') || '<span style="color:var(--mute)">sin documentos</span>'}</td></tr>`).join('')}
+      <td style="font-size:11.5px">${x.docs.map(d => escapeHTML(d.L + ' ' + d.folio) + (d.bor ? ' <span class="tag" style="font-size:10px">borrador</span>' : '') + (d.comparte.length ? ' <span class="tag amber" style="font-size:10px">comparte factura con ' + escapeHTML(d.comparte.join(', ')) + '</span>' : '')).join(', ') || '<span style="color:var(--mute)">sin documentos</span>'}</td></tr>`).join('')}
     <tr style="font-weight:600"><td></td><td>Total</td><td class="right mono">${T('total')}</td><td class="right mono">${T('pagado')}</td><td class="right mono">${T('falta')}</td><td></td></tr>
     </tbody></table></div></details>`;
 }
@@ -12223,6 +12229,32 @@ setTimeout(actualizarIconoDark, 50);
 
 function toggleNav() { $('#appSidenav').classList.toggle('open'); }
 
+
+// v4.60 — tocar el logo NUN = ACTUALIZAR: si hay versión nueva publicada recarga la página (sin memoria vieja);
+// si no, vuelve a bajar del servidor las tablas que estás usando y redibuja la pantalla (Rafa, 29 oct 2026).
+let _nunActualizando = false;
+async function nunActualizarTodo(){
+  if (_nunActualizando) return; _nunActualizando = true;
+  const box = document.querySelector('.nun-logo-box'); if (box) box.style.opacity = '.5';
+  toast('🔄 Actualizando…', { duration:1500 });
+  try {
+    if (/^https?:$/.test(location.protocol)) {
+      try { const r = await fetch(location.pathname + '?_v=' + Date.now(), { cache:'no-store' });
+        if (r.ok) { const t = await r.text(), re = /rwd-version\">v(\d+\.\d+)/, m = t.match(re), yo = (document.documentElement.innerHTML.match(re) || [])[1];
+          if (m && yo && m[1] !== yo) { location.replace(location.pathname + '?v=' + m[1].replace('.', '') + '&t=' + Date.now() + location.hash); return; } } } catch(e){}
+    }
+    const base = ['clientes','productos','cotizaciones','pedidos','remisiones','facturas','notascredito','cobranza','ingresos'];
+    const usadas = Object.keys(State.data || {}).filter(t => Array.isArray(State.data[t]) && State.data[t].length && !/Todos$|Duplicados$/.test(t));
+    const tablas = [...new Set(base.concat(usadas))].filter(t => t !== 'gastos' || nunEsDuenoGastos());
+    await Promise.all(tablas.map(t => cargarTabla(t, { ttl: 0 }).catch(()=>{})));
+    try { if (typeof kvPull === 'function') await kvPull(); } catch(e){}
+    try { _nunSitIdx = null; } catch(e){}
+    renderCurrent(); try { actualizarContadoresNav(); } catch(e){}
+    const fallo = tablas.filter(t => State._cargaOk && State._cargaOk[t] === false);
+    toast(fallo.length ? '⚠ No se pudo actualizar: ' + fallo.join(', ') + '. Revisa tu internet.' : '✓ Actualizado · ' + new Date().toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' }), { type: fallo.length ? 'error' : 'success' });
+  } finally { _nunActualizando = false; if (box) box.style.opacity = ''; }
+}
+window.nunActualizarTodo = nunActualizarTodo;
 // v4.52 — MODO TELÉFONO / MODO COMPU. localStorage nun_modo = 'cel' | 'compu' (sin elegir: teléfono si la pantalla es chica).
 function nunModoActual(){ let m = ''; try { m = localStorage.getItem('nun_modo') || ''; } catch(e){} if (m === 'cel' || m === 'compu') return m; return Math.min(screen.width || 9999, window.innerWidth || 9999) <= 880 ? 'cel' : 'compu'; }
 function nunAplicarModo(){

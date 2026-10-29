@@ -1771,6 +1771,10 @@ body.modo-cel .btn { min-height:42px; }
   body.modo-cel .app-main { max-width:520px; }
 }
 body.dark .nun-barra-cel { background:#fff; }
+
+/* v4.57 — Bind está apagado desde el 29 sep 2026: se esconden sus botones (sincronizar, cargar respaldo, migrar) para no picarles por error */
+button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:none !important; }
+.app-sidenav .nav-fav .nav-count { display:none; }
 </style>
 </head>
 <body>
@@ -1795,7 +1799,7 @@ body.dark .nun-barra-cel { background:#fff; }
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.56 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.57 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -1922,34 +1926,13 @@ body.dark .nun-barra-cel { background:#fff; }
     <span class="nav-text">Dashboard</span>
   </button>
 
+  <div class="nav-section" id="navFavSec">⭐ Favoritos</div>
+  <div class="nav-section" id="navRecSec" style="display:none">🕘 Recientes</div>
+
   <div class="nav-section">Ventas</div>
   <button class="nav-btn" data-mod="cobranza" onclick="navegar('cobranza')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
     <span class="nav-text">Cobranza</span><span class="nav-count" id="navCobranza"></span>
-  </button>
-  <button class="nav-btn" data-mod="cuadre" onclick="navegar('cuadre')">
-    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="3" x2="12" y2="21"/><path d="M5 7l7-4 7 4"/><path d="M2 13l3-6 3 6a3 3 0 0 1-6 0z"/><path d="M16 13l3-6 3 6a3 3 0 0 1-6 0z"/></svg></span>
-    <span class="nav-text">Cuadre Excel vs Sistema</span><span class="nav-count" id="navCuadre"></span>
-  </button>
-  <button class="nav-btn" data-mod="import_cfdi" onclick="navegar('import_cfdi')">
-    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg></span>
-    <span class="nav-text">Importar CFDI (XML)</span>
-  </button>
-  <button class="nav-btn" data-mod="estados_fin" onclick="navegar('estados_fin')">
-    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="4" width="3" height="14"/></svg></span>
-    <span class="nav-text">Estados Financieros</span>
-  </button>
-  <button class="nav-btn" data-mod="resultados_mes" onclick="navegar('resultados_mes')">
-    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg></span>
-    <span class="nav-text">Resultados por mes</span>
-  </button>
-  <button class="nav-btn" data-mod="cotizador" onclick="navegar('cotizador')">
-    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg></span>
-    <span class="nav-text">Cotizador y márgenes</span>
-  </button>
-  <button class="nav-btn" data-mod="adquisicion" onclick="navegar('adquisicion')">
-    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18l-2 13H5L3 7z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg></span>
-    <span class="nav-text">Adquisición de mercancía</span>
   </button>
   <button class="nav-btn" data-mod="clientes" onclick="navegar('clientes')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
@@ -1978,6 +1961,24 @@ body.dark .nun-barra-cel { background:#fff; }
   <button class="nav-btn" data-mod="notascredito" onclick="navegar('notascredito')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></span>
     <span class="nav-text">Notas de crédito</span><span class="nav-count" id="navNC"></span>
+  </button>
+
+  <div class="nav-section">Contabilidad</div>
+  <button class="nav-btn" data-mod="estados_fin" onclick="navegar('estados_fin')">
+    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="4" width="3" height="14"/></svg></span>
+    <span class="nav-text">Estados Financieros</span>
+  </button>
+  <button class="nav-btn" data-mod="resultados_mes" onclick="navegar('resultados_mes')">
+    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg></span>
+    <span class="nav-text">Resultados por mes</span>
+  </button>
+  <button class="nav-btn" data-mod="cotizador" onclick="navegar('cotizador')">
+    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg></span>
+    <span class="nav-text">Cotizador y márgenes</span>
+  </button>
+  <button class="nav-btn" data-mod="adquisicion" onclick="navegar('adquisicion')">
+    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18l-2 13H5L3 7z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg></span>
+    <span class="nav-text">Adquisición de mercancía</span>
   </button>
 
   <div class="nav-section">Compras</div>
@@ -2130,6 +2131,16 @@ body.dark .nun-barra-cel { background:#fff; }
   <button class="nav-btn" data-mod="comisiones" onclick="navegar('comisiones')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
     <span class="nav-text">Comisiones</span>
+  </button>
+
+  <div class="nav-section">Herramientas</div>
+  <button class="nav-btn" data-mod="cuadre" onclick="navegar('cuadre')">
+    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="3" x2="12" y2="21"/><path d="M5 7l7-4 7 4"/><path d="M2 13l3-6 3 6a3 3 0 0 1-6 0z"/><path d="M16 13l3-6 3 6a3 3 0 0 1-6 0z"/></svg></span>
+    <span class="nav-text">Cuadre Excel vs Sistema</span><span class="nav-count" id="navCuadre"></span>
+  </button>
+  <button class="nav-btn" data-mod="import_cfdi" onclick="navegar('import_cfdi')">
+    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg></span>
+    <span class="nav-text">Importar CFDI (XML)</span>
   </button>
 
   <div class="nav-section">Administración</div>
@@ -3133,11 +3144,35 @@ function aplicarPermisosNav(){
       sec.style.display = algunoVisible ? '' : 'none';
     });
   } catch(e){ console.warn('aplicarPermisosNav', e); }
+  nunNavFavs(); // v4.57
 }
 window.aplicarPermisosNav = aplicarPermisosNav;
 
+
+// v4.57 — ⭐ FAVORITOS y 🕘 RECIENTES arriba del menú (Rafa, 29 oct 2026). Favoritos fijos (los que más usa) + los últimos
+// módulos que abrió. Son copias de los botones del menú (mismo data-mod), así se marcan activos igual.
+const NUN_FAV_BASE = ['clientes','productos','pedidos','facturas','remisiones','cobranza'];
+function nunUsoRegistrar(mod){ if (!mod || mod === 'dashboard' || mod === 'oracle_dashboard') return;
+  try { const u = JSON.parse(localStorage.getItem('nun_uso_mod') || '{}'); u[mod] = { n: ((u[mod]||{}).n || 0) + 1, t: Date.now() }; localStorage.setItem('nun_uso_mod', JSON.stringify(u)); } catch(e){} }
+function nunNavFavs(){
+  try {
+    const fav = document.getElementById('navFavSec'), rec = document.getElementById('navRecSec'); if (!fav || !rec) return;
+    document.querySelectorAll('.app-sidenav .nav-fav').forEach(b => b.remove());
+    let favs = NUN_FAV_BASE; try { const f = JSON.parse(localStorage.getItem('nun_favoritos') || 'null'); if (Array.isArray(f) && f.length) favs = f; } catch(e){}
+    let uso = {}; try { uso = JSON.parse(localStorage.getItem('nun_uso_mod') || '{}'); } catch(e){}
+    const recientes = Object.keys(uso).filter(m => !favs.includes(m)).sort((a, b) => uso[b].t - uso[a].t).slice(0, 3);
+    const copia = m => { const o = document.querySelector('.app-sidenav .nav-btn[data-mod="' + m + '"]:not(.nav-fav)'); if (!o || o.classList.contains('perm-hidden')) return null;
+      const c = o.cloneNode(true); c.classList.add('nav-fav'); c.classList.remove('group-hidden'); c.querySelectorAll('[id]').forEach(x => x.removeAttribute('id')); return c; };
+    let ancla = fav; const cf = favs.map(copia).filter(Boolean); cf.forEach(c => { ancla.after(c); ancla = c; }); fav.style.display = cf.length ? '' : 'none';
+    ancla = rec; const cr = recientes.map(copia).filter(Boolean); cr.forEach(c => { ancla.after(c); ancla = c; }); rec.style.display = cr.length ? '' : 'none';
+    [fav, rec].forEach(sec => { if (sec.classList.contains('collapsed') && typeof rwdApplyGroupVisibility === 'function') rwdApplyGroupVisibility(sec); });
+    if (State && State.modulo) document.querySelectorAll('.app-sidenav .nav-fav').forEach(b => b.classList.toggle('active', b.dataset.mod === State.modulo));
+  } catch(e){ console.warn('nunNavFavs', e); }
+}
+window.nunNavFavs = nunNavFavs;
 function navegar(mod, params) {
   if (!moduloPermitido(mod)) { toast('No tienes permiso para ver ese módulo', { type:'error' }); return; }
+  nunUsoRegistrar(mod); // v4.57
   State.modulo = mod;
   location.hash = '#/' + mod + (params ? '?' + new URLSearchParams(params).toString() : '');
   renderCurrent();
@@ -3152,6 +3187,7 @@ function renderCurrent() {
   State.modulo = modulo;
   // Highlight sidebar
   $$('.app-sidenav .nav-btn').forEach(b => b.classList.toggle('active', b.dataset.mod === modulo));
+  if (typeof nunNavFavs === 'function' && !document.querySelector('.app-sidenav .nav-fav[data-mod="' + modulo + '"]')) setTimeout(nunNavFavs, 0); // v4.57
   // Breadcrumbs
   $('#breadcrumbs').innerHTML = `<span>NUN ERP</span> <span>›</span> <strong>${escapeHTML(MODULOS[modulo]?.label || modulo)}</strong>`;
   // Render
@@ -3176,8 +3212,9 @@ function renderCurrent() {
     main.innerHTML = `<div class="placeholder-pane"><h3>Error renderizando</h3><p>${escapeHTML(e.message)}</p></div>`;
     console.error(e);
   }
-  // Móvil: cerrar sidenav después de navegar
-  if (window.innerWidth <= 880) $('#appSidenav').classList.remove('open');
+  // Móvil: cerrar sidenav después de navegar (v4.57: solo si cambió de pantalla; un refresco no cierra el menú)
+  if (window.innerWidth <= 880 && window._nunModCerrado !== modulo) $('#appSidenav').classList.remove('open');
+  window._nunModCerrado = modulo;
 }
 
 /* ============================================================
@@ -15672,14 +15709,14 @@ function nunAdqCalc(st){
   // promedio ponderado por modelo (sin ML); los individuales Z por modelo + medida
   const k = l => l.mo.familia === 'YH' ? 'YH' : (l.mo.z ? 'Z' + (l.mo.modelo || l.sku) + (l.mo.med ? '-' + l.mo.med : '') : (l.mo.modelo || l.sku));
   const prom = new Map();
-  lineas.filter(l => !l.ml).forEach(l => { const p = prom.get(k(l)) || { q:0, v:0, colores:new Map() }; p.q += l.q; p.v += l.q * l.pu;
+  lineas.filter(l => !l.ml).forEach(l => { const p = prom.get(k(l)) || { q:0, v:0, min:Infinity, colores:new Map() }; p.q += l.q; p.v += l.q * l.pu; p.min = Math.min(p.min, l.pu);
     const c = p.colores.get(l.sku) || { q:0, v:0, mod:l.mo.modelo }; c.q += l.q; c.v += l.q * l.pu; p.colores.set(l.sku, c); prom.set(k(l), p); });
   const precioModelo = new Map();
   prom.forEach((p, key) => {
-    const calc = _adqLimpio(p.v / p.q * 0.8), ref = precios[key] != null ? +precios[key] : (key.startsWith('Z') ? +precios[key] || 0 : 0);
+    const calc = _adqLimpio(p.min * 0.8), ref = precios[key] != null ? +precios[key] : (key.startsWith('Z') ? +precios[key] || 0 : 0);
     let final = calc, fuente = 'calculado';
     if (ref > 0) { final = ref; fuente = 'referencia'; } // v4.54 — los precios que ya tiene Rafa no se mueven
-    else avisos.push({ t:'nuevo', m:`${key}: modelo sin precio de referencia. Puse ${_adqMon(calc)} (80% de lo vendido, ${_adqMon(p.v / p.q)} promedio). Confírmalo y define su clave SAT si no es la correcta.` });
+    else avisos.push({ t:'nuevo', m:`${key}: modelo sin precio de referencia. Puse ${_adqMon(calc)} (80% del precio más bajo al que se vendió, ${_adqMon(p.min)}). Al guardar en el historial se queda como su precio para los siguientes meses.` });
     const porMod = new Map(); p.colores.forEach(c => { (porMod.get(c.mod) || porMod.set(c.mod, []).get(c.mod)).push(c.v / c.q); }); // v4.55 colores del MISMO modelo
     porMod.forEach((cs, mod) => { if (cs.length > 1 && (Math.max(...cs) - Math.min(...cs)) / Math.min(...cs) > 0.10)
       avisos.push({ t:'variacion', m:`${mod || key}: entre colores el precio de venta varía más de 10% (${_adqMon(Math.min(...cs))} a ${_adqMon(Math.max(...cs))}). Puede ser mayoreo mezclado con menudeo.` }); });
@@ -15762,7 +15799,9 @@ function renderAdquisicion(){
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px">
       ${Object.keys(cfg.precios).sort().map(k => `<div class="field"><label>${k === 'YH' ? 'YH (mochilas)' : esc(k)}</label><input style="${inp}" inputmode="decimal" value="${esc(cfg.precios[k])}" onchange="nunAdqRef('${esc(k)}',this.value)"></div>`).join('')}
       <div class="field"><label>Agregar modelo (ej. ZRL004-18)</label><input style="${inp}" placeholder="MODELO=precio" onchange="nunAdqRefNuevo(this.value)"></div></div></details>
-    ${cfg.historial.length ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">Historial (${cfg.historial.length})</summary>${cfg.historial.slice().reverse().map(h => `<div style="padding:4px 0;font-size:13px">${esc(_adqMes(h.mes))} · ${esc(h.fecha)} · ${esc((h.facturas||[]).join(', '))} · total ${_adqMon(h.total)}${h.totalML ? ' + ML ' + _adqMon(h.totalML) : ''} · ${esc(h.por||'')}</div>`).join('')}</details>` : ''}`;
+    ${cfg.historial.length ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">Historial (${cfg.historial.length})</summary>${cfg.historial.map((h, i) => [h, i]).reverse().map(([h, i]) => `<div style="padding:6px 0;font-size:13px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--line);${h.estatus === 'cancelada' ? 'opacity:.5;text-decoration:line-through' : ''}">
+      <span>${esc(_adqMes(h.mes))} · ${esc(h.fecha)} · ${esc((h.facturas||[]).join(', '))} · total ${_adqMon(h.total)}${h.totalML ? ' + ML ' + _adqMon(h.totalML) : ''} · ${esc(h.por||'')}${h.estatus === 'cancelada' ? ' · CANCELADA' : ''}</span>
+      ${h.estatus === 'cancelada' ? '' : `<button class="btn btn-ghost" style="min-height:0;padding:2px 8px" onclick="nunAdqCancelarHist(${i})">✕ Cancelar (se guardó por error)</button>`}</div>`).join('')}</details>` : ''}`;
 }
 function nunAdqSet(k, v, sinRender){ const st = _adqEstado(); st[k] = v; if (k === 'mes') { st.fecha = nunAdqUltimoHabil(v); st.ml = {}; st.override = {}; _adqMesCargar(st); } if (!sinRender) renderCurrent(); }
 function nunAdqIncluir(id, si){ const st = _adqEstado(); st.fuera = (st.fuera||[]).filter(x => x !== id); if (!si) st.fuera.push(id); renderCurrent(); _adqMesGuardar(); }
@@ -15777,18 +15816,26 @@ function nunAdqAgregar(id){
   if (!f) return;
   const st = _adqEstado(); if (!st.extra.includes(f.id)) st.extra.push(f.id); renderCurrent(); _adqMesGuardar();
 }
-// v4.56 — sugerencias: facturas timbradas de los últimos 5 días del mes anterior (ej. las del 30 sep que entran en octubre)
+// v4.56/v4.57 — sugerencias: facturas timbradas de los 2 últimos días con facturas del mes anterior (ej. las del 30 sep que entran en octubre)
 function _adqSugeridas(st, yaEstan){
   const [y, m] = st.mes.split('-').map(Number), ant = _tabMes(new Date(y, m - 2, 1)), fin = nunAdqUltimoHabil(ant), desde = nunHoy(new Date(new Date(fin + 'T12:00:00').getTime() - 6 * 864e5));
-  return (State.data.facturas||[]).filter(f => f.estatus === 'timbrada' && String(f.fecha||'').slice(0, 7) === ant && String(f.fecha).slice(0, 10) >= desde && !yaEstan.has(f.id))
+  const cand = (State.data.facturas||[]).filter(f => f.estatus === 'timbrada' && String(f.fecha||'').slice(0, 7) === ant && String(f.fecha).slice(0, 10) >= desde)
     .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+  const dias = [...new Set(cand.map(f => String(f.fecha).slice(0, 10)))].slice(0, 2); // v4.57 — solo los 2 últimos días con facturas
+  return cand.filter(f => dias.includes(String(f.fecha).slice(0, 10)) && !yaEstan.has(f.id));
 }
 async function nunAdqProv(k, v){ const c = nunAdqConfig(); c.proveedor[k] = String(v).trim(); await nunAdqGuardarConfig(c); renderCurrent(); }
 async function nunAdqRef(k, v){ const c = nunAdqConfig(); if (String(v).trim() === '') delete c.precios[k]; else c.precios[k] = +String(v).replace(/[$,]/g, ''); await nunAdqGuardarConfig(c); renderCurrent(); }
 async function nunAdqRefNuevo(t){ const m = String(t).toUpperCase().match(/^\s*([A-Z0-9-]+)\s*=\s*([\d.,]+)\s*$/); if (!m) { toast('Escríbelo así: ZRL004-18=345', { type:'error' }); return; } await nunAdqRef(m[1], m[2]); }
+async function nunAdqCancelarHist(i){ // v4.57 — no se borra: queda marcada como cancelada
+  const c = nunAdqConfig(), h = c.historial[i]; if (!h) return;
+  if (!(await confirmDialog({ title:'¿Cancelar esta solicitud?', message:`${_adqMes(h.mes)} · total ${_adqMon(h.total)}. Queda en el historial como CANCELADA (no se borra).`, ok:'Cancelar solicitud', danger:true }))) return;
+  h.estatus = 'cancelada'; h.cancelada = new Date().toISOString(); const ok = await nunAdqGuardarConfig(c); renderCurrent(); toast(ok ? '✓ Marcada como cancelada' : '⚠ No se pudo guardar en el servidor', { type: ok ? 'success' : 'error' });
+}
 async function nunAdqGuardar(){
   const st = _adqEstado(), R = nunAdqCalc(st), c = nunAdqConfig();
-  c.historial.push({ mes: st.mes, fecha: st.fecha, metodo: st.metodo, facturas: R.FF.filter(x => x.incluir).map(x => x.f.folio), ml: R.FF.filter(x => x.incluir && x.ml).map(x => x.f.folio),
+  R.precioModelo.forEach((v, key) => { if (v.fuente === 'calculado' && v.final > 0 && st.metodo !== 'costo') c.precios[key] = v.final; }); // v4.57 el precio de un modelo nuevo se queda fijo
+  c.historial.push({ id: 'adq_' + Date.now(), estatus: 'activa', mes: st.mes, fecha: st.fecha, metodo: st.metodo, facturas: R.FF.filter(x => x.incluir).map(x => x.f.folio), ml: R.FF.filter(x => x.incluir && x.ml).map(x => x.f.folio),
     total: R.totN.total, totalML: R.totML.total, partidas: R.normal.map(p => [p.q, p.desc, p.clave, p.pu]), partidasML: R.ml.map(p => [p.q, p.desc, p.clave, p.pu]),
     guardado: new Date().toISOString(), por: (State.sesion && State.sesion.usuario && State.sesion.usuario.nombre) || '' });
   const ok = await nunAdqGuardarConfig(c); renderCurrent(); toast(ok ? '✓ Guardada en el historial' : '⚠ No se pudo guardar en el servidor', { type: ok ? 'success' : 'error' });
@@ -15844,7 +15891,7 @@ async function nunAdqExcel(){
 }
 window.renderAdquisicion = renderAdquisicion; window.nunAdqCalc = nunAdqCalc; window.nunAdqModelo = nunAdqModelo; window.nunAdqDescripcion = nunAdqDescripcion; window._adqEstado = _adqEstado;
 window.nunAdqSet = nunAdqSet; window.nunAdqIncluir = nunAdqIncluir; window.nunAdqML = nunAdqML; window.nunAdqPrecio = nunAdqPrecio; window.nunAdqAgregar = nunAdqAgregar;
-window.nunAdqQuitarExtra = nunAdqQuitarExtra; window.nunAdqProv = nunAdqProv; window.nunAdqRef = nunAdqRef; window.nunAdqRefNuevo = nunAdqRefNuevo; window.nunAdqGuardar = nunAdqGuardar; window.nunAdqExcel = nunAdqExcel;
+window.nunAdqQuitarExtra = nunAdqQuitarExtra; window.nunAdqCancelarHist = nunAdqCancelarHist; window.nunAdqProv = nunAdqProv; window.nunAdqRef = nunAdqRef; window.nunAdqRefNuevo = nunAdqRefNuevo; window.nunAdqGuardar = nunAdqGuardar; window.nunAdqExcel = nunAdqExcel;
 
 /* ============================================================
    v3.38 — TIMBRADO DIRECTO con Facturama (PAC)

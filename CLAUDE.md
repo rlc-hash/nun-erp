@@ -112,6 +112,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   si es modelo nuevo, promedio ponderado vendido × 0.80 redondeado. Carry on y piezas Z = 53121503 (kv `nun_adquisicion`: proveedor, precios, historial). ML/Amazon se suma con los demás con los mismos precios (v4.55). Claves SAT YH 24111514 · Z/INDIVIDUAL 53121503 ·
   RL/SF 53121502. v4.56: sugiere las timbradas de los últimos días del mes anterior (＋ con un toque) y lo agregado/quitado
   se guarda por mes (`meses` en el kv). Avisos antes de pedirla. Excel con el formato de su SOLICITUD DE FACTURA (ExcelJS de cdnjs). Prueba `prueba_v453_adquisicion.js`.
+- v4.57 Menú: ⭐ Favoritos (Clientes, Productos, Pedidos, Facturas, Remisiones, Cobranza; localStorage `nun_favoritos` para cambiarlos) y 🕘 Recientes
+  (últimos 3 que abrió, `nun_uso_mod`), sección **Contabilidad** (Estados Financieros, Resultados por mes, Cotizador, Adquisición), **Herramientas**
+  (Cuadre Excel, Importar CFDI). Botones de Bind escondidos por CSS (`button[onclick*="Bind"]`, `rwdSync`, `.rwd-sync-bar`). En el teléfono el menú
+  solo se cierra al cambiar de pantalla (antes un refresco lo cerraba). Adquisición: modelo nuevo = 80% del precio MÁS BAJO y al guardar queda como
+  referencia; sugerencias = 2 últimos días con facturas; solicitudes del historial se cancelan (no se borran). Prueba `prueba_v457_menu.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

@@ -10,7 +10,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   {id:'f1',folio:'FT0101',fecha:'2026-10-05',cliente:'CLIENTE A',estatus:'timbrada',subtotal:0,items_json:JSON.stringify([it('RL001N','MALETA PP RL001 NEGRO',10,1350),it('SF003R','MALETA TELA SF003 ROJO',2,1500)])},
   {id:'f2',folio:'FT0102',fecha:'2026-10-08',cliente:'Público en General',estatus:'timbrada',notas:'Amazon ML, Sep',items_json:JSON.stringify([it('YH002N','MOCHILA YH002 NEGRO',2,290)])},
   {id:'f3',folio:'FT0103',fecha:'2026-10-09',cliente:'CLIENTE B',estatus:'cancelada',items_json:'[]'},
-  {id:'f4',folio:'FT0099',fecha:'2026-09-30',cliente:'CLIENTE C',estatus:'timbrada',items_json:JSON.stringify([it('ZSF006N22','MALETA NYLON NEGRO 22',4,500),it('YHO12R','MOCHILA',1,300)])}];
+  {id:'f4',folio:'FT0099',fecha:'2026-09-30',cliente:'CLIENTE C',estatus:'timbrada',items_json:JSON.stringify([it('ZSF006N22','MALETA NYLON NEGRO 22',4,500),it('ZSF006G22','MALETA NYLON GRIS 22',1,450),it('YHO12R','MOCHILA',1,300)])}];
  const P=[{id:'p1',sku:'RL001N',descripcion:'MALETA PP RL001 NEGRO',costo:900,costo_factura:800}];
  const dom=new JSDOM(fs.readFileSync(process.env.NUN_INDEX||'index.html','utf8'),{runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,url:'https://rlc-hash.github.io/nun-erp/',
   beforeParse(w){ w.localStorage.setItem('nun_sesion_v2',JSON.stringify({codigo:COD,usuario:{codigo:COD,nombre:'Rafa',rol:'admin'},permisos:{},ts:1}));
@@ -29,7 +29,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   const busca=d=>R.n.find(p=>p[1].includes(d));
   if(!busca('RL001')||busca('RL001')[3]!==1100||busca('RL001')[2]!=='53121502') r.fallas.push('referencia');
   if(!busca('SF003')||busca('SF003')[3]!==1478) r.fallas.push('nuevo');
-  if(!busca('22 PULGADAS')||busca('22 PULGADAS')[2]!=='53121503'||busca('22 PULGADAS')[3]!==400) r.fallas.push('individual');
+  if(!busca('22 PULGADAS')||busca('22 PULGADAS')[2]!=='53121503'||R.n.filter(p=>/22 PULGADAS/.test(p[1])).some(p=>p[3]!==360)) r.fallas.push('individual'); // v4.57 80% del más bajo (450) para todos los colores
   if(R.m.length!==0||!busca('MOCHILA YH002 NEGRO')||busca('MOCHILA YH002 NEGRO')[3]!==110) r.fallas.push('ml'); // v4.55 ML va junto
   ['nuevo','typo','canceladas'].forEach(t=>{ if(!R.a.includes(t)) r.fallas.push('aviso-'+t); });
   if(R.tn.sub!==+(R.n.reduce((s,p)=>s+p[0]*p[3],0)).toFixed(2)||R.tn.iva!==+(R.tn.sub*0.16).toFixed(2)) r.fallas.push('totales');
@@ -52,8 +52,16 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   if(!r.guardado||r.guardado.extra.join()!=='f4') r.fallas.push('guardar-mes');
   w.eval("nunAdqSet('mes','2026-09')"); w.eval("nunAdqSet('mes','2026-10')"); await sleep(200);
   if(w.eval("_adqEstado().extra.join()")!=='f4') r.fallas.push('recordar');
+  // v4.57 — guardar fija el precio del modelo nuevo; cancelar una solicitud no la borra
+  w.eval("window.confirmDialog=async()=>true");
+  await w.eval("nunAdqGuardar()"); await sleep(300);
+  const cfg=JSON.parse(w.localStorage.getItem('nun_adquisicion')||'{}'); r.refNueva=cfg.precios&&cfg.precios['ZSF006-22'];
+  if(r.refNueva!==360) r.fallas.push('ref-nueva');
+  await w.eval("nunAdqCancelarHist(0)"); await sleep(300);
+  const cfg2=JSON.parse(w.localStorage.getItem('nun_adquisicion')||'{}'); r.hist=cfg2.historial.map(h=>h.estatus);
+  if(r.hist.join()!=='cancelada') r.fallas.push('cancelar');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(5[6-9]|[6-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v4\.(5[7-9]|[6-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

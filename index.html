@@ -1795,7 +1795,7 @@ body.dark .nun-barra-cel { background:#fff; }
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.53 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.54 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -15599,8 +15599,8 @@ window.nunCotAplicarProductos = nunCotAplicarProductos; window.nunCotMargenesCal
 // Cada mes Rafa le pide a su proveedor (Calix) una factura de compra (CFDI G01, PPD, forma 99) a nombre de Comercializadora
 // Casraf, armada con lo que SÍ facturó ese mes. Reglas de su prompt:
 //  · Facturas timbradas del mes (se pueden quitar o agregar otras, ej. las del 30 sep que entran en octubre).
-//  · Precio por modelo = promedio ponderado de lo vendido (sin IVA) × 0.80, redondeado a número limpio; si queda cerca (±10%)
-//    del precio de referencia, se usa el de referencia (consistencia). Alternativa: costo real del catálogo.
+//  · Precio por modelo: si ya tiene precio de referencia, ESE (v4.54: no se mueve); si es modelo nuevo, promedio ponderado de lo
+//    vendido (sin IVA) × 0.80 redondeado (y avisa). Alternativa: costo real del catálogo. Clave SAT 02 = sets, 03 = individual y carry on.
 //  · Facturas de Mercado Libre / Amazon: fuera del promedio; su precio = su venta × 0.80 y van en factura aparte.
 //  · Clave SAT: YH = 24111514 (mochila) · Z… o "INDIVIDUAL" = 53121503 · RL/SF = 53121502. Unidad H87 PIEZA.
 //  · Avisa: modelos sin precio de referencia, variación >10% entre colores, SKU con typo (YHO12), Público en General que no es ML,
@@ -15608,7 +15608,7 @@ window.nunCotAplicarProductos = nunCotAplicarProductos; window.nunCotMargenesCal
 // El Excel sale en el formato de su "SOLICITUD DE FACTURA" (ExcelJS). Datos en kv nun_adquisicion (precios, proveedor, historial).
 // ============================================================
 const NUN_ADQ_KEY = 'nun_adquisicion';
-const NUN_ADQ_PRECIOS_BASE = { RL001:1100, RL004:1870, RL005:930, RL006:930, RL007:930, RL008:1010, SF006:1150, SF007:1100, YH:110 };
+const NUN_ADQ_PRECIOS_BASE = { RL001:1100, RL004:1870, RL005:930, RL006:930, RL007:930, RL008:1010, SF003:1478, SF004:1478, SF006:1150, SF007:1100, YH:110 }; // v4.54 SF003/SF004 = 1478 (Rafa)
 const NUN_ADQ_CLIENTE = { razon:'COMERCIALIZADORA CASRAF S.A. DE C.V.', rfc:'CCA250120SX3',
   domicilio:'PARQUE DE GRANADA No. 71 PB 4 OFICINA 10, Col. Parques de la Herradura, Huixquilucan, Estado de México, C.P. 52786' };
 function nunAdqConfig(){
@@ -15628,9 +15628,10 @@ function nunAdqModelo(sku){
   const num = m[3].length === 2 ? '0' + m[3] : m[3].slice(0, 3);
   return { modelo: m[1] + num, familia: m[1], z, med: z ? med : '', typo: !!m[2] };
 }
-function nunAdqClaveSat(mo, desc){
+function nunAdqClaveSat(mo, desc, sku){
   if (mo.familia === 'YH') return '24111514';
-  if (mo.z || /INDIVIDUAL/i.test(desc||'')) return '53121503';
+  // v4.54 — terminación 02 = sets; 03 = pieza individual y carry on (Rafa)
+  if (mo.z || /INDIVIDUAL|CARRY/i.test(desc||'') || /^RL0*(9|10|11|12)CO/i.test(String(sku||''))) return '53121503';
   if (mo.familia === 'RL' || mo.familia === 'SF') return '53121502';
   return '';
 }
@@ -15667,7 +15668,7 @@ function nunAdqCalc(st){
   usar.forEach(x => { let items = []; try { items = JSON.parse(x.f.items_json || '[]'); } catch(e){}
     if (!items.length) avisos.push({ t:'falta', m:`La factura ${x.f.folio} no tiene productos capturados: no entra en la solicitud.` });
     items.forEach(it => { const q = +it.cantidad || 0; if (!q) return; const sku = String(it.sku||'').toUpperCase().trim(), mo = nunAdqModelo(sku), prod = porSku.get(sku);
-      lineas.push({ fol: x.f.folio, ml: x.ml, sku, q, pu: nunCalcLinea(it, true).base / q, mo, prod, desc: nunAdqDescripcion(it, mo, prod), clave: nunAdqClaveSat(mo, (prod && prod.descripcion) || it.descripcion) }); }); });
+      lineas.push({ fol: x.f.folio, ml: x.ml, sku, q, pu: nunCalcLinea(it, true).base / q, mo, prod, desc: nunAdqDescripcion(it, mo, prod), clave: nunAdqClaveSat(mo, ((prod && prod.descripcion) || '') + ' ' + (it.descripcion || ''), sku) }); }); });
   // promedio ponderado por modelo (sin ML); los individuales Z por modelo + medida
   const k = l => l.mo.familia === 'YH' ? 'YH' : (l.mo.z ? 'Z' + (l.mo.modelo || l.sku) + (l.mo.med ? '-' + l.mo.med : '') : (l.mo.modelo || l.sku));
   const prom = new Map();
@@ -15677,8 +15678,7 @@ function nunAdqCalc(st){
   prom.forEach((p, key) => {
     const calc = _adqLimpio(p.v / p.q * 0.8), ref = precios[key] != null ? +precios[key] : (key.startsWith('Z') ? +precios[key] || 0 : 0);
     let final = calc, fuente = 'calculado';
-    if (ref > 0 && Math.abs(calc - ref) / ref <= 0.10) { final = ref; fuente = 'referencia'; }
-    else if (ref > 0) avisos.push({ t:'precio', m:`${key}: el 80% de lo vendido da ${_adqMon(calc)} y tu precio de referencia es ${_adqMon(ref)} (más de 10% de diferencia). Puse ${_adqMon(calc)}; cámbialo si prefieres el de referencia.` });
+    if (ref > 0) { final = ref; fuente = 'referencia'; } // v4.54 — los precios que ya tiene Rafa no se mueven
     else avisos.push({ t:'nuevo', m:`${key}: modelo sin precio de referencia. Puse ${_adqMon(calc)} (80% de lo vendido, ${_adqMon(p.v / p.q)} promedio). Confírmalo y define su clave SAT si no es la correcta.` });
     const cs = [...p.colores.values()].map(c => c.v / c.q); if (cs.length > 1 && (Math.max(...cs) - Math.min(...cs)) / Math.min(...cs) > 0.10)
       avisos.push({ t:'variacion', m:`${key}: entre colores el precio de venta varía más de 10% (${_adqMon(Math.min(...cs))} a ${_adqMon(Math.max(...cs))}). Puede ser mayoreo mezclado con menudeo.` });
@@ -15704,7 +15704,7 @@ function nunAdqCalc(st){
   const canc = (State.data.facturas||[]).filter(f => String(f.fecha||'').slice(0, 7) === st.mes && /cancel/i.test(f.estatus||''));
   if (canc.length) avisos.push({ t:'canceladas', m:`Se omitieron ${canc.length} factura(s) cancelada(s) del mes: ${canc.map(f => f.folio).join(', ')}.` });
   const fuera = FF.filter(x => !x.incluir); if (fuera.length) avisos.push({ t:'fuera', m:`Quitaste a mano: ${fuera.map(x => x.f.folio).join(', ')}.` });
-  if (!String(cfg.proveedor.rfc||'').trim()) avisos.push({ t:'proveedor', m:`Falta el RFC y domicilio fiscal de ${cfg.proveedor.razon || 'el proveedor'} (no están en el sistema).` });
+  // v4.54 — RFC/domicilio del proveedor: si no están, los pone el proveedor (no es aviso)
   const vistos = new Set(); const av = avisos.filter(a => { if (vistos.has(a.m)) return false; vistos.add(a.m); return true; });
   return { FF, normal, ml, totN: tot(normal), totML: tot(ml), avisos: av, precioModelo, piezas: lineas.reduce((s, l) => s + l.q, 0),
     vendidoSinIva: nunR2(lineas.reduce((s, l) => s + l.q * l.pu, 0)) };

@@ -28,11 +28,14 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   // RL001: 1350×0.8=1080 → ref 1100 (±10%) · SF003: 1500×0.8=1200 nuevo · ZSF006-22: 500×0.8=400 nuevo, clave 53121503 · YH012 typo
   const busca=d=>R.n.find(p=>p[1].includes(d));
   if(!busca('RL001')||busca('RL001')[3]!==1100||busca('RL001')[2]!=='53121502') r.fallas.push('referencia');
-  if(!busca('SF003')||busca('SF003')[3]!==1200) r.fallas.push('nuevo');
+  if(!busca('SF003')||busca('SF003')[3]!==1478) r.fallas.push('nuevo');
   if(!busca('22 PULGADAS')||busca('22 PULGADAS')[2]!=='53121503'||busca('22 PULGADAS')[3]!==400) r.fallas.push('individual');
   if(R.m.length!==1||R.m[0][3]!==230||R.m[0][2]!=='24111514') r.fallas.push('ml');
-  ['nuevo','typo','canceladas','proveedor'].forEach(t=>{ if(!R.a.includes(t)) r.fallas.push('aviso-'+t); });
+  ['nuevo','typo','canceladas'].forEach(t=>{ if(!R.a.includes(t)) r.fallas.push('aviso-'+t); });
   if(R.tn.sub!==+(R.n.reduce((s,p)=>s+p[0]*p[3],0)).toFixed(2)||R.tn.iva!==+(R.tn.sub*0.16).toFixed(2)) r.fallas.push('totales');
+  // v4.54: carry on = 53121503 · referencia siempre (YH = 110)
+  r.carry=w.eval("nunAdqClaveSat(nunAdqModelo('RL009CON'),'MALETA CARRY ON RL009','RL009CON')");
+  if(r.carry!=='53121503'||!busca('MOCHILA YH012')||busca('MOCHILA YH012')[3]!==110) r.fallas.push('v454');
   // costo real
   const C=JSON.parse(w.eval("JSON.stringify(nunAdqCalc(Object.assign({},_adqEstado(),{metodo:'costo'})).normal.find(p=>/RL001/.test(p.desc)))"));
   if(C.pu!==800) r.fallas.push('costo');
@@ -41,7 +44,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   r.ultimoHabil=w.eval("[nunAdqUltimoHabil('2026-10'),nunAdqUltimoHabil('2026-11'),nunAdqUltimoHabil('2026-08')]");
   if(r.ultimoHabil.join()!=='2026-10-30,2026-11-30,2026-08-31') r.fallas.push('fecha');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(5[3-9]|[6-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v4\.(5[4-9]|[6-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

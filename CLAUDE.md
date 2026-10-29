@@ -108,8 +108,8 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   `.dt` como tarjetas (`nunCelEtiquetar` pone `data-l` con el título de la columna; MutationObserver), barra abajo Inicio/Cobranza/Clientes/Pedidos/Más;
   modo compu en el teléfono = viewport 1280 (se ve como en la computadora). Prueba `prueba_v452_modo_cel.js`.
 - v4.53 **Adquisición de mercancía** (menú, ver_financieros): solicitud mensual de factura de compra a Calix (CFDI G01, PPD, forma 99, cliente Casraf)
-  con las facturas timbradas del mes (se quitan/agregan, ej. del 30 sep). Precio = promedio ponderado vendido × 0.80 redondeado; ±10% del de referencia
-  → referencia (kv `nun_adquisicion`: proveedor, precios, historial). ML/Amazon aparte (venta × 0.80). Claves SAT YH 24111514 · Z/INDIVIDUAL 53121503 ·
+  con las facturas timbradas del mes (se quitan/agregan, ej. del 30 sep). Precio = el de referencia si existe (v4.54: no se mueve; SF003/SF004 1478);
+  si es modelo nuevo, promedio ponderado vendido × 0.80 redondeado. Carry on y piezas Z = 53121503 (kv `nun_adquisicion`: proveedor, precios, historial). ML/Amazon aparte (venta × 0.80). Claves SAT YH 24111514 · Z/INDIVIDUAL 53121503 ·
   RL/SF 53121502. Avisos antes de pedirla. Excel con el formato de su SOLICITUD DE FACTURA (ExcelJS de cdnjs). Prueba `prueba_v453_adquisicion.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

@@ -1795,7 +1795,7 @@ body.dark .nun-barra-cel { background:#fff; }
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.52 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.53 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -1946,6 +1946,10 @@ body.dark .nun-barra-cel { background:#fff; }
   <button class="nav-btn" data-mod="cotizador" onclick="navegar('cotizador')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2"/></svg></span>
     <span class="nav-text">Cotizador y márgenes</span>
+  </button>
+  <button class="nav-btn" data-mod="adquisicion" onclick="navegar('adquisicion')">
+    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18l-2 13H5L3 7z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg></span>
+    <span class="nav-text">Adquisición de mercancía</span>
   </button>
   <button class="nav-btn" data-mod="clientes" onclick="navegar('clientes')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
@@ -3067,7 +3071,7 @@ const NUN_MOD_PERMISO = {
   reservations:'ver_inventario', pick_lists:'ver_inventario', shipments:'ver_inventario', importaciones:'ver_inventario',
   ordenescompra:'ver_compras', recepciones:'ver_compras', ap_invoices:'ver_compras',
   ap_holds:'ver_compras', approvals:'ver_compras', pagosproveedores:'ver_compras', requisitions:'ver_compras',
-  estados_fin:'ver_financieros', resultados_mes:'ver_financieros', cotizador:'ver_financieros', coa:'ver_financieros', asientos:'ver_financieros',
+  estados_fin:'ver_financieros', resultados_mes:'ver_financieros', cotizador:'ver_financieros', adquisicion:'ver_financieros', coa:'ver_financieros', asientos:'ver_financieros',
   periodos:'ver_financieros', balance:'ver_financieros', estado_resultados:'ver_financieros',
   trial_balance:'ver_financieros', bank_accounts:'ver_financieros', bank_lines:'ver_financieros',
   bank_statements:'ver_financieros', cash_position:'ver_financieros', aging_detail:'ver_financieros',
@@ -7214,6 +7218,7 @@ const MODULOS = {
   estados_fin:  { label:'Estados Financieros', render: renderEstadosNUN, afterRender: afterRenderEstadosNUN },
   resultados_mes: { label:'Resultados por mes', render: () => renderResultadosMes() }, // v4.47
   cotizador:    { label:'Cotizador y márgenes', render: () => renderCotizador() }, // v4.48
+  adquisicion:  { label:'Adquisición de mercancía', render: () => renderAdquisicion() }, // v4.53
   clientes:     { label:'Clientes',     render: ()=>renderModuloGenerico('clientes'),     afterRender: ()=>afterRenderGenerico('clientes') },
   productos:    { label:'Productos',    render: ()=>renderModuloGenerico('productos'),    afterRender: ()=>afterRenderGenerico('productos') },
   proveedores:  { label:'Proveedores',  render: ()=>renderModuloGenerico('proveedores'),  afterRender: ()=>afterRenderGenerico('proveedores') },
@@ -12727,7 +12732,8 @@ const KV_KEYS_COMPARTIDAS = [
   'nun_cfdi_timbres', // v3.48 — timbres compactos (QR) compartidos y persistentes en el backend
   'nun_relaciones_clientes', // v4.17 — a nombre de quién se factura cada cliente
   'nun_edr_manual', // v4.47 — naviera, impuestos y mes de arranque del Estado de Resultados
-  'nun_costeos' // v4.48 — costeos de importación del Cotizador
+  'nun_costeos', // v4.48 — costeos de importación del Cotizador
+  'nun_adquisicion' // v4.53 — proveedor, precios de referencia e historial de Adquisición de mercancía
 ];
 const _kvSucias = new Set();
 let _kvTimer = null, _kvAplicando = false;
@@ -15587,6 +15593,244 @@ window.renderCotizador = renderCotizador; window.nunCosteoCalc = nunCosteoCalc; 
 window.nunCotFila = nunCotFila; window.nunCotFilaMonto = nunCotFilaMonto; window.nunCotAgregarFila = nunCotAgregarFila; window.nunCotDupFila = nunCotDupFila; window.nunCotQuitarFila = nunCotQuitarFila;
 window.nunCotAbrir = nunCotAbrir; window.nunCotNuevo = nunCotNuevo; window.nunCotDuplicar = nunCotDuplicar; window.nunCotGuardar = nunCotGuardar; window.nunCotArchivar = nunCotArchivar;
 window.nunCotAplicarProductos = nunCotAplicarProductos; window.nunCotMargenesCalc = nunCotMargenesCalc; window.nunCotCalcRefrescar = nunCotCalcRefrescar; window._cotEstado = _cotEstado; window.nunCosteoMigrar = nunCosteoMigrar;
+
+// ============================================================
+// v4.53 — ADQUISICIÓN DE MERCANCÍA (Rafa, 29 oct 2026)
+// Cada mes Rafa le pide a su proveedor (Calix) una factura de compra (CFDI G01, PPD, forma 99) a nombre de Comercializadora
+// Casraf, armada con lo que SÍ facturó ese mes. Reglas de su prompt:
+//  · Facturas timbradas del mes (se pueden quitar o agregar otras, ej. las del 30 sep que entran en octubre).
+//  · Precio por modelo = promedio ponderado de lo vendido (sin IVA) × 0.80, redondeado a número limpio; si queda cerca (±10%)
+//    del precio de referencia, se usa el de referencia (consistencia). Alternativa: costo real del catálogo.
+//  · Facturas de Mercado Libre / Amazon: fuera del promedio; su precio = su venta × 0.80 y van en factura aparte.
+//  · Clave SAT: YH = 24111514 (mochila) · Z… o "INDIVIDUAL" = 53121503 · RL/SF = 53121502. Unidad H87 PIEZA.
+//  · Avisa: modelos sin precio de referencia, variación >10% entre colores, SKU con typo (YHO12), Público en General que no es ML,
+//    facturas canceladas del mes que se omitieron, y si falta el RFC/domicilio del proveedor.
+// El Excel sale en el formato de su "SOLICITUD DE FACTURA" (ExcelJS). Datos en kv nun_adquisicion (precios, proveedor, historial).
+// ============================================================
+const NUN_ADQ_KEY = 'nun_adquisicion';
+const NUN_ADQ_PRECIOS_BASE = { RL001:1100, RL004:1870, RL005:930, RL006:930, RL007:930, RL008:1010, SF006:1150, SF007:1100, YH:110 };
+const NUN_ADQ_CLIENTE = { razon:'COMERCIALIZADORA CASRAF S.A. DE C.V.', rfc:'CCA250120SX3',
+  domicilio:'PARQUE DE GRANADA No. 71 PB 4 OFICINA 10, Col. Parques de la Herradura, Huixquilucan, Estado de México, C.P. 52786' };
+function nunAdqConfig(){
+  let o = {}; try { o = JSON.parse(localStorage.getItem(NUN_ADQ_KEY) || '{}') || {}; } catch(e){}
+  return Object.assign({ proveedor:{ razon:'Calix', rfc:'', domicilio:'' }, precios: Object.assign({}, NUN_ADQ_PRECIOS_BASE), historial:[] }, o,
+    { precios: Object.assign({}, NUN_ADQ_PRECIOS_BASE, o.precios || {}), proveedor: Object.assign({ razon:'Calix', rfc:'', domicilio:'' }, o.proveedor || {}), historial: o.historial || [] });
+}
+async function nunAdqGuardarConfig(o){
+  try { localStorage.setItem(NUN_ADQ_KEY, JSON.stringify(o)); } catch(e){}
+  try { const r = await api({ accion:'kv_guardar', pares:{ [NUN_ADQ_KEY]: JSON.stringify(o) } }); return !!(r && r.ok); } catch(e){ return false; }
+}
+// Modelo de un SKU: RL0083GA → RL008 · ZSF006A18 → SF006 (individual, 18") · YHO12R → YH012 (typo) · YH002N → YH002
+function nunAdqModelo(sku){
+  const s = String(sku||'').toUpperCase().replace(/\s+/g, ''), z = /^Z/.test(s), s2 = s.replace(/^Z/, '');
+  const m = s2.match(/^(RL|SF|YH)(O?)(\d{2,3})/), med = (s2.match(/(18|20|22|24|28)$/) || [])[1] || '';
+  if (!m) return { modelo:'', familia:'', z, med, typo:false };
+  const num = m[3].length === 2 ? '0' + m[3] : m[3].slice(0, 3);
+  return { modelo: m[1] + num, familia: m[1], z, med: z ? med : '', typo: !!m[2] };
+}
+function nunAdqClaveSat(mo, desc){
+  if (mo.familia === 'YH') return '24111514';
+  if (mo.z || /INDIVIDUAL/i.test(desc||'')) return '53121503';
+  if (mo.familia === 'RL' || mo.familia === 'SF') return '53121502';
+  return '';
+}
+const _adqLimpio = v => { if (!(v > 0)) return 0; const paso = v < 1000 ? 10 : 50; return Math.round(v / paso) * paso; };
+// Descripción con las convenciones de Rafa
+function nunAdqDescripcion(it, mo, prod){
+  let d = String((prod && prod.descripcion) || it.descripcion || '').toUpperCase().replace(/\(\s*C[ÓO]D:[^)]*\)/g, ' ');
+  const sku = String(it.sku||'').toUpperCase();
+  let color = d.replace(new RegExp('\\b' + sku.replace(/[^A-Z0-9]/g, '') + '\\b', 'g'), ' ')
+    .replace(/\b(Z?(RL|SF|YH)O?\d{2,}[A-Z]*)\b/g, ' ').replace(/\b(MALETAS?|SETS?|DE|PP|NYLON|DANISH|TELA|MOCHILAS?|INDIVIDUAL|PIEZA|PULGADAS?|\d{2}")\b/g, ' ')
+    .replace(/\b(18|20|22|24|28)\b/g, ' ').replace(/[^A-ZÁÉÍÓÚÑ/ ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const tipo = mo.familia === 'YH' ? 'MOCHILA' : /TELA/.test(d) ? 'MALETA TELA' : mo.modelo === 'SF006' ? 'MALETA NYLON' : mo.modelo === 'SF007' ? 'MALETA DANISH' : /NYLON/.test(d) ? 'MALETA NYLON' : /DANISH/.test(d) ? 'MALETA DANISH' : 'MALETA PP';
+  let out;
+  if (mo.z) out = (tipo === 'MALETA PP' ? 'MALETA INDIVIDUAL PP ' + mo.modelo : tipo.replace('MALETA', 'MALETA DE')) + (color ? ' ' + color : '') + (mo.med ? ' ' + mo.med + ' PULGADAS' : '');
+  else if (mo.modelo) out = tipo + ' ' + mo.modelo + (color ? ' ' + color : '');
+  else out = d.replace(/\s+/g, ' ').trim();
+  return out.replace(/\s+/g, ' ').trim();
+}
+function nunAdqUltimoHabil(mes){ const [y, m] = mes.split('-').map(Number); const d = new Date(y, m, 0, 12); while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1); return nunHoy(d); }
+// Facturas candidatas: timbradas del mes + las que se agregan a mano (ids)
+function nunAdqFacturas(st){
+  const F = State.data.facturas || [];
+  const delMes = F.filter(f => String(f.fecha||'').slice(0, 7) === st.mes && f.estatus === 'timbrada');
+  const extra = (st.extra || []).map(id => F.find(f => f.id === id)).filter(Boolean);
+  const todas = [...new Map([...delMes, ...extra].map(f => [f.id, f])).values()].sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+  return todas.map(f => ({ f, incluir: !(st.fuera || []).includes(f.id), ml: st.ml && st.ml[f.id] !== undefined ? !!st.ml[f.id] : /amazon|mercado\s*libre|\bML\b/i.test((f.notas||'') + ' ' + (f.cliente||'')), extra: !delMes.includes(f) }));
+}
+// Cálculo puro de la solicitud (lo usa la pantalla, el Excel y la prueba)
+function nunAdqCalc(st){
+  const cfg = nunAdqConfig(), precios = Object.assign({}, cfg.precios, st.precios || {});
+  const porSku = new Map((State.data.productos||[]).map(p => [String(p.sku||'').toUpperCase().trim(), p]));
+  const FF = nunAdqFacturas(st), usar = FF.filter(x => x.incluir), avisos = [];
+  const lineas = [];
+  usar.forEach(x => { let items = []; try { items = JSON.parse(x.f.items_json || '[]'); } catch(e){}
+    if (!items.length) avisos.push({ t:'falta', m:`La factura ${x.f.folio} no tiene productos capturados: no entra en la solicitud.` });
+    items.forEach(it => { const q = +it.cantidad || 0; if (!q) return; const sku = String(it.sku||'').toUpperCase().trim(), mo = nunAdqModelo(sku), prod = porSku.get(sku);
+      lineas.push({ fol: x.f.folio, ml: x.ml, sku, q, pu: nunCalcLinea(it, true).base / q, mo, prod, desc: nunAdqDescripcion(it, mo, prod), clave: nunAdqClaveSat(mo, (prod && prod.descripcion) || it.descripcion) }); }); });
+  // promedio ponderado por modelo (sin ML); los individuales Z por modelo + medida
+  const k = l => l.mo.familia === 'YH' ? 'YH' : (l.mo.z ? 'Z' + (l.mo.modelo || l.sku) + (l.mo.med ? '-' + l.mo.med : '') : (l.mo.modelo || l.sku));
+  const prom = new Map();
+  lineas.filter(l => !l.ml).forEach(l => { const p = prom.get(k(l)) || { q:0, v:0, colores:new Map() }; p.q += l.q; p.v += l.q * l.pu;
+    const c = p.colores.get(l.sku) || { q:0, v:0 }; c.q += l.q; c.v += l.q * l.pu; p.colores.set(l.sku, c); prom.set(k(l), p); });
+  const precioModelo = new Map();
+  prom.forEach((p, key) => {
+    const calc = _adqLimpio(p.v / p.q * 0.8), ref = precios[key] != null ? +precios[key] : (key.startsWith('Z') ? +precios[key] || 0 : 0);
+    let final = calc, fuente = 'calculado';
+    if (ref > 0 && Math.abs(calc - ref) / ref <= 0.10) { final = ref; fuente = 'referencia'; }
+    else if (ref > 0) avisos.push({ t:'precio', m:`${key}: el 80% de lo vendido da ${_adqMon(calc)} y tu precio de referencia es ${_adqMon(ref)} (más de 10% de diferencia). Puse ${_adqMon(calc)}; cámbialo si prefieres el de referencia.` });
+    else avisos.push({ t:'nuevo', m:`${key}: modelo sin precio de referencia. Puse ${_adqMon(calc)} (80% de lo vendido, ${_adqMon(p.v / p.q)} promedio). Confírmalo y define su clave SAT si no es la correcta.` });
+    const cs = [...p.colores.values()].map(c => c.v / c.q); if (cs.length > 1 && (Math.max(...cs) - Math.min(...cs)) / Math.min(...cs) > 0.10)
+      avisos.push({ t:'variacion', m:`${key}: entre colores el precio de venta varía más de 10% (${_adqMon(Math.min(...cs))} a ${_adqMon(Math.max(...cs))}). Puede ser mayoreo mezclado con menudeo.` });
+    precioModelo.set(key, { final, calc, ref, fuente, prom: p.v / p.q });
+  });
+  lineas.forEach(l => { if (l.mo.typo) avisos.push({ t:'typo', m:`SKU ${l.sku} (factura ${l.fol}) parece typo de ${l.mo.modelo}.` }); if (!l.clave) avisos.push({ t:'clave', m:`${l.sku} (factura ${l.fol}): no sé su clave SAT.` }); });
+  // partidas: agrupadas por descripción (color) y precio
+  const arma = (ls, esML) => { const M = new Map();
+    ls.forEach(l => { let pu;
+      if (st.metodo === 'costo') pu = nunR2(+(l.prod && (+l.prod.costo_factura || +l.prod.costo)) || 0);
+      else if (esML) pu = _adqLimpio(l.pu * 0.8);
+      else pu = (precioModelo.get(k(l)) || {}).final || 0;
+      const ov = st.override && st.override[(esML ? 'ml|' : '') + l.desc]; if (ov != null && ov !== '') pu = +ov;
+      const key = l.desc + '|' + pu, p = M.get(key) || { desc:l.desc, clave:l.clave, q:0, pu, fols:new Set(), skus:new Set() };
+      p.q += l.q; p.fols.add(l.fol); p.skus.add(l.sku); M.set(key, p); });
+    return [...M.values()].map(p => Object.assign(p, { importe: nunR2(p.q * p.pu), fols:[...p.fols], skus:[...p.skus] }))
+      .sort((a, b) => (a.clave === '24111514') - (b.clave === '24111514') || a.desc.localeCompare(b.desc)); };
+  const normal = arma(lineas.filter(l => !l.ml), false), ml = arma(lineas.filter(l => l.ml), true);
+  if (st.metodo === 'costo') lineas.forEach(l => { if (!(l.prod && (+l.prod.costo_factura || +l.prod.costo))) avisos.push({ t:'costo', m:`${l.sku}: no tiene costo en Productos (sale en $0).` }); });
+  const tot = ps => { const s = nunR2(ps.reduce((a, p) => a + p.importe, 0)), iva = nunR2(s * 0.16); return { sub:s, iva, total:nunR2(s + iva) }; };
+  // otros avisos
+  usar.forEach(x => { if (/p[uú]blico en general/i.test(x.f.cliente||'') && !x.ml) avisos.push({ t:'retail', m:`${x.f.folio} es a Público en General y no está marcada como Mercado Libre/Amazon. ¿Es venta de mostrador o de ML?` }); });
+  const canc = (State.data.facturas||[]).filter(f => String(f.fecha||'').slice(0, 7) === st.mes && /cancel/i.test(f.estatus||''));
+  if (canc.length) avisos.push({ t:'canceladas', m:`Se omitieron ${canc.length} factura(s) cancelada(s) del mes: ${canc.map(f => f.folio).join(', ')}.` });
+  const fuera = FF.filter(x => !x.incluir); if (fuera.length) avisos.push({ t:'fuera', m:`Quitaste a mano: ${fuera.map(x => x.f.folio).join(', ')}.` });
+  if (!String(cfg.proveedor.rfc||'').trim()) avisos.push({ t:'proveedor', m:`Falta el RFC y domicilio fiscal de ${cfg.proveedor.razon || 'el proveedor'} (no están en el sistema).` });
+  const vistos = new Set(); const av = avisos.filter(a => { if (vistos.has(a.m)) return false; vistos.add(a.m); return true; });
+  return { FF, normal, ml, totN: tot(normal), totML: tot(ml), avisos: av, precioModelo, piezas: lineas.reduce((s, l) => s + l.q, 0),
+    vendidoSinIva: nunR2(lineas.reduce((s, l) => s + l.q * l.pu, 0)) };
+}
+const _adqMon = v => '$' + (Number(v)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
+const _adqMes = m => { const [y, mm] = m.split('-').map(Number); return ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'][mm - 1] + ' ' + y; };
+let _adq = null;
+function _adqEstado(){ if (!_adq) { const h = new Date(); const mes = nunHoy(h).slice(0, 7); _adq = { mes, fecha: nunAdqUltimoHabil(mes), metodo:'ochenta', extra:[], fuera:[], ml:{}, override:{}, obs:'' }; } return _adq; }
+function renderAdquisicion(){
+  const st = _adqEstado(), D = State.data;
+  if (!st.cargado && ['facturas','productos'].some(t => !Array.isArray(D[t]) || !D[t].length)) { st.cargado = true; Promise.all(['facturas','productos'].map(t => cargarTabla(t).catch(()=>{}))).then(() => { if (State.modulo === 'adquisicion') renderCurrent(); }); }
+  const cfg = nunAdqConfig(), R = nunAdqCalc(st), esc = v => escapeHTML(String(v == null ? '' : v));
+  const inp = 'padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);width:100%;box-sizing:border-box';
+  const meses = []; for (let i = 0; i < 12; i++) { const h = new Date(); meses.push(_tabMes(new Date(h.getFullYear(), h.getMonth() - i, 1))); }
+  const tabla = (ps, T, ml) => `<div class="dt-wrap"><div class="dt-scroll"><table class="dt"><thead><tr><th>Descripción</th><th class="right">Cantidad</th><th>Clave SAT</th><th class="right">Valor unitario</th><th class="right">Total</th><th>De las facturas</th></tr></thead><tbody>
+    ${ps.map(p => `<tr><td><strong>${esc(p.desc)}</strong><div style="font-size:11px;color:var(--mute)">${esc(p.skus.join(', '))} · H87 PIEZA</div></td><td class="right mono">${p.q}</td><td class="mono">${esc(p.clave || '¿?')}</td>
+      <td class="right"><input style="${inp};width:110px;text-align:right" inputmode="decimal" value="${p.pu}" onchange="nunAdqPrecio('${ml ? 'ml|' : ''}${esc(p.desc).replace(/'/g, '&#39;')}', this.value)"></td>
+      <td class="right mono">${_adqMon(p.importe)}</td><td style="font-size:12px">${esc(p.fols.join(', '))}</td></tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--mute)">Sin partidas</td></tr>'}
+    </tbody></table></div></div>
+    <div style="display:flex;gap:18px;justify-content:flex-end;flex-wrap:wrap;margin:8px 0 18px;font-size:14px"><span>Subtotal <strong>${_adqMon(T.sub)}</strong></span><span>IVA 16% <strong>${_adqMon(T.iva)}</strong></span><span>Total <strong>${_adqMon(T.total)}</strong></span></div>`;
+  const ico = { nuevo:'🆕', precio:'💲', variacion:'↕️', typo:'✏️', clave:'🏷', retail:'🛒', canceladas:'🚫', fuera:'➖', proveedor:'⚠️', costo:'⚠️', falta:'⚠️' };
+  return `
+    <div class="page-title"><div><h1>Adquisición de mercancía</h1><div class="sub">Solicitud de factura de compra a tu proveedor con lo que facturaste en el mes · CFDI G01 · PPD · forma 99</div></div>
+      <div class="actions"><button class="btn btn-primary" onclick="nunAdqExcel()">📥 Descargar Excel (solicitud)</button><button class="btn" onclick="nunAdqGuardar()">💾 Guardar en historial</button></div></div>
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px">
+        <div class="field"><label>Mes</label><select style="${inp}" onchange="nunAdqSet('mes',this.value)">${meses.map(m => `<option value="${m}" ${m === st.mes ? 'selected' : ''}>${_adqMes(m)}</option>`).join('')}</select></div>
+        <div class="field"><label>Fecha de la factura</label><input type="date" style="${inp}" value="${esc(st.fecha)}" onchange="nunAdqSet('fecha',this.value)"></div>
+        <div class="field"><label>Precio</label><select style="${inp}" onchange="nunAdqSet('metodo',this.value)"><option value="ochenta" ${st.metodo !== 'costo' ? 'selected' : ''}>80% de lo vendido (tus reglas)</option><option value="costo" ${st.metodo === 'costo' ? 'selected' : ''}>Costo real (catálogo)</option></select></div>
+        <div class="field"><label>Proveedor</label><input style="${inp}" value="${esc(cfg.proveedor.razon)}" onchange="nunAdqProv('razon',this.value)"></div>
+        <div class="field"><label>RFC del proveedor</label><input style="${inp}" value="${esc(cfg.proveedor.rfc)}" placeholder="falta" onchange="nunAdqProv('rfc',this.value)"></div>
+        <div class="field" style="grid-column:span 2"><label>Domicilio fiscal del proveedor</label><input style="${inp}" value="${esc(cfg.proveedor.domicilio)}" placeholder="falta" onchange="nunAdqProv('domicilio',this.value)"></div>
+      </div>
+      <div style="font-size:12px;color:var(--mute);margin-top:8px">Cliente: ${esc(NUN_ADQ_CLIENTE.razon)} · ${esc(NUN_ADQ_CLIENTE.rfc)} · Uso G01 · Método PPD · Forma 99 · MXN</div>
+    </div>
+    <h3 style="margin:0 0 8px">1. Facturas que entran</h3>
+    <div class="dt-wrap" style="margin-bottom:8px"><div class="dt-scroll"><table class="dt"><thead><tr><th>Factura</th><th>Fecha</th><th>Cliente</th><th class="right">Subtotal</th><th>¿Entra?</th><th>Mercado Libre / Amazon</th></tr></thead><tbody>
+      ${R.FF.map(x => `<tr style="${x.incluir ? '' : 'opacity:.5'}"><td class="mono"><strong>${esc(x.f.folio)}</strong>${x.extra ? ' <span class="tag">de otro mes</span>' : ''}</td><td>${fmtFecha(x.f.fecha)}</td><td>${esc(x.f.cliente)}</td><td class="right mono">${_adqMon(x.f.subtotal)}</td>
+        <td><label><input type="checkbox" ${x.incluir ? 'checked' : ''} onchange="nunAdqIncluir('${x.f.id}',this.checked)"> sí</label></td>
+        <td><label><input type="checkbox" ${x.ml ? 'checked' : ''} onchange="nunAdqML('${x.f.id}',this.checked)"> factura aparte</label></td></tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--mute)">No hay facturas timbradas en este mes</td></tr>'}
+    </tbody></table></div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px"><input id="adqFolio" style="${inp};max-width:200px" placeholder="Folio de otro mes (ej. FT0003)"><button class="btn" onclick="nunAdqAgregar()">＋ Agregar factura</button></div>
+    <h3 style="margin:0 0 8px">2. Revisa antes de pedirla (${R.avisos.length})</h3>
+    <div class="card" style="padding:10px 14px;margin-bottom:18px">${R.avisos.map(a => `<div style="padding:5px 0;border-bottom:1px solid var(--line)">${ico[a.t] || '•'} ${esc(a.m)}</div>`).join('') || '<div style="color:var(--green)">✓ Sin avisos</div>'}</div>
+    <h3 style="margin:0 0 8px">3. Factura de compra · ${_adqMes(st.mes)} <span style="font-weight:400;color:var(--mute);font-size:13px">(${R.piezas} piezas · vendiste ${_adqMon(R.vendidoSinIva)} sin IVA)</span></h3>
+    ${tabla(R.normal, R.totN, false)}
+    ${R.ml.length ? `<h3 style="margin:0 0 8px">Factura aparte · Mercado Libre / Amazon</h3>${tabla(R.ml, R.totML, true)}` : ''}
+    <div class="field"><label>Observaciones (salen en el Excel)</label><textarea style="${inp};min-height:60px" onchange="nunAdqSet('obs',this.value,true)">${esc(st.obs)}</textarea></div>
+    <details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600">Precios de referencia (se mantienen mes a mes)</summary>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px">
+      ${Object.keys(cfg.precios).sort().map(k => `<div class="field"><label>${k === 'YH' ? 'YH (mochilas)' : esc(k)}</label><input style="${inp}" inputmode="decimal" value="${esc(cfg.precios[k])}" onchange="nunAdqRef('${esc(k)}',this.value)"></div>`).join('')}
+      <div class="field"><label>Agregar modelo (ej. ZRL004-18)</label><input style="${inp}" placeholder="MODELO=precio" onchange="nunAdqRefNuevo(this.value)"></div></div></details>
+    ${cfg.historial.length ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">Historial (${cfg.historial.length})</summary>${cfg.historial.slice().reverse().map(h => `<div style="padding:4px 0;font-size:13px">${esc(_adqMes(h.mes))} · ${esc(h.fecha)} · ${esc((h.facturas||[]).join(', '))} · total ${_adqMon(h.total)}${h.totalML ? ' + ML ' + _adqMon(h.totalML) : ''} · ${esc(h.por||'')}</div>`).join('')}</details>` : ''}`;
+}
+function nunAdqSet(k, v, sinRender){ const st = _adqEstado(); st[k] = v; if (k === 'mes') { st.fecha = nunAdqUltimoHabil(v); st.extra = []; st.fuera = []; st.ml = {}; st.override = {}; } if (!sinRender) renderCurrent(); }
+function nunAdqIncluir(id, si){ const st = _adqEstado(); st.fuera = (st.fuera||[]).filter(x => x !== id); if (!si) st.fuera.push(id); renderCurrent(); }
+function nunAdqML(id, si){ _adqEstado().ml[id] = !!si; renderCurrent(); }
+function nunAdqPrecio(clave, v){ const st = _adqEstado(); if (String(v).trim() === '') delete st.override[clave]; else st.override[clave] = +String(v).replace(/[$,]/g, ''); renderCurrent(); }
+function nunAdqAgregar(){
+  const fol = String((document.getElementById('adqFolio')||{}).value||'').trim().toUpperCase(); if (!fol) return;
+  const f = (State.data.facturas||[]).find(f => String(f.folio).toUpperCase() === fol && f.estatus === 'timbrada');
+  if (!f) { toast('No encontré la factura timbrada ' + fol, { type:'error' }); return; }
+  const st = _adqEstado(); if (!st.extra.includes(f.id)) st.extra.push(f.id); renderCurrent();
+}
+async function nunAdqProv(k, v){ const c = nunAdqConfig(); c.proveedor[k] = String(v).trim(); await nunAdqGuardarConfig(c); renderCurrent(); }
+async function nunAdqRef(k, v){ const c = nunAdqConfig(); if (String(v).trim() === '') delete c.precios[k]; else c.precios[k] = +String(v).replace(/[$,]/g, ''); await nunAdqGuardarConfig(c); renderCurrent(); }
+async function nunAdqRefNuevo(t){ const m = String(t).toUpperCase().match(/^\s*([A-Z0-9-]+)\s*=\s*([\d.,]+)\s*$/); if (!m) { toast('Escríbelo así: ZRL004-18=345', { type:'error' }); return; } await nunAdqRef(m[1], m[2]); }
+async function nunAdqGuardar(){
+  const st = _adqEstado(), R = nunAdqCalc(st), c = nunAdqConfig();
+  c.historial.push({ mes: st.mes, fecha: st.fecha, metodo: st.metodo, facturas: R.FF.filter(x => x.incluir).map(x => x.f.folio), ml: R.FF.filter(x => x.incluir && x.ml).map(x => x.f.folio),
+    total: R.totN.total, totalML: R.totML.total, partidas: R.normal.map(p => [p.q, p.desc, p.clave, p.pu]), partidasML: R.ml.map(p => [p.q, p.desc, p.clave, p.pu]),
+    guardado: new Date().toISOString(), por: (State.sesion && State.sesion.usuario && State.sesion.usuario.nombre) || '' });
+  const ok = await nunAdqGuardarConfig(c); renderCurrent(); toast(ok ? '✓ Guardada en el historial' : '⚠ No se pudo guardar en el servidor', { type: ok ? 'success' : 'error' });
+}
+function _adqCargarExcelJS(){
+  if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  return new Promise((ok, mal) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+    s.onload = () => window.ExcelJS ? ok(window.ExcelJS) : mal(new Error('ExcelJS')); s.onerror = () => mal(new Error('No se pudo cargar ExcelJS')); document.head.appendChild(s); });
+}
+// Hoja con el formato de "SOLICITUD DE FACTURA" de Rafa
+function _adqHoja(wb, nombre, st, cfg, ps, T, obs){
+  const ws = wb.addWorksheet(nombre), az = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF83CAEB' } }, cel = { type:'pattern', pattern:'solid', fgColor:{ argb:'FFDBE9F7' } };
+  ws.columns = [{ width:15 }, { width:9 }, { width:9 }, { width:9 }, { width:30.3 }, { width:15 }, { width:9 }, { width:11 }, { width:12 }, { width:13 }, { width:15 }];
+  const put = (ref, v, o) => { const c = ws.getCell(ref); c.value = v; if (o && o.az) c.fill = az; if (o && o.b) c.font = { bold:true }; if (o && o.fmt) c.numFmt = o.fmt; if (o && o.fill) c.fill = o.fill; return c; };
+  const mg = r => ws.mergeCells(r);
+  mg('A1:J1'); put('A1', 'SOLICITUD DE FACTURA', { az:1, b:1 }); ws.getCell('A1').alignment = { horizontal:'center' };
+  mg('A2:F3'); put('A2', ' ', { az:1 }); put('G2', 'FECHA', { az:1, b:1 });
+  const [y, m, d] = st.fecha.split('-').map(Number); put('G3', new Date(Date.UTC(y, m - 1, d)), { b:1, fmt:'d/m/yyyy' });
+  mg('A4:C4'); put('A4', 'EMPRESA PROVEEDOR', { az:1, b:1 }); put('D4', cfg.proveedor.razon || '', { b:1 });
+  if (cfg.proveedor.rfc) put('H4', 'RFC: ' + cfg.proveedor.rfc, { b:1 });
+  mg('A5:J5');
+  mg('A6:C6'); put('A6', 'CLIENTE', { az:1, b:1 }); put('D6', 'COMERCIALIZADORA CASRAF', { b:1 });
+  mg('A7:C7'); put('A7', 'RFC', { az:1, b:1 }); put('D7', NUN_ADQ_CLIENTE.rfc, { b:1 });
+  mg('A8:C8'); put('A8', 'DOMICILIO FISCAL', { az:1, b:1 }); put('D8', 'PARQUE DE GRANADA No. 71 PB 4 OFICINA 10 Col. PARQUES DE LA HERRADURA, Huixquilucan, Huixquilucan, México C.P. 52786', { b:1 });
+  mg('A9:J9'); mg('A10:J10');
+  mg('A11:C11'); put('A11', 'MÉTODO DE PAGO  1', { az:1, b:1 }); mg('D11:E11'); put('D11', 'PPD PAGO EN PARCIALIDADES O DIFERIDO', { b:1 });
+  mg('A12:C12'); put('A12', 'FORMA DE PAGO  1', { az:1, b:1 }); mg('D12:E12'); put('D12', '99 POR DEFINIR', { b:1 });
+  put('F12', 'USO DEL CFDI 1', { az:1, b:1 }); put('H12', 'G01 ADQUISICION DE MERCANCIAS', { b:1 });
+  mg('A13:J13');
+  ['A14:CANTIDAD','B14:CLAVE DE UNIDAD 1','C14:TIPO DE UNIDAD DE MEDIDA','D14:DESCRIPCIÓN','H14:CLAVE PRODUCTO 1','I14:VALOR UNITARIO','J14:TOTAL'].forEach(x => { const [r, t] = x.split(/:(.*)/); put(r, t, { az:1, b:1 }); });
+  mg('D14:G14');
+  let r = 15;
+  ps.forEach(p => { put('A' + r, p.q, { fill:cel }); put('B' + r, 'H87', { fill:cel }); put('C' + r, 'PIEZA', { fill:cel }); mg(`D${r}:G${r}`); put('D' + r, p.desc, { fill:cel });
+    put('H' + r, +p.clave || p.clave, { fill:cel }); put('I' + r, p.pu, { fmt:'#,##0.00' }); put('J' + r, p.importe, { fmt:'#,##0.00' }); r++; });
+  const f2 = '_-* #,##0.00_-;\\-* #,##0.00_-;_-* "-"??_-;_-@';
+  put('F' + r, 'SUBTOTAL', { az:1 }); put('J' + r, T.sub, { az:1, fmt:f2 }); r++;
+  put('F' + r, 'IVA 16%', { az:1 }); put('J' + r, T.iva, { az:1, fmt:f2 }); r++;
+  put('F' + r, 'TOTAL', { az:1 }); put('J' + r, T.total, { az:1, fmt:f2 }); r++;
+  put('A' + r, 'OBSERVACIONES', { az:1, b:1 }); if (obs) { mg(`B${r}:J${r}`); put('B' + r, obs); }
+  return ws;
+}
+async function nunAdqExcel(){
+  const st = _adqEstado(), R = nunAdqCalc(st), cfg = nunAdqConfig();
+  if (!R.normal.length && !R.ml.length) { toast('No hay partidas para la solicitud', { type:'error' }); return; }
+  let EX; try { EX = await _adqCargarExcelJS(); } catch(e){ toast('No pude cargar el generador de Excel. Revisa tu internet e inténtalo otra vez.', { type:'error' }); return; }
+  const wb = new EX.Workbook(), mes = _adqMes(st.mes).split(' ')[0];
+  if (R.normal.length) _adqHoja(wb, mes, st, cfg, R.normal, R.totN, st.obs);
+  if (R.ml.length) _adqHoja(wb, mes + ' ML', st, cfg, R.ml, R.totML, (st.obs ? st.obs + ' · ' : '') + 'Ventas Mercado Libre / Amazon');
+  const buf = await wb.xlsx.writeBuffer(), blob = new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `Solicitud_factura_${(cfg.proveedor.razon || 'proveedor').replace(/\W+/g, '_')}_${st.mes}.xlsx`;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  window._adqUltimoBuffer = buf; toast('✓ Excel listo');
+}
+window.renderAdquisicion = renderAdquisicion; window.nunAdqCalc = nunAdqCalc; window.nunAdqModelo = nunAdqModelo; window.nunAdqDescripcion = nunAdqDescripcion; window._adqEstado = _adqEstado;
+window.nunAdqSet = nunAdqSet; window.nunAdqIncluir = nunAdqIncluir; window.nunAdqML = nunAdqML; window.nunAdqPrecio = nunAdqPrecio; window.nunAdqAgregar = nunAdqAgregar;
+window.nunAdqProv = nunAdqProv; window.nunAdqRef = nunAdqRef; window.nunAdqRefNuevo = nunAdqRefNuevo; window.nunAdqGuardar = nunAdqGuardar; window.nunAdqExcel = nunAdqExcel;
 
 /* ============================================================
    v3.38 — TIMBRADO DIRECTO con Facturama (PAC)

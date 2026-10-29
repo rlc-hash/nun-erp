@@ -43,8 +43,17 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   if(r.titulo!=='Adquisición de mercancía') r.fallas.push('pantalla');
   r.ultimoHabil=w.eval("[nunAdqUltimoHabil('2026-10'),nunAdqUltimoHabil('2026-11'),nunAdqUltimoHabil('2026-08')]");
   if(r.ultimoHabil.join()!=='2026-10-30,2026-11-30,2026-08-31') r.fallas.push('fecha');
+  // v4.56 — sugerencias del final del mes anterior y lo agregado se queda guardado por mes
+  w.eval("Object.assign(_adqEstado(),{mes:'2026-10',extra:[],fuera:[]})"); w.eval("renderCurrent()"); await sleep(300);
+  r.sugeridas=[...d.querySelectorAll('#appMain button')].map(b=>txt(b)).filter(t=>/^＋ FT/.test(t));
+  if(!r.sugeridas.some(t=>/FT0099/.test(t))) r.fallas.push('sugeridas');
+  w.eval("nunAdqAgregar('f4')"); await sleep(400);
+  const kv=JSON.parse(w.localStorage.getItem('nun_adquisicion')||'{}'); r.guardado=kv.meses&&kv.meses['2026-10'];
+  if(!r.guardado||r.guardado.extra.join()!=='f4') r.fallas.push('guardar-mes');
+  w.eval("nunAdqSet('mes','2026-09')"); w.eval("nunAdqSet('mes','2026-10')"); await sleep(200);
+  if(w.eval("_adqEstado().extra.join()")!=='f4') r.fallas.push('recordar');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(5[5-9]|[6-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v4\.(5[6-9]|[6-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

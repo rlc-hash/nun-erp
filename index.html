@@ -1795,7 +1795,7 @@ body.dark .nun-barra-cel { background:#fff; }
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.55 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.56 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -15614,7 +15614,7 @@ const NUN_ADQ_CLIENTE = { razon:'COMERCIALIZADORA CASRAF S.A. DE C.V.', rfc:'CCA
 function nunAdqConfig(){
   let o = {}; try { o = JSON.parse(localStorage.getItem(NUN_ADQ_KEY) || '{}') || {}; } catch(e){}
   return Object.assign({ proveedor:{ razon:'Calix', rfc:'', domicilio:'' }, precios: Object.assign({}, NUN_ADQ_PRECIOS_BASE), historial:[] }, o,
-    { precios: Object.assign({}, NUN_ADQ_PRECIOS_BASE, o.precios || {}), proveedor: Object.assign({ razon:'Calix', rfc:'', domicilio:'' }, o.proveedor || {}), historial: o.historial || [] });
+    { precios: Object.assign({}, NUN_ADQ_PRECIOS_BASE, o.precios || {}), proveedor: Object.assign({ razon:'Calix', rfc:'', domicilio:'' }, o.proveedor || {}), historial: o.historial || [], meses: o.meses || {} }); // v4.56 meses = facturas agregadas/quitadas por mes
 }
 async function nunAdqGuardarConfig(o){
   try { localStorage.setItem(NUN_ADQ_KEY, JSON.stringify(o)); } catch(e){}
@@ -15713,7 +15713,10 @@ function nunAdqCalc(st){
 const _adqMon = v => '$' + (Number(v)||0).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
 const _adqMes = m => { const [y, mm] = m.split('-').map(Number); return ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'][mm - 1] + ' ' + y; };
 let _adq = null;
-function _adqEstado(){ if (!_adq) { const h = new Date(); const mes = nunHoy(h).slice(0, 7); _adq = { mes, fecha: nunAdqUltimoHabil(mes), metodo:'ochenta', extra:[], fuera:[], ml:{}, override:{}, obs:'' }; } return _adq; }
+function _adqEstado(){ if (!_adq) { const h = new Date(); const mes = nunHoy(h).slice(0, 7); _adq = { mes, fecha: nunAdqUltimoHabil(mes), metodo:'ochenta', extra:[], fuera:[], ml:{}, override:{}, obs:'' }; _adqMesCargar(_adq); } return _adq; }
+// v4.56 — lo que se agrega o se quita en un mes se queda guardado (kv nun_adquisicion.meses)
+function _adqMesCargar(st){ const m = (nunAdqConfig().meses || {})[st.mes] || {}; st.extra = (m.extra || []).slice(); st.fuera = (m.fuera || []).slice(); }
+async function _adqMesGuardar(){ const st = _adqEstado(), c = nunAdqConfig(); c.meses[st.mes] = { extra: st.extra || [], fuera: st.fuera || [] }; await nunAdqGuardarConfig(c); }
 function renderAdquisicion(){
   const st = _adqEstado(), D = State.data;
   if (!st.cargado && ['facturas','productos'].some(t => !Array.isArray(D[t]) || !D[t].length)) { st.cargado = true; Promise.all(['facturas','productos'].map(t => cargarTabla(t).catch(()=>{}))).then(() => { if (State.modulo === 'adquisicion') renderCurrent(); }); }
@@ -15743,9 +15746,11 @@ function renderAdquisicion(){
     </div>
     <h3 style="margin:0 0 8px">1. Facturas que entran</h3>
     <div class="dt-wrap" style="margin-bottom:8px"><div class="dt-scroll"><table class="dt"><thead><tr><th>Factura</th><th>Fecha</th><th>Cliente</th><th class="right">Subtotal</th><th>¿Entra?</th></tr></thead><tbody>
-      ${R.FF.map(x => `<tr style="${x.incluir ? '' : 'opacity:.5'}"><td class="mono"><strong>${esc(x.f.folio)}</strong>${x.extra ? ' <span class="tag">de otro mes</span>' : ''}</td><td>${fmtFecha(x.f.fecha)}</td><td>${esc(x.f.cliente)}</td><td class="right mono">${_adqMon(x.f.subtotal)}</td>
+      ${R.FF.map(x => `<tr style="${x.incluir ? '' : 'opacity:.5'}"><td class="mono"><strong>${esc(x.f.folio)}</strong>${x.extra ? ` <span class="tag">de otro mes</span> <button class="btn btn-ghost" style="min-height:0;padding:2px 6px" title="Quitar de este mes" onclick="nunAdqQuitarExtra('${x.f.id}')">✕</button>` : ''}</td><td>${fmtFecha(x.f.fecha)}</td><td>${esc(x.f.cliente)}</td><td class="right mono">${_adqMon(x.f.subtotal)}</td>
         <td><label><input type="checkbox" ${x.incluir ? 'checked' : ''} onchange="nunAdqIncluir('${x.f.id}',this.checked)"> sí</label></td></tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--mute)">No hay facturas timbradas en este mes</td></tr>'}
     </tbody></table></div></div>
+    ${(sug => sug.length ? `<div style="margin:4px 0 8px;font-size:13px;color:var(--ink-2)">Del final del mes anterior, ¿entra alguna? <span style="color:var(--mute)">(toca para agregarla)</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${sug.map(f => `<button class="btn" onclick="nunAdqAgregar('${f.id}')">＋ ${esc(f.folio)} · ${esc(String(f.cliente||'').split(' ').slice(0, 2).join(' '))} · ${fmtFecha(f.fecha)} · ${_adqMon(f.subtotal)}</button>`).join('')}</div>` : '')(_adqSugeridas(st, new Set(R.FF.map(x => x.f.id))))}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px"><input id="adqFolio" style="${inp};max-width:200px" placeholder="Folio de otro mes (ej. FT0003)"><button class="btn" onclick="nunAdqAgregar()">＋ Agregar factura</button></div>
     <h3 style="margin:0 0 8px">2. Revisa antes de pedirla (${R.avisos.length})</h3>
     <div class="card" style="padding:10px 14px;margin-bottom:18px">${R.avisos.map(a => `<div style="padding:5px 0;border-bottom:1px solid var(--line)">${ico[a.t] || '•'} ${esc(a.m)}</div>`).join('') || '<div style="color:var(--green)">✓ Sin avisos</div>'}</div>
@@ -15759,15 +15764,24 @@ function renderAdquisicion(){
       <div class="field"><label>Agregar modelo (ej. ZRL004-18)</label><input style="${inp}" placeholder="MODELO=precio" onchange="nunAdqRefNuevo(this.value)"></div></div></details>
     ${cfg.historial.length ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">Historial (${cfg.historial.length})</summary>${cfg.historial.slice().reverse().map(h => `<div style="padding:4px 0;font-size:13px">${esc(_adqMes(h.mes))} · ${esc(h.fecha)} · ${esc((h.facturas||[]).join(', '))} · total ${_adqMon(h.total)}${h.totalML ? ' + ML ' + _adqMon(h.totalML) : ''} · ${esc(h.por||'')}</div>`).join('')}</details>` : ''}`;
 }
-function nunAdqSet(k, v, sinRender){ const st = _adqEstado(); st[k] = v; if (k === 'mes') { st.fecha = nunAdqUltimoHabil(v); st.extra = []; st.fuera = []; st.ml = {}; st.override = {}; } if (!sinRender) renderCurrent(); }
-function nunAdqIncluir(id, si){ const st = _adqEstado(); st.fuera = (st.fuera||[]).filter(x => x !== id); if (!si) st.fuera.push(id); renderCurrent(); }
+function nunAdqSet(k, v, sinRender){ const st = _adqEstado(); st[k] = v; if (k === 'mes') { st.fecha = nunAdqUltimoHabil(v); st.ml = {}; st.override = {}; _adqMesCargar(st); } if (!sinRender) renderCurrent(); }
+function nunAdqIncluir(id, si){ const st = _adqEstado(); st.fuera = (st.fuera||[]).filter(x => x !== id); if (!si) st.fuera.push(id); renderCurrent(); _adqMesGuardar(); }
+function nunAdqQuitarExtra(id){ const st = _adqEstado(); st.extra = (st.extra||[]).filter(x => x !== id); st.fuera = (st.fuera||[]).filter(x => x !== id); renderCurrent(); _adqMesGuardar(); }
 function nunAdqML(id, si){ _adqEstado().ml[id] = !!si; renderCurrent(); }
 function nunAdqPrecio(clave, v){ const st = _adqEstado(); if (String(v).trim() === '') delete st.override[clave]; else st.override[clave] = +String(v).replace(/[$,]/g, ''); renderCurrent(); }
-function nunAdqAgregar(){
-  const fol = String((document.getElementById('adqFolio')||{}).value||'').trim().toUpperCase(); if (!fol) return;
-  const f = (State.data.facturas||[]).find(f => String(f.folio).toUpperCase() === fol && f.estatus === 'timbrada');
-  if (!f) { toast('No encontré la factura timbrada ' + fol, { type:'error' }); return; }
-  const st = _adqEstado(); if (!st.extra.includes(f.id)) st.extra.push(f.id); renderCurrent();
+function nunAdqAgregar(id){
+  let f;
+  if (id) f = (State.data.facturas||[]).find(x => x.id === id);
+  else { const fol = String((document.getElementById('adqFolio')||{}).value||'').trim().toUpperCase(); if (!fol) return;
+    f = (State.data.facturas||[]).find(x => String(x.folio).toUpperCase() === fol && x.estatus === 'timbrada'); if (!f) { toast('No encontré la factura timbrada ' + fol, { type:'error' }); return; } }
+  if (!f) return;
+  const st = _adqEstado(); if (!st.extra.includes(f.id)) st.extra.push(f.id); renderCurrent(); _adqMesGuardar();
+}
+// v4.56 — sugerencias: facturas timbradas de los últimos 5 días del mes anterior (ej. las del 30 sep que entran en octubre)
+function _adqSugeridas(st, yaEstan){
+  const [y, m] = st.mes.split('-').map(Number), ant = _tabMes(new Date(y, m - 2, 1)), fin = nunAdqUltimoHabil(ant), desde = nunHoy(new Date(new Date(fin + 'T12:00:00').getTime() - 6 * 864e5));
+  return (State.data.facturas||[]).filter(f => f.estatus === 'timbrada' && String(f.fecha||'').slice(0, 7) === ant && String(f.fecha).slice(0, 10) >= desde && !yaEstan.has(f.id))
+    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
 }
 async function nunAdqProv(k, v){ const c = nunAdqConfig(); c.proveedor[k] = String(v).trim(); await nunAdqGuardarConfig(c); renderCurrent(); }
 async function nunAdqRef(k, v){ const c = nunAdqConfig(); if (String(v).trim() === '') delete c.precios[k]; else c.precios[k] = +String(v).replace(/[$,]/g, ''); await nunAdqGuardarConfig(c); renderCurrent(); }
@@ -15830,7 +15844,7 @@ async function nunAdqExcel(){
 }
 window.renderAdquisicion = renderAdquisicion; window.nunAdqCalc = nunAdqCalc; window.nunAdqModelo = nunAdqModelo; window.nunAdqDescripcion = nunAdqDescripcion; window._adqEstado = _adqEstado;
 window.nunAdqSet = nunAdqSet; window.nunAdqIncluir = nunAdqIncluir; window.nunAdqML = nunAdqML; window.nunAdqPrecio = nunAdqPrecio; window.nunAdqAgregar = nunAdqAgregar;
-window.nunAdqProv = nunAdqProv; window.nunAdqRef = nunAdqRef; window.nunAdqRefNuevo = nunAdqRefNuevo; window.nunAdqGuardar = nunAdqGuardar; window.nunAdqExcel = nunAdqExcel;
+window.nunAdqQuitarExtra = nunAdqQuitarExtra; window.nunAdqProv = nunAdqProv; window.nunAdqRef = nunAdqRef; window.nunAdqRefNuevo = nunAdqRefNuevo; window.nunAdqGuardar = nunAdqGuardar; window.nunAdqExcel = nunAdqExcel;
 
 /* ============================================================
    v3.38 — TIMBRADO DIRECTO con Facturama (PAC)

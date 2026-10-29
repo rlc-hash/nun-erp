@@ -125,6 +125,8 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - v4.60 Tocar el **logo NUN** = actualizar (`nunActualizarTodo`): si hay versión publicada más nueva recarga con ?v=…; si no, vuelve a bajar las tablas
   y el kv y redibuja. Factura de remisiones (pedido_origen "R…, REM …") se ve en "Pedidos (como tu Excel)" en el pedido de cada remisión (solo
   mostrar: no suma cobros; marca borrador). Prueba `prueba_v460_actualizar_y_factura_en_pedido.js`.
+- v4.61 Lista de Facturas: estatus dice **timbrada** (+ **pagada** si ya no debe) en vez de "activa". Pago de factura PUE de varias remisiones: la fecha
+  sale igual a la de la factura y la cuenta BBVA ya seleccionada (se puede cambiar). Prueba en `prueba_v446_pago_factura_varias.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

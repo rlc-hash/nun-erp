@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.60 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.61 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7487,6 +7487,7 @@ function afterDocOperativo(tabla) {
         if (r.estatus === 'borrador')  return `<span class="tag">borrador</span>`;
         if (tabla === 'pedidos') { const sp = nunSaldoPedido(r); return sp == null ? `<span class="tag">${escapeHTML(String(r.estatus||'—').replace(/_/g,' '))}</span>` : (sp <= 0.01 ? `<span class="tag green">anticipo pagado</span>` : `<span class="tag amber">anticipo pendiente</span>`); } // v3.92
         if (tabla === 'remisiones' && r.estatus === 'facturada') return `<span class="tag blue">facturada</span>`; // v3.72
+        if (tabla === 'facturas' && (r.estatus === 'timbrada' || r.uuid_sat)) { const sf = nunSaldoDoc(r, tabla); return `<span class="tag blue">timbrada</span>` + (sf <= 0.01 ? ` <span class="tag green">pagada</span>` : ''); } // v4.61 — Rafa: que diga timbrada
         const s = nunSaldoDoc(r, tabla); // v3.77
         return (s <= 0.01) ? `<span class="tag green">pagada</span>` : `<span class="tag amber">activa</span>`;
       } }
@@ -8226,8 +8227,9 @@ async function nunPagoFacturaVarias(id){
       <button class="icon-btn" onclick="document.getElementById('modalPFV').remove()">✕</button></div>
     <div style="padding:16px 20px;font-size:13px">
       <div style="margin-bottom:10px;color:var(--ink-2)">Esta factura cubre varias remisiones: el pago se registra en el cobro de cada una (no es dinero de más).${ya ? ' <b>Ya hay ' + fmtFull(ya) + ' registrados de esta factura.</b>' : ''}</div>
-      <div class="form-grid"><div class="field"><label>Fecha del pago *</label><input type="date" id="pfvFecha" value="${nunHoy()}"></div>
-        <div class="field"><label>Cuenta *</label><select id="pfvCuenta"><option value="">— Selecciona —</option>${cuentas.map(c => `<option>${escapeHTML(c)}</option>`).join('')}</select></div></div>
+      <div class="form-grid"><div class="field"><label>Fecha del pago *</label><input type="date" id="pfvFecha" value="${String(f.metodo_pago||'') === 'PUE' && f.fecha ? String(f.fecha).substring(0,10) : nunHoy()}"></div>
+        <div class="field"><label>Cuenta *</label><select id="pfvCuenta"><option value="">— Selecciona —</option>${(() => { const iB = String(f.metodo_pago||'') === 'PUE' ? (cuentas.findIndex(c => /^BBVA$/i.test(c)) >= 0 ? cuentas.findIndex(c => /^BBVA$/i.test(c)) : cuentas.findIndex(c => /BBVA/i.test(c))) : -1; return cuentas.map((c, i) => `<option ${i === iB ? 'selected' : ''}>${escapeHTML(c)}</option>`).join(''); })()}</select></div></div>
+      ${String(f.metodo_pago||'') === 'PUE' ? '<div style="font-size:12px;color:var(--ink-3);margin-top:4px">Es PUE (se pagó en una sola exhibición): la fecha va igual que la de la factura y, por llevar factura, la cuenta es BBVA. Cámbialas si fue distinto.</div>' : ''}
       <table class="dt" style="font-size:12px;margin-top:10px"><thead><tr><th>Remisión</th><th class="right">Debe</th><th class="right">Se paga</th></tr></thead><tbody>
       ${L.map((x, i) => `<tr><td>${escapeHTML(x.rem ? (x.L || 'R ') + nunFolioStr(x.rem) : x.fol + ' (no encontrada)')}</td><td class="right mono">${x.cob ? fmtFull(x.cob.pendiente) : '—'}</td><td class="right"><input type="number" step="0.01" class="pfvMonto" data-i="${i}" value="${x.asig}" style="width:110px;text-align:right" ${x.cob ? '' : 'disabled'}></td></tr>`).join('')}
       </tbody></table>

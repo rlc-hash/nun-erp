@@ -48,6 +48,9 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   w.eval("window.confirmDialog=async()=>true");
   await w.eval("nunPagoDesdeDoc('facturas','f14')"); await sleep(800);
   r.modal=!!d.getElementById('modalPFV');
+  // v4.61 — PUE: fecha = la de la factura y cuenta BBVA ya puestas
+  r.pueFecha=d.getElementById('pfvFecha').value; r.pueCuenta=d.getElementById('pfvCuenta').value;
+  if(r.pueFecha!=='2026-10-23'||!/BBVA/.test(r.pueCuenta)) r.fallas.push('pue-default');
   d.getElementById('pfvFecha').value='2026-10-20'; const sel=d.getElementById('pfvCuenta'); sel.value=[...sel.options].map(o=>o.value).find(v=>/BBVA/.test(v))||sel.options[1].value;
   await w.eval("nunPagoFacturaVariasGuardar()"); await sleep(2500);
   const L=async t=>JSON.parse(await servidor('post',JSON.stringify({codigo:COD,accion:'erp_listar',tabla:t}))).items;
@@ -58,8 +61,12 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(r.cobros.sort().join()!=='R0022 24000/0,R0023 21000/1295,V01317 25000/0') r.fallas.push('cobros');
   if(ings.length!==3||ings.some(i=>String(i.fecha).slice(0,10)!=='2026-10-20')) r.fallas.push('ingresos');
   if(+r.saldoAntes!==70000||+r.saldoDespues!==0) r.fallas.push('saldo');
+  // v4.61 — en la lista de Facturas dice "timbrada" (y "pagada" cuando ya no debe)
+  await w.eval("cargarTabla('cobranza')"); w.eval("navegar('facturas')"); await sleep(800);
+  r.estatusLista=txt([...d.querySelectorAll('table.dt tbody tr')].find(tr=>/FT0014/.test(tr.textContent))?.lastElementChild);
+  if(!/timbrada/.test(r.estatusLista||'')||!/pagada/.test(r.estatusLista||'')) r.fallas.push('lista-timbrada');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(4[6-9]|[5-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v4\.(6[1-9]|[7-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

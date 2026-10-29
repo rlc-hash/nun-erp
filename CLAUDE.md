@@ -127,6 +127,8 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   mostrar: no suma cobros; marca borrador). Prueba `prueba_v460_actualizar_y_factura_en_pedido.js`.
 - v4.61 Lista de Facturas: estatus dice **timbrada** (+ **pagada** si ya no debe) en vez de "activa". Pago de factura PUE de varias remisiones: la fecha
   sale igual a la de la factura y la cuenta BBVA ya seleccionada (se puede cambiar). Prueba en `prueba_v446_pago_factura_varias.js`.
+- v4.62 Cobro encontrado SOLO por folio (`nunCobroDeDoc`, `nunSaldoDocBase`) cuenta solo si es del mismo cliente o de su grupo (`nunCobroMismoCli`):
+  folios de NUN chocaban con los de Bind de otro cliente y la factura salía pagada. Al timbrar una PUE con saldo pregunta si registrar su pago. Prueba `prueba_v462_pue_folio.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.61 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.62 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -8185,7 +8185,7 @@ async function nunPagoDesdeDoc(tabla, id){
     const po = String(doc.pedido_origen||'').trim(); const fr = po.replace(/^REM\s+/, '');
     if (/^(R\d{4,}|REM )/.test(po)) { const rem = nunRemDeFactura(doc); if (rem) c = nunCobranzaDeDoc(rem, cob); } // v3.96
   }
-  if (!c) { const f = String(doc.folio||'').trim(); c = cob.find(x => { const n = String(x.numero||'').trim(); return n === f || n === 'V01' + f; }); }
+  if (!c) { const f = String(doc.folio||'').trim(); c = cob.find(x => { const n = String(x.numero||'').trim(); return (n === f || n === 'V01' + f) && nunCobroMismoCli(x, doc); }); } // v4.62 mismo folio de otro cliente no cuenta
   if (!c) { toast('No encontré el renglón de Cobranza de ' + (doc.folio||'este documento'), { type:'error', duration:6000 }); return; }
   try { cerrarDrawer(); } catch(e){}
   setTimeout(() => { abrirDrawerCobranza(c.id); setTimeout(() => { try { drawerCambiarTab('pago'); } catch(e){} }, 150); }, 200);
@@ -8298,7 +8298,7 @@ function nunCobroDeDoc(tabla, doc){
     const po = String(doc.pedido_origen||'').trim(), fr = po.replace(/^REM\s+/, '');
     if (/^(R\d{4,}|REM )/.test(po)) { const rem = nunRemDeFactura(doc); if (rem) c = nunCobranzaDeDoc(rem, cob); } // v3.96
   }
-  if (!c) { const f = String(doc.folio||'').trim(); c = cob.find(x => { const n = String(x.numero||'').trim(); return n === f || n === 'V01' + f; }); }
+  if (!c) { const f = String(doc.folio||'').trim(); c = cob.find(x => { const n = String(x.numero||'').trim(); return (n === f || n === 'V01' + f) && nunCobroMismoCli(x, doc); }); } // v4.62 mismo folio de otro cliente no cuenta
   return c || null;
 }
 async function nunAbrirComplementoPago(idFactura){
@@ -9513,11 +9513,18 @@ function nunTotalesCfdi(xml){
   return { subtotal: +sub, total: +tot, iva: t ? +t[1] : nunR2(+tot - +sub), fecha: fecha.substring(0,10) };
 }
 // Saldo de un documento: primero su renglón de Cobranza (sistema o Bind "V01…"), si no, total − pagado
+// v4.62 — un cobro encontrado solo por folio debe ser del mismo cliente (o de su grupo): F1124 de NUN chocaba con la 1124 de Bind de otro cliente
+function nunCobroMismoCli(c, doc){
+  const a = c && c.cliente, b = doc && doc.cliente;
+  if (nunMismoCliente(a, b)) return true;
+  const g = typeof nunGrupoDe === 'function' ? nunGrupoDe(b) : null;
+  return !!g && _nunMiembros(g).some(x => nunMismoCliente(x, a));
+}
 function nunIdxCobranza(){ // v3.76 — índice que se rehace solo cuando cambia la cobranza
   const cob = State.data.cobranza || [];
   if (nunIdxCobranza._src === cob && nunIdxCobranza._idx) return nunIdxCobranza._idx;
   const idx = { id:new Map(), fo:new Map(), num:new Map() };
-  cob.forEach(c => { idx.id.set(String(c.id), c); if (c.factura_origen) idx.fo.set(String(c.factura_origen), c); const n = String(c.numero||'').trim(); if (n) { if (!idx.num.has(n)) idx.num.set(n, c); } });
+  cob.forEach(c => { idx.id.set(String(c.id), c); if (c.factura_origen) idx.fo.set(String(c.factura_origen), c); const n = String(c.numero||'').trim(); if (n) { if (!idx.num.has(n)) idx.num.set(n, []); idx.num.get(n).push(c); } }); // v4.62 varios cobros con el mismo folio
   nunIdxCobranza._src = cob; nunIdxCobranza._idx = idx; return idx;
 }
 // v3.80 — notas de crédito hechas en NUN (no las de Bind: Bind ya las descuenta en su saldo) que bajan el saldo del documento
@@ -9551,7 +9558,7 @@ function nunSaldoDocBase(r, tabla){
   }
   const idx = nunIdxCobranza(); const id = String(r.id||''), bindId = id.replace(/^bind_(rem_|fac_|ord_)?/, '');
   let c = idx.fo.get(id) || idx.id.get('cob_' + id) || (id.startsWith('bind_') ? idx.id.get('bind_cob_' + bindId) : null);
-  if (!c) { const f = String(r.folio||'').trim(); if (f) c = idx.num.get((r.serie||'') + f) || idx.num.get(f) || idx.num.get('V01' + f); }
+  if (!c) { const f = String(r.folio||'').trim(); if (f) { const _p = n => (idx.num.get(n) || []).find(x => nunCobroMismoCli(x, r)); c = _p((r.serie||'') + f) || _p(f) || _p('V01' + f); } } // v4.62 solo si es del mismo cliente
   if (c) return Math.max(0, +c.pendiente || 0);
   const s = +r.saldo; if (s && !isNaN(s)) return s;
   return Math.max(0, (+r.total||0) - (+r.pagado||0));
@@ -16068,6 +16075,11 @@ async function facturaTimbrar(idFactura){
       if (_res[0]) { try { localStorage.removeItem('nun_timbrada_' + doc.id); } catch(e){} }
       else toast('⚠ La factura SÍ se timbró (UUID ' + r.uuid + ') pero no se pudo guardar en el sistema. NO la vuelvas a timbrar; avísale a Claude.', { type:'error', duration:20000 });
       await cargarTabla('facturas'); renderCurrent();
+      // v4.62 — PUE = ya pagada ante el SAT: que no se quede sin su pago registrado
+      if (String(doc.metodo_pago||'').toUpperCase() === 'PUE') { try {
+        await cargarTabla('cobranza'); const _d = (State.data.facturas||[]).find(f => f.id === doc.id) || doc; const _s = nunSaldoDoc(_d, 'facturas');
+        if (_s > 0.5 && await confirmDialog({ title:'Factura PUE: falta registrar su pago', message:'La ' + (doc.folio||'factura') + ' es PUE (pago en una sola exhibición): ante el SAT ya está pagada. Falta registrar en el sistema el pago de ' + fmtFull(_s) + '. ¿Lo registras ahora?', ok:'💵 Registrar pago' })) nunPagoDesdeDoc('facturas', doc.id);
+      } catch(e){} }
     } else { toast('✗ '+((r&&r.error)||'No se pudo timbrar'), { type:'error', duration:12000 }); }
   } catch(e){ toast('✗ Error: '+e.message, { type:'error', duration:9000 }); }
   } finally { window._nunTimbrando = false; nunOcupado(''); } // v3.70

@@ -104,6 +104,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - v4.51 **Teléfono**: bloque CSS `v4.51` (≤880px): la página nunca más ancha que la pantalla (si no, el celular agranda todo y el encabezado/fichas
   se ven corridos), acciones del título y filtros se acomodan, tablas se deslizan con el folio fijo, KPIs en 2 columnas, fichas a pantalla completa con
   pestañas deslizables; tocar fuera del menú lo cierra. Revisión con Playwright 390px de todos los módulos (ancho = 390).
+- v4.52 botón **📱/💻** arriba (`nunCambiarModo`, localStorage `nun_modo`; sin elegir = teléfono si la pantalla ≤880): modo teléfono (`body.modo-cel`) = tablas
+  `.dt` como tarjetas (`nunCelEtiquetar` pone `data-l` con el título de la columna; MutationObserver), barra abajo Inicio/Cobranza/Clientes/Pedidos/Más;
+  modo compu en el teléfono = viewport 1280 (se ve como en la computadora). Prueba `prueba_v452_modo_cel.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

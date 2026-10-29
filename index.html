@@ -1730,6 +1730,47 @@ body.dark .app-main iframe {
   .btn { min-height:38px; }
   .tabs, .seg, .chips { overflow-x:auto; flex-wrap:nowrap; }
 }
+
+/* ============================================================
+   v4.52 — MODO TELÉFONO / MODO COMPU (botón 📱/💻 arriba, Rafa 29 oct 2026)
+   body.modo-cel: listas en tarjetas (cada renglón de la tabla es una tarjeta con sus datos uno abajo del otro),
+   barra de botones abajo, letra y botones más grandes. Modo compu en el teléfono = se ve como en la computadora.
+============================================================ */
+#nunModoBtn { font-size:16px; min-width:34px; }
+body.modo-cel { font-size:15px; }
+body.modo-cel table.dt thead { display:none; }
+body.modo-cel table.dt, body.modo-cel table.dt tbody { display:block; width:100% !important; min-width:0 !important; }
+body.modo-cel table.dt tr { display:block; background:var(--bg, #fff); border:1px solid var(--line); border-radius:12px; margin:0 0 10px; padding:10px 12px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+body.modo-cel table.dt td { display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:4px 0 !important; border:none !important;
+  text-align:right; position:static !important; background:transparent !important; white-space:normal !important; min-height:0; max-width:none !important; overflow:visible !important; }
+body.modo-cel table.dt td::before { content:attr(data-l); color:var(--mute, #888); font-size:12px; font-weight:500; text-align:left; flex:none; max-width:45%; }
+body.modo-cel table.dt td[data-l=""]::before { display:none; }
+body.modo-cel table.dt td:first-child { font-size:16px; font-weight:700; justify-content:flex-start; text-align:left; }
+body.modo-cel table.dt td:first-child::before { display:none; }
+body.modo-cel table.dt td[colspan] { justify-content:center; text-align:center; }
+body.modo-cel table.dt td[colspan]::before { display:none; }
+body.modo-cel table.dt td:empty { display:none; }
+body.modo-cel .dt-wrap, body.modo-cel .dt-scroll { overflow:visible !important; border:none !important; background:transparent !important; box-shadow:none !important; }
+body.modo-cel input, body.modo-cel select, body.modo-cel textarea { font-size:16px !important; }
+body.modo-cel .btn { min-height:42px; }
+.nun-barra-cel { display:none; }
+@media (max-width: 880px) {
+  body.modo-cel .nun-barra-cel { display:flex; position:fixed; left:0; right:0; bottom:0; z-index:70; background:#fff; border-top:1px solid var(--line);
+    padding:4px 4px calc(4px + env(safe-area-inset-bottom)); justify-content:space-around; box-shadow:0 -2px 10px rgba(0,0,0,.06); }
+  body.modo-cel .nun-barra-cel button { flex:1; background:none; border:none; padding:6px 2px; display:flex; flex-direction:column; align-items:center; gap:2px;
+    font-size:11px; color:var(--ink-3); cursor:pointer; border-radius:10px; }
+  body.modo-cel .nun-barra-cel button span { font-size:20px; line-height:1.1; }
+  body.modo-cel .nun-barra-cel button.activo { color:var(--ink); font-weight:700; background:var(--bg-3); }
+  body.modo-cel .app-main { padding-bottom:90px !important; }
+  body.modo-cel .fab-claude { bottom:78px; right:14px; width:44px; height:44px; }
+  body.modo-cel .drawer-footer { padding-bottom:calc(10px + env(safe-area-inset-bottom)) !important; }
+  body.modo-cel #darkToggleBtn, body.modo-cel .conn-pill { display:none; }
+}
+@media (min-width: 881px) {
+  /* en la computadora, modo teléfono = vista previa angosta */
+  body.modo-cel .app-main { max-width:520px; }
+}
+body.dark .nun-barra-cel { background:#fff; }
 </style>
 </head>
 <body>
@@ -1754,7 +1795,7 @@ body.dark .app-main iframe {
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.51 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.52 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -1827,6 +1868,7 @@ body.dark .app-main iframe {
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       <span>Crear</span>
     </button>
+    <button class="icon-btn" id="nunModoBtn" onclick="nunCambiarModo()" title="Cambiar vista teléfono / compu" aria-label="Cambiar vista">📱</button>
     <span id="connStatus" class="conn-pill" title="Estado de conexión">…</span>
     <button class="icon-btn" id="darkToggleBtn" onclick="toggleDarkMode()" title="Modo oscuro" aria-label="Toggle theme"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
     <button class="icon-btn has-badge" onclick="abrirNotificaciones()" title="Notificaciones" aria-label="Notifications">
@@ -12144,6 +12186,45 @@ if (localStorage.getItem('nun_erp_dark') === '1') document.body.classList.add('d
 setTimeout(actualizarIconoDark, 50);
 
 function toggleNav() { $('#appSidenav').classList.toggle('open'); }
+
+// v4.52 — MODO TELÉFONO / MODO COMPU. localStorage nun_modo = 'cel' | 'compu' (sin elegir: teléfono si la pantalla es chica).
+function nunModoActual(){ let m = ''; try { m = localStorage.getItem('nun_modo') || ''; } catch(e){} if (m === 'cel' || m === 'compu') return m; return Math.min(screen.width || 9999, window.innerWidth || 9999) <= 880 ? 'cel' : 'compu'; }
+function nunAplicarModo(){
+  const m = nunModoActual(), cel = m === 'cel', vp = document.querySelector('meta[name="viewport"]');
+  document.body.classList.toggle('modo-cel', cel);
+  // compu en un teléfono: que se vea como en la computadora (página ancha); teléfono: ancho del aparato
+  const chico = Math.min(screen.width || 9999, 9999) <= 880;
+  if (vp) vp.setAttribute('content', !cel && chico ? 'width=1280' : 'width=device-width, initial-scale=1, maximum-scale=1');
+  const b = document.getElementById('nunModoBtn'); if (b) { b.textContent = cel ? '📱' : '💻'; b.title = cel ? 'Vista TELÉFONO · toca para ver como en la compu' : 'Vista COMPU · toca para ver como teléfono'; }
+  let barra = document.getElementById('nunBarraCel');
+  if (!barra) { barra = document.createElement('nav'); barra.id = 'nunBarraCel'; barra.className = 'nun-barra-cel'; document.body.appendChild(barra); }
+  const it = [['dashboard','🏠','Inicio'],['cobranza','💵','Cobranza'],['clientes','👥','Clientes'],['pedidos','🧾','Pedidos']].filter(x => typeof moduloPermitido !== 'function' || moduloPermitido(x[0]));
+  barra.innerHTML = it.map(([k, ic, t]) => `<button data-mod="${k}" class="${State && State.modulo === k ? 'activo' : ''}" onclick="nunBarraIr('${k}')"><span>${ic}</span>${t}</button>`).join('') +
+    `<button onclick="toggleNav()"><span>☰</span>Más</button>`;
+  if (cel) nunCelEtiquetar(document);
+}
+function nunBarraIr(k){ try { cerrarDrawer(); } catch(e){} const sn = document.getElementById('appSidenav'); if (sn) sn.classList.remove('open'); navegar(k); }
+function nunCambiarModo(){
+  const n = nunModoActual() === 'cel' ? 'compu' : 'cel';
+  try { localStorage.setItem('nun_modo', n); } catch(e){}
+  nunAplicarModo(); try { renderCurrent(); } catch(e){}
+  toast(n === 'cel' ? '📱 Vista teléfono' : '💻 Vista compu');
+}
+// Tarjetas: cada celda lleva el título de su columna (data-l) para mostrarlo en la tarjeta
+function nunCelEtiquetar(raiz){
+  (raiz || document).querySelectorAll('table.dt').forEach(t => {
+    const ths = [...t.querySelectorAll('thead tr:last-child th')].map(th => th.textContent.replace(/\s+/g, ' ').trim());
+    t.querySelectorAll('tbody tr').forEach(tr => { if (tr.dataset.cel === '1') return; tr.dataset.cel = '1'; let c = 0;
+      [...tr.children].forEach(td => { if (td.tagName === 'TD' && !td.hasAttribute('data-l')) td.setAttribute('data-l', ths[c] || ''); c += +(td.getAttribute('colspan') || 1); }); });
+  });
+  const b = document.getElementById('nunBarraCel');
+  if (b) b.querySelectorAll('button[data-mod]').forEach(x => x.classList.toggle('activo', x.dataset.mod === (State && State.modulo)));
+}
+let _celT = null;
+new MutationObserver(() => { if (!document.body.classList.contains('modo-cel')) return; clearTimeout(_celT); _celT = setTimeout(() => nunCelEtiquetar(document), 60); })
+  .observe(document.documentElement, { childList:true, subtree:true });
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', nunAplicarModo); else setTimeout(nunAplicarModo, 0);
+window.nunCambiarModo = nunCambiarModo; window.nunAplicarModo = nunAplicarModo; window.nunBarraIr = nunBarraIr; window.nunCelEtiquetar = nunCelEtiquetar;
 // v4.51 — en el teléfono, tocar fuera del menú lo cierra
 document.addEventListener('click', e => { const sn = document.getElementById('appSidenav');
   if (sn && sn.classList.contains('open') && window.innerWidth <= 880 && !sn.contains(e.target) && !e.target.closest('.nav-toggle')) sn.classList.remove('open'); }, true);

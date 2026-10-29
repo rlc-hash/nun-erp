@@ -30,7 +30,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   if(!busca('RL001')||busca('RL001')[3]!==1100||busca('RL001')[2]!=='53121502') r.fallas.push('referencia');
   if(!busca('SF003')||busca('SF003')[3]!==1478) r.fallas.push('nuevo');
   if(!busca('22 PULGADAS')||busca('22 PULGADAS')[2]!=='53121503'||busca('22 PULGADAS')[3]!==400) r.fallas.push('individual');
-  if(R.m.length!==1||R.m[0][3]!==230||R.m[0][2]!=='24111514') r.fallas.push('ml');
+  if(R.m.length!==0||!busca('MOCHILA YH002 NEGRO')||busca('MOCHILA YH002 NEGRO')[3]!==110) r.fallas.push('ml'); // v4.55 ML va junto
   ['nuevo','typo','canceladas'].forEach(t=>{ if(!R.a.includes(t)) r.fallas.push('aviso-'+t); });
   if(R.tn.sub!==+(R.n.reduce((s,p)=>s+p[0]*p[3],0)).toFixed(2)||R.tn.iva!==+(R.tn.sub*0.16).toFixed(2)) r.fallas.push('totales');
   // v4.54: carry on = 53121503 · referencia siempre (YH = 110)
@@ -44,7 +44,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   r.ultimoHabil=w.eval("[nunAdqUltimoHabil('2026-10'),nunAdqUltimoHabil('2026-11'),nunAdqUltimoHabil('2026-08')]");
   if(r.ultimoHabil.join()!=='2026-10-30,2026-11-30,2026-08-31') r.fallas.push('fecha');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(5[4-9]|[6-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v4\.(5[5-9]|[6-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

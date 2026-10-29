@@ -1795,7 +1795,7 @@ body.dark .nun-barra-cel { background:#fff; }
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.54 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.55 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -15601,7 +15601,7 @@ window.nunCotAplicarProductos = nunCotAplicarProductos; window.nunCotMargenesCal
 //  · Facturas timbradas del mes (se pueden quitar o agregar otras, ej. las del 30 sep que entran en octubre).
 //  · Precio por modelo: si ya tiene precio de referencia, ESE (v4.54: no se mueve); si es modelo nuevo, promedio ponderado de lo
 //    vendido (sin IVA) × 0.80 redondeado (y avisa). Alternativa: costo real del catálogo. Clave SAT 02 = sets, 03 = individual y carry on.
-//  · Facturas de Mercado Libre / Amazon: fuera del promedio; su precio = su venta × 0.80 y van en factura aparte.
+//  · Mercado Libre / Amazon: v4.55 se suma con los demás productos con los mismos precios (antes iba aparte).
 //  · Clave SAT: YH = 24111514 (mochila) · Z… o "INDIVIDUAL" = 53121503 · RL/SF = 53121502. Unidad H87 PIEZA.
 //  · Avisa: modelos sin precio de referencia, variación >10% entre colores, SKU con typo (YHO12), Público en General que no es ML,
 //    facturas canceladas del mes que se omitieron, y si falta el RFC/domicilio del proveedor.
@@ -15657,7 +15657,7 @@ function nunAdqFacturas(st){
   const delMes = F.filter(f => String(f.fecha||'').slice(0, 7) === st.mes && f.estatus === 'timbrada');
   const extra = (st.extra || []).map(id => F.find(f => f.id === id)).filter(Boolean);
   const todas = [...new Map([...delMes, ...extra].map(f => [f.id, f])).values()].sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
-  return todas.map(f => ({ f, incluir: !(st.fuera || []).includes(f.id), ml: st.ml && st.ml[f.id] !== undefined ? !!st.ml[f.id] : /amazon|mercado\s*libre|\bML\b/i.test((f.notas||'') + ' ' + (f.cliente||'')), extra: !delMes.includes(f) }));
+  return todas.map(f => ({ f, incluir: !(st.fuera || []).includes(f.id), ml: false /* v4.55 — Mercado Libre/Amazon NO va aparte: se suma con los demás productos y lleva los mismos precios (Rafa) */, extra: !delMes.includes(f) }));
 }
 // Cálculo puro de la solicitud (lo usa la pantalla, el Excel y la prueba)
 function nunAdqCalc(st){
@@ -15673,15 +15673,16 @@ function nunAdqCalc(st){
   const k = l => l.mo.familia === 'YH' ? 'YH' : (l.mo.z ? 'Z' + (l.mo.modelo || l.sku) + (l.mo.med ? '-' + l.mo.med : '') : (l.mo.modelo || l.sku));
   const prom = new Map();
   lineas.filter(l => !l.ml).forEach(l => { const p = prom.get(k(l)) || { q:0, v:0, colores:new Map() }; p.q += l.q; p.v += l.q * l.pu;
-    const c = p.colores.get(l.sku) || { q:0, v:0 }; c.q += l.q; c.v += l.q * l.pu; p.colores.set(l.sku, c); prom.set(k(l), p); });
+    const c = p.colores.get(l.sku) || { q:0, v:0, mod:l.mo.modelo }; c.q += l.q; c.v += l.q * l.pu; p.colores.set(l.sku, c); prom.set(k(l), p); });
   const precioModelo = new Map();
   prom.forEach((p, key) => {
     const calc = _adqLimpio(p.v / p.q * 0.8), ref = precios[key] != null ? +precios[key] : (key.startsWith('Z') ? +precios[key] || 0 : 0);
     let final = calc, fuente = 'calculado';
     if (ref > 0) { final = ref; fuente = 'referencia'; } // v4.54 — los precios que ya tiene Rafa no se mueven
     else avisos.push({ t:'nuevo', m:`${key}: modelo sin precio de referencia. Puse ${_adqMon(calc)} (80% de lo vendido, ${_adqMon(p.v / p.q)} promedio). Confírmalo y define su clave SAT si no es la correcta.` });
-    const cs = [...p.colores.values()].map(c => c.v / c.q); if (cs.length > 1 && (Math.max(...cs) - Math.min(...cs)) / Math.min(...cs) > 0.10)
-      avisos.push({ t:'variacion', m:`${key}: entre colores el precio de venta varía más de 10% (${_adqMon(Math.min(...cs))} a ${_adqMon(Math.max(...cs))}). Puede ser mayoreo mezclado con menudeo.` });
+    const porMod = new Map(); p.colores.forEach(c => { (porMod.get(c.mod) || porMod.set(c.mod, []).get(c.mod)).push(c.v / c.q); }); // v4.55 colores del MISMO modelo
+    porMod.forEach((cs, mod) => { if (cs.length > 1 && (Math.max(...cs) - Math.min(...cs)) / Math.min(...cs) > 0.10)
+      avisos.push({ t:'variacion', m:`${mod || key}: entre colores el precio de venta varía más de 10% (${_adqMon(Math.min(...cs))} a ${_adqMon(Math.max(...cs))}). Puede ser mayoreo mezclado con menudeo.` }); });
     precioModelo.set(key, { final, calc, ref, fuente, prom: p.v / p.q });
   });
   lineas.forEach(l => { if (l.mo.typo) avisos.push({ t:'typo', m:`SKU ${l.sku} (factura ${l.fol}) parece typo de ${l.mo.modelo}.` }); if (!l.clave) avisos.push({ t:'clave', m:`${l.sku} (factura ${l.fol}): no sé su clave SAT.` }); });
@@ -15700,7 +15701,7 @@ function nunAdqCalc(st){
   if (st.metodo === 'costo') lineas.forEach(l => { if (!(l.prod && (+l.prod.costo_factura || +l.prod.costo))) avisos.push({ t:'costo', m:`${l.sku}: no tiene costo en Productos (sale en $0).` }); });
   const tot = ps => { const s = nunR2(ps.reduce((a, p) => a + p.importe, 0)), iva = nunR2(s * 0.16); return { sub:s, iva, total:nunR2(s + iva) }; };
   // otros avisos
-  usar.forEach(x => { if (/p[uú]blico en general/i.test(x.f.cliente||'') && !x.ml) avisos.push({ t:'retail', m:`${x.f.folio} es a Público en General y no está marcada como Mercado Libre/Amazon. ¿Es venta de mostrador o de ML?` }); });
+  // v4.55 — Público en General / Mercado Libre se suman igual que las demás: sin aviso
   const canc = (State.data.facturas||[]).filter(f => String(f.fecha||'').slice(0, 7) === st.mes && /cancel/i.test(f.estatus||''));
   if (canc.length) avisos.push({ t:'canceladas', m:`Se omitieron ${canc.length} factura(s) cancelada(s) del mes: ${canc.map(f => f.folio).join(', ')}.` });
   const fuera = FF.filter(x => !x.incluir); if (fuera.length) avisos.push({ t:'fuera', m:`Quitaste a mano: ${fuera.map(x => x.f.folio).join(', ')}.` });
@@ -15741,10 +15742,9 @@ function renderAdquisicion(){
       <div style="font-size:12px;color:var(--mute);margin-top:8px">Cliente: ${esc(NUN_ADQ_CLIENTE.razon)} · ${esc(NUN_ADQ_CLIENTE.rfc)} · Uso G01 · Método PPD · Forma 99 · MXN</div>
     </div>
     <h3 style="margin:0 0 8px">1. Facturas que entran</h3>
-    <div class="dt-wrap" style="margin-bottom:8px"><div class="dt-scroll"><table class="dt"><thead><tr><th>Factura</th><th>Fecha</th><th>Cliente</th><th class="right">Subtotal</th><th>¿Entra?</th><th>Mercado Libre / Amazon</th></tr></thead><tbody>
+    <div class="dt-wrap" style="margin-bottom:8px"><div class="dt-scroll"><table class="dt"><thead><tr><th>Factura</th><th>Fecha</th><th>Cliente</th><th class="right">Subtotal</th><th>¿Entra?</th></tr></thead><tbody>
       ${R.FF.map(x => `<tr style="${x.incluir ? '' : 'opacity:.5'}"><td class="mono"><strong>${esc(x.f.folio)}</strong>${x.extra ? ' <span class="tag">de otro mes</span>' : ''}</td><td>${fmtFecha(x.f.fecha)}</td><td>${esc(x.f.cliente)}</td><td class="right mono">${_adqMon(x.f.subtotal)}</td>
-        <td><label><input type="checkbox" ${x.incluir ? 'checked' : ''} onchange="nunAdqIncluir('${x.f.id}',this.checked)"> sí</label></td>
-        <td><label><input type="checkbox" ${x.ml ? 'checked' : ''} onchange="nunAdqML('${x.f.id}',this.checked)"> factura aparte</label></td></tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--mute)">No hay facturas timbradas en este mes</td></tr>'}
+        <td><label><input type="checkbox" ${x.incluir ? 'checked' : ''} onchange="nunAdqIncluir('${x.f.id}',this.checked)"> sí</label></td></tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--mute)">No hay facturas timbradas en este mes</td></tr>'}
     </tbody></table></div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px"><input id="adqFolio" style="${inp};max-width:200px" placeholder="Folio de otro mes (ej. FT0003)"><button class="btn" onclick="nunAdqAgregar()">＋ Agregar factura</button></div>
     <h3 style="margin:0 0 8px">2. Revisa antes de pedirla (${R.avisos.length})</h3>

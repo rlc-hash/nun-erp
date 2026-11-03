@@ -35,7 +35,7 @@
 //  Nadie más puede crear códigos de dueño (RAFA-, YADAH-, MASTER-NUN-), porque esos dan permisos de dueño.
 // ============================================================
 
-const VERSION_ERP = 'v0.9.17';
+const VERSION_ERP = 'v0.9.18'; // v0.9.18 pagos que reportan los vendedores (por verificar)
 
 // v0.9.2 — Mapeo de tablas que el CRM pide por nombre "corto" a la hoja real del ERP.
 // El CRM usa 'clientes' para su catálogo de vendedores (NO el catálogo fiscal 'clientes' del ERP).
@@ -97,6 +97,8 @@ const TABLAS = {
   ingresos:      { nombre:'Ingresos',      cols:['id','fecha','cliente','factura','cuenta','tipo','monto','comentarios','registrado_por'] },
   gastos:        { nombre:'Gastos',        cols:['id','fecha','concepto','descripcion','categoria','metodo','responsable','monto'] },
   pagosclientes: { nombre:'PagosClientes', cols:['timestamp','id_doc','cliente','monto','fecha','cuenta','notas','usuario','codigo_usuario','ingreso_id'] },
+  // v0.9.18 — el vendedor reporta un pago desde su app; Rafa o Yazmín lo verifican en el sistema (entonces sí se registra en Cobranza)
+  pagosverificar: { nombre:'PagosVerificar', cols:['id','fecha','creado','cliente','cobro_id','documento','monto','cuenta','forma','referencia','notas','vendedor','creado_por','estatus','verificado_por','verificado_fecha','ingreso_id','motivo'] },
 
   // v0.2.0 — Configuración y nuevos módulos
   empresa:          { nombre:'EmpresaConfig',     cols:['clave','valor'] },

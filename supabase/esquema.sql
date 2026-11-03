@@ -27,3 +27,8 @@ revoke all on nun_hojas, nun_historial, nun_props, nun_sesiones, nun_log from an
 alter table nun_log add column if not exists quien text;           -- v4.16 quién hizo el cambio (nombre, nunca el código)
 alter table nun_sesiones add column if not exists nombre text;
 create index if not exists nun_log_fecha on nun_log (fecha desc);
+-- v4.63 (3 nov 2026) — vendedores: al entrar se guarda qué es (rol), de quién es la cartera (vend), si ve a todos y si puede cotizar
+alter table nun_sesiones add column if not exists rol text;
+alter table nun_sesiones add column if not exists vend text;
+alter table nun_sesiones add column if not exists todos boolean;
+alter table nun_sesiones add column if not exists cotiza boolean;

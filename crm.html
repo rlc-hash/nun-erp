@@ -1472,7 +1472,7 @@
   <div style="position:absolute; top:24px; left:24px; right:24px; display:flex; align-items:center; gap:20px; font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--mute); flex-wrap:wrap; padding-bottom:14px; border-bottom:1px solid var(--line);">
     <div style="width:7px;height:7px;border-radius:50%;background:var(--mute-2);flex-shrink:0" id="loginDot"></div>
     <div style="flex:1;color:var(--ink-3);font-weight:500" id="loginStatus">Sin sesión iniciada</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.21</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.22</span>
     <a onclick="abrirConfigDesdeLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Configurar</a>
     <a onclick="recargarLogin()" style="color:var(--ink);cursor:pointer;font-weight:500;padding:4px 0">Recargar</a>
     <a onclick="toggleDarkMode()" style="color:var(--ink);cursor:pointer;padding:4px 0">🌙</a>
@@ -1496,7 +1496,7 @@
   <div class="topbar">
     <div class="sync-dot" id="syncDot"></div>
     <div class="sync-text" id="syncText">No conectado</div>
-    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.21</span>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--mute);background:var(--bg-soft);padding:3px 8px;border-radius:3px;border:1px solid var(--line);letter-spacing:0.05em">v1.9.22</span>
     <span id="userBadge" style="color:var(--ink);font-weight:500;display:none"></span>
     <a class="topbar-link" id="linkUsuarios" onclick="abrirModalUsuarios()" style="display:none">Usuarios</a>
     <a class="topbar-link" id="linkCuentas" onclick="abrirModalCuentas()" style="display:none">Cuentas</a>
@@ -2542,6 +2542,9 @@
 
 
 <script>
+// v1.9.22 — los VENDEDORES usan la app nueva (vendedores.html: solo lo suyo, cotizar, pagos por verificar). Esta queda para la oficina.
+(function(){ try { const s = JSON.parse(localStorage.getItem('nun_session') || 'null'); if (s && s.usuario && String(s.usuario.rol || '').toLowerCase() === 'vendedor') location.replace('vendedores.html'); } catch(e){} })();
+function nunAppVendedor(){ try { if (sesionActual && sesionActual.usuario && String(sesionActual.usuario.rol || '').toLowerCase() === 'vendedor') { location.replace('vendedores.html'); return true; } } catch(e){} return false; }
 const CATEGORIAS = ["Nómina y sueldos","Comisiones a vendedores","Comisiones socios","Fletes y logística","Renta almacén","Renta oficina","Impuestos y SAT","Contador","Mercancía","Viajes de negocio","Envíos a clientes","Seguros","Software y suscripciones","Equipo de oficina","Préstamos a empleados","Reembolsables","Otros"];
 const METODOS_GASTO = ["BBVA","AMEX Rafa","SHAYO","Efectivo","Efectivo Rafa","Efectivo Yadah","Primo Yadah"];
 const RESPONSABLES = ["Rafa","Yadah","Cliente efectivo"];
@@ -3673,6 +3676,7 @@ async function hacerLogin() {
     };
     nunNormalizarSesion(); // v1.9.8
     nunLSset(KEY_SESSION, JSON.stringify(sesionActual));
+    if (nunAppVendedor()) return; // v1.9.22
     
     // Mostrar app
     document.getElementById('loginOverlay').style.display = 'none';

@@ -129,6 +129,19 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   sale igual a la de la factura y la cuenta BBVA ya seleccionada (se puede cambiar). Prueba en `prueba_v446_pago_factura_varias.js`.
 - v4.62 Cobro encontrado SOLO por folio (`nunCobroDeDoc`, `nunSaldoDocBase`) cuenta solo si es del mismo cliente o de su grupo (`nunCobroMismoCli`):
   folios de NUN chocaban con los de Bind de otro cliente y la factura salía pagada. Al timbrar una PUE con saldo pregunta si registrar su pago. Prueba `prueba_v462_pue_folio.js`.
+- **v4.63 / app de vendedores v2.0 / servidor supabase-1.2 + v0.9.18 (3 nov 2026, decidido por Rafa)**: los vendedores usan la app NUEVA
+  `vendedores.html` (instalable, `manifest-vendedores.webmanifest`): Inicio (vendido/cobrado del mes, te deben, comisión aprox. = % propio de lo cobrado),
+  Cotizar (sube cotización con folio '' → el servidor pone C…; cliente nuevo queda a su nombre), Pedidos (estado y lo que falta, sumando los cobros de sus
+  remisiones/facturas), Clientes (saldo, WhatsApp, 💵 Registrar pago) e Inventario (disponible = existencia − apartado; nunca costos).
+  `crm.html` manda a cualquier sesión con rol vendedor a la app nueva (crm.html queda para la oficina, v1.9.22).
+  El SERVIDOR (index.ts) filtra para rol vendedor: al entrar guarda en `nun_sesiones` rol/vend/todos(ver_todos_clientes)/cotiza(agregar_pedidos y no
+  solo_consulta); solo tablas clientes/productos/cotizaciones/pedidos/facturas/remisiones/cobranza/ingresos/notascredito/pagosverificar; productos sin costo ni
+  costo_factura; sin gastos ni kv; el que no ve a todos (Luis, Esteban) solo sus clientes (clientes.vendedor) y docs con su nombre; Edgar a todos.
+  Escribe solo: erp_crear cotizaciones (si cotiza; el servidor pone vendedor/estatus enviada), clientes (a su nombre) y pagosverificar (estatus por_verificar);
+  erp_upsert_batch solo para cancelar SU cotización enviada (el servidor libera lo apartado) o SU pago por verificar. Sesión sin rol guardado y no admin =
+  "vuelve a entrar" una vez. Pago del vendedor = tabla `pagosverificar` (no toca Cobranza); en el ERP, Cobranza muestra "🔔 N pagos reportados" →
+  ✅ Verificar y registrar (`nunPVVerificar`: capturar_pago_cliente con la cuenta/fecha elegidas + estatus verificado) o ✕ Rechazar (motivo). Nada se borra.
+  Pruebas: `prueba_servidor_vendedores.js` (corre el index.ts real sin tipos con base y Google simulados), `prueba_vendedores_v200.js`, `prueba_v463_pagos_verificar.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

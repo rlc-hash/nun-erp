@@ -132,13 +132,15 @@ const permVend={ver_gastos:false,editar_gastos:false,ver_ingresos:false,editar_i
   r.vendedor.guardarEdicionDoc={rechazado:!V.LOG.slice(nv).some(x=>x.accion==='actualizar_pedido'), alerta:(V.LOG.slice(nv).find(x=>x.alert)||{}).alert};
   V.w.eval("cambiarTab('micomision')"); await sleep(200);
   r.vendedor.miComision=(V.d.getElementById('heroMiComision')||{}).textContent.replace(/\s+/g,' ').trim().slice(0,200);
-  r.erroresVendedor=V.errs.slice(0,5);
+  // v1.9.22 — el vendedor ahora se manda a vendedores.html (jsdom no navega: avisa 'navigation to another Document')
+  r.vendedorVaAAppNueva=V.errs.some(e=>/navigation to another Document/.test(e));
+  r.erroresVendedor=V.errs.filter(e=>!/navigation to another Document/.test(e)).slice(0,5);
   V.w.close();
 
   // ---------- VENDEDOR SIN vendedor_asignado ----------
   const N=await abrir({codigo:'NUEVO-1',usuario:{codigo:'NUEVO-1',nombre:'',rol:'vendedor'},permisos:Object.assign({},permVend,{ver_todos_clientes:'0'}),device_id:'d3'});
   r.sinAsignar={cobranzaVisible:N.w.eval("cobranzaVisible().length"), filas:N.d.querySelectorAll('#tbodyCobranza tr:not(:has(.empty))').length};
-  r.erroresSinAsignar=N.errs.slice(0,5);
+  r.erroresSinAsignar=N.errs.filter(e=>!/navigation to another Document/.test(e)).slice(0,5);
   N.w.close();
 
   // ---------- Resumen ----------
@@ -160,6 +162,7 @@ const permVend={ver_gastos:false,editar_gastos:false,ver_ingresos:false,editar_i
   if(r.vendedor.esAdmin||r.vendedor.veEditar||!r.vendedor.guardarEdicionDoc.rechazado||r.vendedor.cobranzaVisible!=='c1,cy'&&r.vendedor.cobranzaVisible!=='cy,c1'&&r.vendedor.cobranzaVisible!=='c1') fallas.push('vendedor');
   if(r.vendedor.vendedorActual!=='EDGAR') fallas.push('vendedor actual');
   if(r.sinAsignar.cobranzaVisible!==0) fallas.push('vendedor sin asignar');
+  if(!r.vendedorVaAAppNueva) fallas.push('vendedor-app-nueva');
   if(r.erroresAdmin.length||r.erroresVendedor.length||r.erroresSinAsignar.length) fallas.push('errores de arranque');
   r.fallas=fallas;
   if(fallas.length) r.error='Fallan: '+fallas.join(', ');

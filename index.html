@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.62 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.63 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4842,6 +4842,7 @@ function renderCobranza(params) {
       </select>
     </div>
 
+    <div id="nunPVBanner"></div>
     <div id="cobranzaMount"></div>
   `;
 }
@@ -4904,6 +4905,73 @@ function afterRenderCobranza(params) {
   });
   const m = document.getElementById('cobranzaMount');
   if (m) m.innerHTML = html;
+  nunPVPintarBanner(); // v4.63
+}
+
+// ============================================================
+// v4.63 — PAGOS QUE REPORTAN LOS VENDEDORES (app vendedores.html, tabla pagosverificar)
+// El vendedor registra el pago y queda "por verificar"; aquí Rafa o Yazmín lo verifican (entonces sí se registra en
+// Cobranza con capturar_pago_cliente y baja a Ingresos) o lo rechazan con un motivo. Nada se borra.
+// ============================================================
+function nunPVPendientes(){ return (State.data.pagosverificar || []).filter(p => p.estatus === 'por_verificar'); }
+async function nunPVPintarBanner(){
+  const b = document.getElementById('nunPVBanner'); if (!b) return;
+  if (!window._nunPVt || Date.now() - window._nunPVt > 60000) { window._nunPVt = Date.now(); try { await cargarTabla('pagosverificar', { ttl: 60000 }); } catch(e){} }
+  const L = nunPVPendientes(); const bb = document.getElementById('nunPVBanner'); if (!bb) return;
+  bb.innerHTML = L.length ? `<div style="margin:0 0 12px;padding:12px 14px;border-radius:10px;background:#fff7e6;border:1px solid #f0d9a8;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px"><b>🔔 ${L.length} ${L.length === 1 ? 'pago reportado' : 'pagos reportados'} por vendedores</b> · ${fmtFull(L.reduce((a, p) => a + (+p.monto || 0), 0))} por verificar</div>
+    <button class="btn btn-primary btn-sm" onclick="nunPVAbrir()">Revisar</button></div>` : '';
+}
+function nunPVAbrir(){
+  const L = nunPVPendientes().slice().sort((a, b) => String(a.creado || a.fecha).localeCompare(String(b.creado || b.fecha)));
+  const cob = State.data.cobranza || [];
+  let m = document.getElementById('modalPV'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalPV';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick = e => { if (e.target === m) m.remove(); };
+  const ctas = (State.data.cuentas || []).filter(c => c.activa !== false && c.activa !== 'false').map(c => c.nombre);
+  m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:760px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><h3 style="margin:0">Pagos por verificar (${L.length})</h3><button class="icon-btn" onclick="document.getElementById('modalPV').remove()">✕</button></div>
+    <div style="padding:8px 20px 16px">${L.map(p => { const c = cob.find(x => String(x.id) === String(p.cobro_id)); const saldo = c ? +c.pendiente || 0 : 0;
+      return `<div style="padding:12px 0;border-bottom:1px solid var(--line)">
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><b>${escapeHTML(p.cliente)}</b> · ${escapeHTML(p.documento || '')}<div style="font-size:12.5px;color:var(--mute)">Reportó <b>${escapeHTML(p.vendedor || '')}</b> · pagó el ${fmtFecha(p.fecha)} · ${escapeHTML(p.forma || '')}${p.referencia ? ' · ref ' + escapeHTML(p.referencia) : ''}${p.notas ? ' · ' + escapeHTML(p.notas) : ''}</div>
+          <div style="font-size:12.5px;color:var(--mute)">${c ? 'Saldo hoy del documento: ' + fmtFull(saldo) : '<span style="color:var(--red)">No encontré su cobro en Cobranza</span>'}</div></div>
+          <div style="font-size:18px;font-weight:600;font-family:'JetBrains Mono',monospace">${fmtFull(p.monto)}</div></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+          <input type="date" id="pvF_${escapeHTML(p.id)}" value="${escapeHTML(String(p.fecha || '').substring(0, 10))}" style="width:auto">
+          <select id="pvC_${escapeHTML(p.id)}" style="width:auto"><option value="">— Cuenta —</option>${ctas.map(x => `<option ${x === p.cuenta ? 'selected' : ''}>${escapeHTML(x)}</option>`).join('')}</select>
+          <button class="btn btn-primary btn-sm" ${c && (+p.monto || 0) <= saldo + 0.01 ? '' : 'disabled title="El monto es mayor al saldo o no hay cobro"'} onclick="nunPVVerificar(${escapeHTML(JSON.stringify(String(p.id)))})">✅ Verificar y registrar</button>
+          <button class="btn btn-secondary btn-sm" onclick="nunPVRechazar(${escapeHTML(JSON.stringify(String(p.id)))})">✕ Rechazar</button></div></div>`; }).join('') || '<div style="padding:30px;text-align:center;color:var(--mute)">No hay pagos por verificar</div>'}</div></div>`;
+  document.body.appendChild(m);
+}
+async function nunPVVerificar(id){
+  if (window._nunPVok) return;
+  const p = nunPVPendientes().find(x => String(x.id) === String(id)); if (!p) return;
+  const fecha = (document.getElementById('pvF_' + id) || {}).value, cuenta = (document.getElementById('pvC_' + id) || {}).value;
+  if (!fecha || !cuenta) { toast('Pon la fecha y la cuenta donde entró el dinero', { type:'error' }); return; }
+  if (!(await confirmDialog({ title: '¿Registrar este pago?', message: fmtFull(p.monto) + ' de ' + p.cliente + ' (' + (p.documento || '') + ') a ' + cuenta + ' el ' + fecha + '. Reportado por ' + (p.vendedor || '') + '. Se registra en Cobranza y baja a Ingresos.', ok: 'Verificar y registrar' }))) return;
+  window._nunPVok = true;
+  try {
+    // ¿ya lo verificó alguien más? (se vuelve a leer antes de registrar)
+    await cargarTabla('pagosverificar', { ttl: 1 });
+    const q = (State.data.pagosverificar || []).find(x => String(x.id) === String(id));
+    if (!q || q.estatus !== 'por_verificar') { toast('Ese pago ya fue revisado por alguien más', { type:'error' }); nunPVAbrir(); return; }
+    const notas = 'Reportado por ' + (p.vendedor || '') + ' en su app' + (p.forma ? ' · ' + p.forma : '') + (p.referencia ? ' · ref ' + p.referencia : '') + (p.notas ? ' · ' + p.notas : '');
+    const r = await api({ accion:'capturar_pago_cliente', id_doc: p.cobro_id, monto: +p.monto, fecha, cuenta, notas, usuario: State.sesion.usuario.nombre, codigo_usuario: State.sesion.codigo });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'no se registró');
+    await api({ accion:'erp_upsert_batch', tabla:'pagosverificar', items:[{ id: p.id, estatus:'verificado', cuenta, verificado_por: (State.sesion.usuario || {}).nombre || '', verificado_fecha: new Date().toISOString() }] });
+    await Promise.all([cargarTabla('cobranza', { ttl: 1 }), cargarTabla('ingresos', { ttl: 1 }), cargarTabla('pagosverificar', { ttl: 1 })]);
+    toast('✓ Pago verificado y registrado · ' + fmtFull(p.monto));
+    renderCurrent(); if (nunPVPendientes().length) nunPVAbrir(); else { const mm = document.getElementById('modalPV'); if (mm) mm.remove(); }
+  } catch(e){ toast('✗ ' + e.message, { type:'error', duration:8000 }); }
+  finally { window._nunPVok = false; }
+}
+async function nunPVRechazar(id){
+  const p = nunPVPendientes().find(x => String(x.id) === String(id)); if (!p) return;
+  const motivo = prompt('¿Por qué se rechaza? (lo verá el vendedor)', 'No se encontró el depósito'); if (motivo === null) return;
+  const r = await api({ accion:'erp_upsert_batch', tabla:'pagosverificar', items:[{ id: p.id, estatus:'rechazado', motivo: motivo || 'Rechazado', verificado_por: (State.sesion.usuario || {}).nombre || '', verificado_fecha: new Date().toISOString() }] });
+  if (!r || !r.ok) { toast('✗ No se guardó: ' + ((r && r.error) || ''), { type:'error' }); return; }
+  await cargarTabla('pagosverificar', { ttl: 1 }); toast('Pago rechazado'); renderCurrent(); if (nunPVPendientes().length) nunPVAbrir(); else { const mm = document.getElementById('modalPV'); if (mm) mm.remove(); }
 }
 
 function abrirDrawerCobranza(idDoc) {

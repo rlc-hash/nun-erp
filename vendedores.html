@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NUN Vendedores</title>
+<meta name="theme-color" content="#0A0A0A">
+<link rel="manifest" href="manifest-vendedores.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="NUN Vendedores">
+<!--
+  App de vendedores NUN v2.0 (3 nov 2026, decidido por Rafa)
+  · Cada vendedor ve solo lo suyo (el servidor lo filtra: Luis/Esteban sus clientes; Edgar a todos). Sin costos ni gastos.
+  · Cotizar: sube COTIZACIONES (folio C…); Rafa o Yazmín las confirman y se vuelven pedido.
+  · Registrar pago: queda "por verificar" (tabla pagosverificar); Rafa o Yazmín lo verifican en el sistema y ahí sí cuenta.
+  · Inventario: solo existencias y precio de lista; nunca costos.
+-->
+<style>
+:root{--bg:#f6f6f4;--card:#fff;--ink:#0a0a0a;--ink2:#3b3b3b;--mute:#8a8a8a;--line:#e6e6e3;--acc:#0a0a0a;--acc-ink:#fff;
+  --ok:#1f8a4c;--ok-bg:#e8f6ee;--warn:#a35d00;--warn-bg:#fff4e0;--bad:#c0392b;--bad-bg:#fdecea;--blue:#1d5fbf;--blue-bg:#e9f0fc}
+@media (prefers-color-scheme: dark){:root{--bg:#0b0b0c;--card:#16171a;--ink:#f3f3f3;--ink2:#cfcfcf;--mute:#8b8b90;--line:#2a2b30;--acc:#f3f3f3;--acc-ink:#0a0a0a;
+  --ok:#4cc985;--ok-bg:#12291d;--warn:#f0a640;--warn-bg:#2b2111;--bad:#ff6b5e;--bad-bg:#2e1513;--blue:#7fb0ff;--blue-bg:#14213a}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;overflow-x:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+.top{position:sticky;top:0;z-index:20;background:var(--bg);display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;border-bottom:1px solid var(--line)}
+.top img{width:34px;height:34px;border-radius:9px;cursor:pointer}
+.top .t{flex:1;min-width:0}.top .t b{display:block;font-size:16px}.top .t span{font-size:12px;color:var(--mute)}
+.ver{font:11px ui-monospace,Menlo,monospace;color:var(--mute);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
+main{padding:14px 16px calc(90px + env(safe-area-inset-bottom));max-width:720px;margin:0 auto}
+.nav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--card);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
+.nav button{flex:1;border:0;background:none;padding:8px 0 9px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--mute)}
+.nav button i{font-style:normal;font-size:20px;line-height:1}.nav button.on{color:var(--ink);font-weight:600}
+h2{font-size:20px;margin:4px 0 12px}h3{font-size:15px;margin:18px 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
+.kpi small{display:block;color:var(--mute);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}.kpi b{display:block;font-size:20px;margin-top:4px}.kpi span{font-size:12px;color:var(--mute)}
+.row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--line);cursor:pointer}.row:last-child{border-bottom:0}
+.row .m{flex:1;min-width:0}.row .m b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.row .m span{font-size:12.5px;color:var(--mute)}
+.row .r{text-align:right;white-space:nowrap}.row .r b{display:block}.row .r span{font-size:12px;color:var(--mute)}
+.tag{display:inline-block;font-size:11.5px;font-weight:600;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.t-ok{background:var(--ok-bg);color:var(--ok)}.t-warn{background:var(--warn-bg);color:var(--warn)}.t-bad{background:var(--bad-bg);color:var(--bad)}.t-blue{background:var(--blue-bg);color:var(--blue)}.t-mute{background:var(--line);color:var(--ink2)}
+.btn{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:11px 14px;font-weight:600;cursor:pointer}
+.btn.p{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}.btn.w{width:100%}.btn:disabled{opacity:.5}
+.btn.s{padding:7px 11px;font-size:13px;border-radius:10px}a.btn{color:inherit;text-decoration:none}
+.in{width:100%;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:11px 12px;font-size:16px}
+label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:8px}.chips button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:6px 12px;font-size:13px;white-space:nowrap}
+.chips button.on{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+.vacio{text-align:center;color:var(--mute);padding:28px 10px}
+.hoja{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:flex-end}
+.hoja>div{background:var(--bg);width:100%;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom))}
+.hoja .cab{display:flex;align-items:center;gap:10px;margin-bottom:8px}.hoja .cab b{flex:1;font-size:17px}
+.x{border:0;background:var(--line);border-radius:999px;width:32px;height:32px;font-size:16px}
+.linea{padding:10px 0;border-bottom:1px solid var(--line)}.linea small{color:var(--mute)}
+.linea .li{display:grid;grid-template-columns:80px 1fr 36px;gap:8px;align-items:end;margin-top:6px}.linea .li label{font-size:11.5px;color:var(--mute)}.linea .in{padding:8px;font-size:16px;margin-top:2px}
+.tot{display:flex;justify-content:space-between;padding:4px 0}.tot.g{font-size:18px;font-weight:700}
+.toast{position:fixed;left:16px;right:16px;bottom:calc(80px + env(safe-area-inset-bottom));z-index:80;background:var(--ink);color:var(--bg);border-radius:12px;padding:12px 14px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.toast.err{background:var(--bad);color:#fff}
+.login{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+.login img{width:84px;height:84px;border-radius:20px;margin-bottom:14px}.login h1{margin:0 0 4px;font-size:24px}.login p{color:var(--mute);margin:0 0 22px}
+.login .in{text-align:center;letter-spacing:.06em;max-width:340px}.login .btn{max-width:340px;margin-top:10px}
+.err{color:var(--bad);margin-top:12px;text-align:center;max-width:340px}
+.sub{color:var(--mute);font-size:12.5px}
+.sw{display:flex;align-items:center;gap:8px;margin-top:10px}.sw input{width:20px;height:20px}
+.res{max-height:240px;overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--card);margin-top:6px}
+.res div{padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer}.res div:last-child{border-bottom:0}
+.aviso{background:var(--warn-bg);color:var(--warn);border-radius:12px;padding:10px 12px;font-size:13.5px;margin-bottom:10px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ============================================================
+// NUN Vendedores v2.0
+// ============================================================
+const VERSION = 'v2.0.0';
+const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
+const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
+const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
+const VENDEDORES = ['EDGAR','LUIS','ESTEBAN','YADAH'];
+const PCT_COMISION = { EDGAR: 0.06, LUIS: 0.05, ESTEBAN: 0.05 }; // lo propio; Rafa confirma al cierre
+const S = { ses: null, d: {}, tab: 'inicio', cargando: false, verComo: '', filtroPed: 'todo', soloMios: true, cuentas: [] };
+TABLAS.forEach(t => S.d[t] = []);
+
+// ---------- utilidades ----------
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const r2 = x => Math.round((+x || 0) * 100 + (x >= 0 ? 1e-9 : -1e-9)) / 100;
+const $$ = n => '$' + (+n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const $0 = n => '$' + Math.round(+n || 0).toLocaleString('es-MX');
+const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/S\.?\s*A\.?\s*DE\s*C\.?\s*V\.?/g, '').replace(/[^A-Z0-9]/g, '');
+const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+function fecha10(f){ const s = String(f || ''); if (/^\d{4}-\d{2}-\d{2}T/.test(s)) { const d = new Date(s); if (!isNaN(d)) return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); } return s.slice(0, 10); }
+function fmtF(f){ const s = fecha10(f); const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? (+m[3]) + ' ' + MESES[+m[2]-1] + ' ' + m[1].slice(2) : (s || '—'); }
+function hoy(){ const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+const mesActual = () => hoy().slice(0, 7);
+function calcDoc(items, sinIva){ let sub = 0, iva = 0; items.forEach(it => { const base = r2(r2((+it.cantidad||0) * (+it.precio_unitario||0))); sub += base; iva += sinIva ? 0 : r2(base * 0.16); }); sub = r2(sub); iva = r2(iva); return { subtotal: sub, iva, total: r2(sub + iva) }; }
+function lsGet(k, def){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch(e){ return def; } }
+function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+function toast(msg, err){ const t = document.createElement('div'); t.className = 'toast' + (err ? ' err' : ''); t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), err ? 6000 : 3200); }
+function device(){ let d = lsGet(K_DEV, ''); if (!d) { d = 'v_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); lsSet(K_DEV, d); } return d; }
+
+async function api(body){
+  const b = Object.assign({}, body, { codigo: S.ses && S.ses.codigo });
+  const r = await fetch(URL_API, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+  const j = await r.json();
+  if (j && j.requiere_login) { salir('Vuelve a entrar con tu código'); throw new Error('Vuelve a entrar con tu código'); }
+  return j;
+}
+
+// ---------- sesión ----------
+const esVendedor = () => !!S.ses && String(S.ses.usuario && S.ses.usuario.rol || '').toLowerCase() === 'vendedor';
+function miVendedor(){ if (!S.ses) return ''; if (!esVendedor()) return S.verComo; return norm((S.ses.usuario && S.ses.usuario.vendedor_asignado) || (S.ses.usuario && S.ses.usuario.nombre)); }
+const puedeCotizar = () => !!S.ses && (!esVendedor() || (!!(S.ses.permisos || {}).agregar_pedidos && !(S.ses.permisos || {}).solo_consulta));
+const veTodos = () => !!S.ses && (!esVendedor() || !!(S.ses.permisos || {}).ver_todos_clientes);
+
+function pintarLogin(err){
+  document.getElementById('app').innerHTML = `<div class="login">
+    <img src="icons/icon-192.png" alt="NUN"><h1>NUN Vendedores</h1><p>Escribe tu código de acceso</p>
+    <input id="lgCod" class="in" placeholder="TU-CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false" onkeydown="if(event.key==='Enter')entrar()">
+    <button class="btn p w" id="lgBtn" onclick="entrar()">Entrar</button>
+    <div class="err" id="lgErr">${esc(err || '')}</div>
+    <div class="sub" style="margin-top:28px">${VERSION}</div></div>`;
+}
+async function entrar(){
+  const c = $('lgCod').value.trim().toUpperCase(); if (!c) { $('lgErr').textContent = 'Escribe tu código'; return; }
+  $('lgBtn').disabled = true; $('lgBtn').textContent = 'Entrando…'; $('lgErr').textContent = '';
+  try {
+    const r = await fetch(URL_API, { method: 'POST', body: JSON.stringify({ accion: 'login', codigo: c, device_id: device(), device_name: 'App vendedores · ' + (navigator.userAgent.match(/\(([^;)]+)/) || [,'teléfono'])[1] }), headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+    const j = await r.json();
+    if (!j.ok) { $('lgErr').textContent = j.error || 'Código inválido'; $('lgBtn').disabled = false; $('lgBtn').textContent = 'Entrar'; return; }
+    S.ses = { codigo: c, usuario: j.usuario || {}, permisos: (j.permisos && typeof j.permisos === 'object') ? j.permisos : {} };
+    lsSet(K_SES, S.ses); arrancar();
+  } catch(e){ $('lgErr').textContent = 'Sin conexión: ' + e.message; $('lgBtn').disabled = false; $('lgBtn').textContent = 'Entrar'; }
+}
+function salir(msg){ S.ses = null; try { localStorage.removeItem(K_SES); TABLAS.forEach(t => localStorage.removeItem(K_CACHE + t)); } catch(e){} pintarLogin(msg); }
+
+// ---------- datos ----------
+async function cargar(silencio){
+  if (S.cargando) return; S.cargando = true; pintarTop();
+  let fallo = 0;
+  await Promise.all(TABLAS.map(async t => {
+    try { const j = await api({ accion: 'erp_listar', tabla: t }); if (j.ok) { S.d[t] = j.items || []; lsSet(K_CACHE + t, S.d[t]); } else if (t !== 'pagosverificar') fallo++; }
+    catch(e){ fallo++; }
+  }));
+  try { const c = await api({ accion: 'listar_cuentas' }); if (c.ok) S.cuentas = (c.cuentas || []).filter(x => x.activa !== false && x.activa !== 'false').map(x => x.nombre); } catch(e){}
+  S.cargando = false; S.hora = new Date();
+  if (fallo && !silencio) toast('No se pudo actualizar todo; se muestra lo último guardado', true);
+  pintar();
+}
+const vivo = d => !/cancel|duplicad/i.test(String(d && d.estatus || ''));
+function ingresosValidos(){
+  const a = S.d.ingresos || [];
+  const corte = [a.filter(i => String(i.id || '').startsWith('bind_pag_')).map(i => fecha10(i.fecha)).sort().pop() || '', '2026-09-24'].sort().pop();
+  return a.filter(i => !(/^(CANCELADO|DUPLICADO)/i.test(String(i.tipo || '')) || (/^ING-/.test(String(i.id || '')) && /^(PAGO|AJUSTE)$/i.test(String(i.tipo || '')) && fecha10(i.fecha) <= corte)));
+}
+// ¿es de este vendedor? (si ve a todos y escogió "solo míos")
+function clientesDe(v){ return new Set((S.d.clientes || []).filter(c => norm(c.vendedor) === v).map(c => norm(c.razon_social))); }
+function esMio(doc, set){ const v = miVendedor(); if (!v) return true; return norm(doc.vendedor) === v || set.has(norm(doc.cliente)); }
+function filtroMios(arr){ if (!S.soloMios && veTodos()) return arr; const v = miVendedor(); if (!v) return arr; const set = clientesDe(v); return arr.filter(d => esMio(d, set)); }
+function misClientes(){ const v = miVendedor(); const cl = S.d.clientes || []; if (!v || (!S.soloMios && veTodos())) return cl; return cl.filter(c => norm(c.vendedor) === v); }
+const cobrosVivos = () => (S.d.cobranza || []).filter(c => vivo(c));
+const porVerificar = () => (S.d.pagosverificar || []).filter(p => p.estatus === 'por_verificar');
+function verificandoDe(cobroId){ return r2(porVerificar().filter(p => String(p.cobro_id) === String(cobroId)).reduce((a, p) => a + (+p.monto || 0), 0)); }
+function cobroDePedido(p){ const c = S.d.cobranza || []; return c.find(x => String(x.factura_origen) === String(p.id) || x.id === 'cob_' + p.id) || null; }
+// cobros del pedido: el suyo y los de sus remisiones/facturas (los pedidos viejos se cobran en la remisión)
+function cobrosDePedido(p){
+  const cob = S.d.cobranza || [], f = String(p.folio || '').trim(), out = [];
+  const add = c => { if (c && vivo(c) && !out.includes(c)) out.push(c); };
+  add(cobroDePedido(p));
+  ['remisiones', 'facturas'].forEach(t => (S.d[t] || []).filter(d => vivo(d) && String(d.pedido_origen || '').split(',').map(x => x.trim()).includes(f)).forEach(d => {
+    const bid = String(d.id).replace(/^bind_(rem_|fac_)?/, '');
+    add(cob.find(x => String(x.factura_origen) === String(d.id) || x.id === 'cob_' + d.id || x.id === 'bind_cob_' + bid));
+  }));
+  return out;
+}
+
+// ---------- pantallas ----------
+function pintarTop(){
+  const t = $('topSub'); if (t) t.textContent = S.cargando ? 'Actualizando…' : ('Actualizado ' + (S.hora ? S.hora.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '—'));
+}
+function marco(){
+  const u = S.ses.usuario || {};
+  document.getElementById('app').innerHTML = `
+  <div class="top"><img src="icons/icon-192.png" alt="NUN" onclick="cargar()" title="Actualizar">
+    <div class="t"><b>${esc(u.nombre || miVendedor() || 'NUN')}</b><span id="topSub"></span></div>
+    <span class="ver">${VERSION}</span></div>
+  <main id="main"></main>
+  <nav class="nav">${[['inicio','🏠','Inicio'],['cotizar','➕','Cotizar'],['pedidos','🧾','Pedidos'],['clientes','👥','Clientes'],['catalogo','📦','Inventario']]
+    .map(([k, i, n]) => `<button data-t="${k}" onclick="ir('${k}')"><i>${i}</i>${n}</button>`).join('')}</nav>`;
+}
+function ir(t){ S.tab = t; window.scrollTo(0, 0); pintar(); }
+function pintar(){
+  if (!S.ses) return;
+  if (!$('main')) marco();
+  pintarTop();
+  document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('on', b.dataset.t === S.tab));
+  const f = { inicio: vInicio, cotizar: vCotizar, pedidos: vPedidos, clientes: vClientes, catalogo: vCatalogo }[S.tab] || vInicio;
+  $('main').innerHTML = f();
+}
+function selectorVendedor(){
+  if (esVendedor()) return veTodos() ? `<div class="chips"><button class="${S.soloMios ? 'on' : ''}" onclick="S.soloMios=true;pintar()">Lo mío</button><button class="${!S.soloMios ? 'on' : ''}" onclick="S.soloMios=false;pintar()">Todos</button></div>` : '';
+  return `<div class="chips"><button class="${!S.verComo ? 'on' : ''}" onclick="S.verComo='';pintar()">Todos</button>${VENDEDORES.map(v => `<button class="${S.verComo === v ? 'on' : ''}" onclick="S.verComo='${v}';pintar()">${v}</button>`).join('')}</div>`;
+}
+
+function vInicio(){
+  const v = miVendedor(), mes = mesActual();
+  const pedidos = filtroMios((S.d.pedidos || []).filter(p => vivo(p) && !/borrador/i.test(p.estatus || '')));
+  const vendidoMes = pedidos.filter(p => fecha10(p.fecha).slice(0, 7) === mes).reduce((a, p) => a + (+p.total || 0), 0);
+  const cobros = filtroMios(cobrosVivos());
+  const debe = cobros.reduce((a, c) => a + ((+c.pendiente || 0) >= 1 ? +c.pendiente : 0), 0);
+  const numsMios = new Set(cobros.map(c => String(c.numero).trim()));
+  const ingMes = ingresosValidos().filter(i => fecha10(i.fecha).slice(0, 7) === mes && numsMios.has(String(i.factura).trim()));
+  const cobradoMes = ingMes.reduce((a, i) => a + (+i.monto || 0), 0);
+  const pct = PCT_COMISION[v] || 0;
+  const cots = filtroMios((S.d.cotizaciones || []).filter(c => c.estatus === 'enviada'));
+  const pv = filtroMios(porVerificar());
+  const vencidos = cobros.filter(c => (+c.pendiente || 0) >= 1).sort((a, b) => (+b.pendiente) - (+a.pendiente)).slice(0, 5);
+  return `${selectorVendedor()}<h2>Hola${(S.ses.usuario || {}).nombre ? ', ' + esc(S.ses.usuario.nombre) : ''}</h2>
+  <div class="kpis">
+    <div class="kpi"><small>Vendido en ${MESES[+mes.slice(5) - 1]}</small><b>${$0(vendidoMes)}</b><span>${pedidos.filter(p => fecha10(p.fecha).slice(0, 7) === mes).length} pedidos</span></div>
+    <div class="kpi"><small>Cobrado en ${MESES[+mes.slice(5) - 1]}</small><b>${$0(cobradoMes)}</b><span>${ingMes.length} pagos</span></div>
+    <div class="kpi"><small>Te deben</small><b>${$0(debe)}</b><span>${cobros.filter(c => (+c.pendiente || 0) >= 1).length} documentos</span></div>
+    <div class="kpi"><small>Comisión aprox.</small><b>${pct ? $0(cobradoMes * pct) : '—'}</b><span>${pct ? Math.round(pct * 100) + '% de lo cobrado' : (v ? 'la calcula Rafa' : 'elige vendedor')}</span></div>
+  </div>
+  <div class="sub" style="margin:2px 0 10px">La comisión es aproximada; Rafa la confirma al cierre del mes.</div>
+  ${puedeCotizar() ? '<button class="btn p w" onclick="ir(\'cotizar\')">➕ Nueva cotización</button>' : ''}
+  ${pv.length ? `<h3>Pagos por verificar (${pv.length})</h3><div class="card">${pv.map(p => `<div class="row" style="cursor:default"><div class="m"><b>${esc(p.cliente)}</b><span>${esc(p.documento || '')} · ${fmtF(p.fecha)} · ${esc(p.cuenta || '')}</span></div><div class="r"><b>${$$(p.monto)}</b><span class="tag t-warn">por verificar</span></div></div>`).join('')}</div>` : ''}
+  <h3>Cotizaciones por confirmar (${cots.length})</h3>
+  <div class="card">${cots.length ? cots.slice(0, 8).map(c => filaCot(c)).join('') : '<div class="vacio">Ninguna pendiente</div>'}</div>
+  <h3>Quién te debe más</h3>
+  <div class="card">${vencidos.length ? vencidos.map(c => `<div class="row" onclick="abrirCliente(${esc(JSON.stringify(c.cliente))})"><div class="m"><b>${esc(c.cliente)}</b><span>${esc(c.tipo || '')} ${esc(c.numero)} · ${fmtF(c.fecha_emision)}</span></div><div class="r"><b>${$$(c.pendiente)}</b>${verificandoDe(c.id) ? '<span class="tag t-warn">por verificar</span>' : ''}</div></div>`).join('') : '<div class="vacio">Nadie te debe 🎉</div>'}</div>`;
+}
+
+function estadoCot(c){
+  if (c.estatus === 'enviada') return '<span class="tag t-warn">por confirmar</span>';
+  if (c.estatus === 'convertida') { const p = (S.d.pedidos || []).find(x => String(x.cotizacion_origen) === String(c.folio) || String(x.cotizacion_origen) === String(c.id)); return '<span class="tag t-ok">confirmada' + (p ? ' · ' + esc(p.folio) : '') + '</span>'; }
+  if (/cancel/i.test(c.estatus || '')) return '<span class="tag t-mute">cancelada</span>';
+  return '<span class="tag t-mute">' + esc(c.estatus || '') + '</span>';
+}
+function filaCot(c){ return `<div class="row" onclick="abrirDoc('cotizaciones','${esc(c.id)}')"><div class="m"><b>${esc(c.cliente)}</b><span>${esc(c.folio)} · ${fmtF(c.fecha)}</span></div><div class="r"><b>${$$(c.total)}</b>${estadoCot(c)}</div></div>`; }
+function estadoPed(p){
+  if (/cancel/i.test(p.estatus || '')) return '<span class="tag t-mute">cancelado</span>';
+  const cs = cobrosDePedido(p), debe = cs.reduce((a, c) => a + ((+c.pendiente || 0) >= 1 ? +c.pendiente : 0), 0);
+  if (cs.length && debe < 1) return '<span class="tag t-ok">pagado</span>';
+  const e = String(p.estatus || '').toLowerCase();
+  return '<span class="tag ' + (e === 'facturado' || e === 'entregado' ? 't-blue' : 't-warn') + '">' + esc(e || 'pedido') + '</span>' + (debe >= 1 ? '<span style="display:block;font-size:12px;color:var(--mute)">debe ' + $0(debe) + '</span>' : '');
+}
+function vPedidos(){
+  const f = S.filtroPed;
+  const cots = filtroMios(S.d.cotizaciones || []).map(c => ({ k: 'c', d: c }));
+  const peds = filtroMios((S.d.pedidos || []).filter(p => !/borrador|duplicad/i.test(p.estatus || ''))).map(p => ({ k: 'p', d: p }));
+  let l = f === 'cot' ? cots : f === 'ped' ? peds : f === 'pend' ? cots.filter(x => x.d.estatus === 'enviada') : cots.filter(x => x.d.estatus !== 'convertida').concat(peds);
+  const q = norm(S.qPed || ''); if (q) l = l.filter(x => norm(x.d.cliente + ' ' + x.d.folio).includes(q));
+  l.sort((a, b) => fecha10(b.d.fecha).localeCompare(fecha10(a.d.fecha)) || String(b.d.folio).localeCompare(String(a.d.folio)));
+  return `${selectorVendedor()}<h2>Cotizaciones y pedidos</h2>
+  <div class="chips">${[['todo','Todo'],['pend','Por confirmar'],['cot','Cotizaciones'],['ped','Pedidos']].map(([k, n]) => `<button class="${f === k ? 'on' : ''}" onclick="S.filtroPed='${k}';pintar()">${n}</button>`).join('')}</div>
+  <input class="in" placeholder="Buscar cliente o folio" value="${esc(S.qPed || '')}" oninput="S.qPed=this.value;clearTimeout(window._qp);window._qp=setTimeout(()=>{pintar();const i=document.querySelector('main .in');i.focus();i.setSelectionRange(i.value.length,i.value.length)},350)">
+  <div class="card" style="margin-top:10px">${l.length ? l.slice(0, 150).map(x => x.k === 'c' ? filaCot(x.d) : `<div class="row" onclick="abrirDoc('pedidos','${esc(x.d.id)}')"><div class="m"><b>${esc(x.d.cliente)}</b><span>Pedido ${esc(x.d.folio)} · ${fmtF(x.d.fecha)}</span></div><div class="r"><b>${$$(x.d.total)}</b>${estadoPed(x.d)}</div></div>`).join('') : '<div class="vacio">No hay nada aquí todavía</div>'}</div>`;
+}
+
+function saldoCliente(nombre){ const n = norm(nombre); return cobrosVivos().filter(c => norm(c.cliente) === n).reduce((a, c) => a + ((+c.pendiente || 0) >= 1 ? +c.pendiente : 0), 0); }
+function vClientes(){
+  const q = norm(S.qCli || '');
+  let l = misClientes().filter(c => vivo(c) && c.activo !== false && c.activo !== 'false').map(c => ({ c, s: saldoCliente(c.razon_social) }));
+  if (q) l = l.filter(x => norm(x.c.razon_social + ' ' + (x.c.nombre_comercial || '') + ' ' + (x.c.telefono || '')).includes(q));
+  l.sort((a, b) => b.s - a.s || String(a.c.razon_social).localeCompare(String(b.c.razon_social)));
+  return `${selectorVendedor()}<h2>Mis clientes (${l.length})</h2>
+  <input class="in" placeholder="Buscar cliente" value="${esc(S.qCli || '')}" oninput="S.qCli=this.value;clearTimeout(window._qc);window._qc=setTimeout(()=>{pintar();const i=document.querySelector('main .in');i.focus();i.setSelectionRange(i.value.length,i.value.length)},350)">
+  <div class="card" style="margin-top:10px">${l.length ? l.slice(0, 200).map(x => `<div class="row" onclick="abrirCliente(${esc(JSON.stringify(x.c.razon_social))})"><div class="m"><b>${esc(x.c.razon_social)}</b><span>${esc(x.c.ciudad || x.c.telefono || '')}${x.c.vendedor && !esVendedor() ? ' · ' + esc(x.c.vendedor) : ''}</span></div><div class="r">${x.s >= 1 ? '<b>' + $$(x.s) + '</b><span>debe</span>' : '<span class="tag t-ok">al corriente</span>'}</div></div>`).join('') : '<div class="vacio">No hay clientes' + (q ? ' con esa búsqueda' : '') + '</div>'}</div>`;
+}
+
+function disponible(p){ return Math.max(0, (+p.stock_actual || 0) - (+p.stock_comprometido || 0)); }
+function vCatalogo(){
+  const q = norm(S.qCat || '');
+  let l = (S.d.productos || []).filter(p => p.activo !== false && p.activo !== 'false');
+  if (q) l = l.filter(p => norm(p.sku + ' ' + p.descripcion).includes(q));
+  if (S.soloExist) l = l.filter(p => disponible(p) > 0);
+  l.sort((a, b) => disponible(b) - disponible(a) || String(a.sku).localeCompare(String(b.sku)));
+  return `<h2>Inventario</h2>
+  <div class="chips"><button class="${!S.soloExist ? 'on' : ''}" onclick="S.soloExist=false;pintar()">Todos</button><button class="${S.soloExist ? 'on' : ''}" onclick="S.soloExist=true;pintar()">Con existencia</button></div>
+  <input class="in" placeholder="Buscar modelo o descripción" value="${esc(S.qCat || '')}" oninput="S.qCat=this.value;clearTimeout(window._qk);window._qk=setTimeout(()=>{pintar();const i=document.querySelector('main .in');i.focus();i.setSelectionRange(i.value.length,i.value.length)},350)">
+  <div class="sub" style="margin:8px 2px">Disponible = existencia menos lo apartado en cotizaciones. Solo se lleva inventario de la mercancía nueva.</div>
+  <div class="card">${l.length ? l.slice(0, 300).map(p => { const d = disponible(p); return `<div class="row" style="cursor:default"><div class="m"><b>${esc(p.sku)}</b><span>${esc(p.descripcion || '')}</span></div><div class="r"><b>${d} pzs</b><span>${(+p.stock_comprometido || 0) ? (+p.stock_comprometido) + ' apartadas · ' : ''}${+p.precio ? 'lista ' + $0(p.precio) : ''}</span></div></div>`; }).join('') : '<div class="vacio">Sin productos</div>'}</div>`;
+}
+
+// ---------- hojas (detalle) ----------
+function hoja(titulo, html){ cerrarHoja(); const h = document.createElement('div'); h.className = 'hoja'; h.id = 'hoja'; h.onclick = e => { if (e.target === h) cerrarHoja(); };
+  h.innerHTML = `<div><div class="cab"><b>${titulo}</b><button class="x" onclick="cerrarHoja()">✕</button></div><div id="hojaC">${html}</div></div>`; document.body.appendChild(h); }
+function cerrarHoja(){ const h = $('hoja'); if (h) h.remove(); }
+function itemsDe(d){ try { const a = JSON.parse(d.items_json || '[]'); return Array.isArray(a) ? a : []; } catch(e){ return []; } }
+function abrirDoc(tabla, id){
+  const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)); if (!d) return;
+  const its = itemsDe(d);
+  const cs = tabla === 'pedidos' ? cobrosDePedido(d) : [];
+  const c = cs.find(x => (+x.pendiente || 0) >= 1) || null;
+  const pagado = cs.reduce((a, x) => a + (+x.cobrado || 0), 0), falta = cs.reduce((a, x) => a + Math.max(0, +x.pendiente || 0), 0);
+  const verif = cs.reduce((a, x) => a + verificandoDe(x.id), 0);
+  const nombre = tabla === 'cotizaciones' ? 'Cotización ' + d.folio : 'Pedido ' + d.folio;
+  hoja(esc(nombre), `<div class="sub">${esc(d.cliente)} · ${fmtF(d.fecha)}${d.vendedor ? ' · ' + esc(d.vendedor) : ''}</div>
+    <div style="margin:8px 0">${tabla === 'cotizaciones' ? estadoCot(d) : estadoPed(d)}</div>
+    <div class="card">${its.length ? its.map(i => `<div class="row" style="cursor:default"><div class="m"><b>${esc(i.sku)}</b><span>${esc(i.descripcion || '')}</span></div><div class="r"><b>${+i.cantidad} × ${$$(i.precio_unitario)}</b><span>${$$(r2((+i.cantidad || 0) * (+i.precio_unitario || 0)))}</span></div></div>`).join('') : '<div class="vacio">Sin detalle de productos</div>'}
+      <div class="tot"><span>Subtotal</span><span>${$$(d.subtotal)}</span></div><div class="tot"><span>IVA</span><span>${$$(d.iva)}</span></div><div class="tot g"><span>Total</span><span>${$$(d.total)}</span></div></div>
+    ${cs.length ? `<div class="card"><div class="tot"><span>Pagado</span><span>${$$(pagado)}</span></div><div class="tot g"><span>Falta</span><span>${$$(falta)}</span></div>${verif ? '<div class="sub">' + $$(verif) + ' por verificar</div>' : ''}${cs.length > 1 ? '<div class="sub">Se cobra en: ' + cs.map(x => esc((x.tipo || '') + ' ' + x.numero)).join(', ') + '</div>' : ''}</div>` : ''}
+    ${d.notas ? '<div class="sub" style="margin:6px 2px">' + esc(d.notas) + '</div>' : ''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn" onclick="compartir('${tabla}','${esc(d.id)}')">💬 Mandar por WhatsApp</button>
+      ${c && (+c.pendiente || 0) >= 1 ? `<button class="btn p" onclick="abrirPago('${esc(c.id)}')">💵 Registrar pago</button>` : ''}
+      ${tabla === 'cotizaciones' && d.estatus === 'enviada' && (!esVendedor() || norm(d.vendedor) === miVendedor()) ? `<button class="btn" style="color:var(--bad)" onclick="cancelarCot('${esc(d.id)}')">Cancelar cotización</button>` : ''}
+    </div>`);
+}
+function compartir(tabla, id){
+  const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)); if (!d) return;
+  const t = (tabla === 'cotizaciones' ? '*Cotización ' : '*Pedido ') + d.folio + '* · NUN\n' + d.cliente + '\n\n' + itemsDe(d).map(i => '• ' + i.cantidad + ' × ' + i.sku + ' ' + (i.descripcion || '') + ' — ' + $$(i.precio_unitario)).join('\n')
+    + '\n\nSubtotal ' + $$(d.subtotal) + (+d.iva ? '\nIVA ' + $$(d.iva) : '') + '\n*Total ' + $$(d.total) + '*';
+  const tel = String(((S.d.clientes || []).find(c => norm(c.razon_social) === norm(d.cliente)) || {}).telefono || '').replace(/\D/g, '');
+  window.open('https://wa.me/' + (tel.length === 10 ? '52' + tel : tel) + '?text=' + encodeURIComponent(t), '_blank');
+}
+async function cancelarCot(id){
+  if (!confirm('¿Cancelar esta cotización? Se libera lo que apartó.')) return;
+  try { const j = await api({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id, estatus: 'cancelada' }] });
+    if (!j.ok) throw new Error(j.error || 'no se pudo'); toast('Cotización cancelada'); cerrarHoja(); cargar(true); }
+  catch(e){ toast('✗ ' + e.message, true); }
+}
+function abrirCliente(nombre){
+  const n = norm(nombre); const cl = (S.d.clientes || []).find(c => norm(c.razon_social) === n) || { razon_social: nombre };
+  const cobros = cobrosVivos().filter(c => norm(c.cliente) === n).sort((a, b) => fecha10(b.fecha_emision).localeCompare(fecha10(a.fecha_emision)));
+  const deben = cobros.filter(c => (+c.pendiente || 0) >= 1);
+  const pv = porVerificar().filter(p => norm(p.cliente) === n);
+  const rech = (S.d.pagosverificar || []).filter(p => p.estatus === 'rechazado' && norm(p.cliente) === n).slice(-5);
+  const tel = String(cl.telefono || '').replace(/\D/g, '');
+  const pagos = ingresosValidos().filter(i => norm(i.cliente) === n).sort((a, b) => fecha10(b.fecha).localeCompare(fecha10(a.fecha))).slice(0, 10);
+  hoja(esc(cl.razon_social), `<div class="sub">${[cl.contacto, cl.telefono, cl.ciudad].filter(Boolean).map(esc).join(' · ') || 'Sin datos de contacto'}</div>
+    <div class="kpis" style="margin-top:10px"><div class="kpi"><small>Debe</small><b>${$$(deben.reduce((a, c) => a + (+c.pendiente || 0), 0))}</b><span>${deben.length} ${deben.length === 1 ? 'documento' : 'documentos'}</span></div>
+      <div class="kpi"><small>Por verificar</small><b>${$$(pv.reduce((a, p) => a + (+p.monto || 0), 0))}</b><span>${pv.length} pagos</span></div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 4px">
+      ${tel ? `<a class="btn s" href="https://wa.me/${tel.length === 10 ? '52' + tel : tel}" target="_blank" style="text-decoration:none">💬 WhatsApp</a><a class="btn s" href="tel:${tel}" style="text-decoration:none">📞 Llamar</a>` : ''}
+      ${puedeCotizar() ? `<button class="btn s p" onclick="cerrarHoja();S.cot.cliente=${esc(JSON.stringify(cl.razon_social))};ir('cotizar')">➕ Cotizar</button>` : ''}</div>
+    <h3>Lo que debe</h3><div class="card">${deben.length ? deben.map(c => `<div class="row" onclick="abrirPago('${esc(c.id)}')"><div class="m"><b>${esc(c.tipo || 'Documento')} ${esc(c.numero)}</b><span>${fmtF(c.fecha_emision)} · total ${$$(c.total)}${verificandoDe(c.id) ? ' · ' + $$(verificandoDe(c.id)) + ' por verificar' : ''}</span></div><div class="r"><b>${$$(c.pendiente)}</b><span>💵 registrar pago</span></div></div>`).join('') : '<div class="vacio">No debe nada</div>'}</div>
+    ${pv.length ? `<h3>Pagos por verificar</h3><div class="card">${pv.map(p => `<div class="row" style="cursor:default"><div class="m"><b>${$$(p.monto)}</b><span>${esc(p.documento || '')} · ${fmtF(p.fecha)} · ${esc(p.cuenta || '')} ${esc(p.forma || '')}</span></div><div class="r"><span class="tag t-warn">por verificar</span>${(!esVendedor() || norm(p.vendedor) === miVendedor()) ? `<button class="btn s" style="margin-top:4px" onclick="cancelarPago('${esc(p.id)}')">Cancelar</button>` : ''}</div></div>`).join('')}</div>` : ''}
+    ${rech.length ? `<h3>Pagos rechazados</h3><div class="card">${rech.map(p => `<div class="row" style="cursor:default"><div class="m"><b>${$$(p.monto)}</b><span>${esc(p.documento || '')} · ${fmtF(p.fecha)} · ${esc(p.motivo || '')}</span></div><div class="r"><span class="tag t-bad">rechazado</span></div></div>`).join('')}</div>` : ''}
+    <h3>Últimos pagos</h3><div class="card">${pagos.length ? pagos.map(i => `<div class="row" style="cursor:default"><div class="m"><b>${$$(i.monto)}</b><span>${esc(i.factura || '')} · ${esc(i.cuenta || '')}</span></div><div class="r"><span>${fmtF(i.fecha)}</span></div></div>`).join('') : '<div class="vacio">Sin pagos registrados</div>'}</div>`);
+}
+async function cancelarPago(id){
+  if (!confirm('¿Cancelar este pago reportado?')) return;
+  try { const j = await api({ accion: 'erp_upsert_batch', tabla: 'pagosverificar', items: [{ id, estatus: 'cancelado', motivo: 'Cancelado por el vendedor' }] });
+    if (!j.ok) throw new Error(j.error || 'no se pudo'); toast('Pago cancelado'); cerrarHoja(); cargar(true); }
+  catch(e){ toast('✗ ' + e.message, true); }
+}
+
+// ---------- registrar pago (queda por verificar) ----------
+function abrirPago(cobroId){
+  const c = (S.d.cobranza || []).find(x => String(x.id) === String(cobroId)); if (!c) return;
+  const falta = r2(Math.max(0, (+c.pendiente || 0) - verificandoDe(c.id)));
+  const ctas = S.cuentas.length ? S.cuentas : ['BBVA', 'Efectivo Transferencia', 'Efectivo'];
+  hoja('💵 Registrar pago', `<div class="sub">${esc(c.cliente)} · ${esc(c.tipo || '')} ${esc(c.numero)} · debe ${$$(c.pendiente)}${verificandoDe(c.id) ? ' (' + $$(verificandoDe(c.id)) + ' ya reportado)' : ''}</div>
+    <div class="aviso" style="margin-top:10px">El pago queda <b>por verificar</b>: cuenta cuando Rafa o Yazmín lo confirman.</div>
+    <label class="l">Monto</label><input id="pgMonto" class="in" type="number" inputmode="decimal" step="0.01" value="${falta || ''}">
+    <label class="l">Fecha del pago</label><input id="pgFecha" class="in" type="date" value="${hoy()}" max="${hoy()}">
+    <label class="l">¿Cómo pagó?</label><select id="pgForma" class="in"><option>Transferencia</option><option>Efectivo</option><option>Depósito</option><option>Cheque</option><option>Tarjeta</option></select>
+    <label class="l">¿A qué cuenta?</label><select id="pgCuenta" class="in">${ctas.map(x => `<option>${esc(x)}</option>`).join('')}<option value="">No sé</option></select>
+    <label class="l">Referencia o folio del comprobante (opcional)</label><input id="pgRef" class="in" placeholder="ej. clave de rastreo">
+    <label class="l">Notas (opcional)</label><input id="pgNotas" class="in">
+    <button class="btn p w" id="pgBtn" style="margin-top:16px" onclick="guardarPago('${esc(c.id)}')">Reportar pago</button>`);
+}
+async function guardarPago(cobroId){
+  const c = (S.d.cobranza || []).find(x => String(x.id) === String(cobroId)); if (!c) return;
+  const monto = r2(+$('pgMonto').value);
+  if (!(monto > 0)) { toast('Escribe el monto', true); return; }
+  if (monto > r2(+c.pendiente || 0) + 0.01) { toast('El monto es mayor a lo que debe (' + $$(c.pendiente) + ')', true); return; }
+  if (!$('pgFecha').value) { toast('Falta la fecha', true); return; }
+  const btn = $('pgBtn'); btn.disabled = true; btn.textContent = 'Enviando…';
+  const id = btn.dataset.id || ('pv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)); btn.dataset.id = id; // reintento = mismo id
+  const item = { id, fecha: $('pgFecha').value, creado: new Date().toISOString(), cliente: c.cliente, cobro_id: c.id, documento: (c.tipo ? c.tipo + ' ' : '') + c.numero,
+    monto, cuenta: $('pgCuenta').value, forma: $('pgForma').value, referencia: $('pgRef').value.trim(), notas: $('pgNotas').value.trim() };
+  try {
+    const j = await api({ accion: 'erp_crear', tabla: 'pagosverificar', item });
+    if (!j.ok && !j.ya_existia) throw new Error(j.error || 'no se guardó');
+    toast('✓ Pago reportado: queda por verificar'); cerrarHoja(); cargar(true);
+  } catch(e){ toast('✗ ' + e.message + ' · puedes reintentar, no se duplica', true); btn.disabled = false; btn.textContent = 'Reportar pago'; }
+}
+
+// ---------- cotizar ----------
+S.cot = { cliente: '', lineas: [], conIva: true, notas: '', nuevo: false, tel: '' };
+function vCotizar(){
+  if (!puedeCotizar()) return '<h2>Cotizar</h2><div class="card vacio">Tu usuario todavía no puede subir cotizaciones.<br>Pídeselo a Rafa.</div>';
+  const C = S.cot, its = C.lineas.map(l => ({ cantidad: l.cantidad, precio_unitario: l.precio })), t = calcDoc(its, !C.conIva);
+  return `<h2>Nueva cotización</h2>
+  <div class="card">
+    <label class="l" style="margin-top:0">Cliente</label>
+    ${C.cliente && !C.nuevo ? `<div style="display:flex;gap:8px;align-items:center"><b style="flex:1">${esc(C.cliente)}</b><button class="btn s" onclick="S.cot.cliente='';pintar()">Cambiar</button></div>`
+      : `<input id="ctCli" class="in" placeholder="Buscar cliente" value="${esc(C.nuevo ? C.cliente : (S.qCtCli || ''))}" oninput="${C.nuevo ? 'S.cot.cliente=this.value' : 'S.qCtCli=this.value;buscarCli()'}" autocomplete="off">
+         ${C.nuevo ? `<input class="in" style="margin-top:6px" placeholder="Teléfono (opcional)" inputmode="tel" value="${esc(C.tel)}" oninput="S.cot.tel=this.value"><div class="sub" style="margin-top:6px">Cliente nuevo: queda a tu nombre. <a href="#" onclick="S.cot.nuevo=false;S.cot.cliente='';pintar();return false">Buscar uno que ya existe</a></div>`
+           : `<div id="ctCliRes"></div><div class="sub" style="margin-top:6px"><a href="#" onclick="S.cot.nuevo=true;S.cot.cliente=S.qCtCli||'';pintar();return false">＋ Es un cliente nuevo</a></div>`}`}
+  </div>
+  <div class="card">
+    <label class="l" style="margin-top:0">Productos</label>
+    ${C.lineas.map((l, i) => `<div class="linea"><b>${esc(l.sku)}</b> <small>${esc(l.desc || '')} · ${l.disp} disponibles</small>
+      <div class="li"><label>Cantidad<input class="in" type="number" inputmode="numeric" min="1" value="${l.cantidad}" oninput="S.cot.lineas[${i}].cantidad=+this.value;totCot()"></label>
+      <label>Precio c/u${C.conIva ? ' sin IVA' : ''}<input class="in" type="number" inputmode="decimal" step="0.01" placeholder="$" value="${l.precio || ''}" oninput="S.cot.lineas[${i}].precio=+this.value;totCot()"></label>
+      <button class="x" onclick="S.cot.lineas.splice(${i},1);pintar()">✕</button></div></div>`).join('')}
+    <input id="ctProd" class="in" style="margin-top:8px" placeholder="➕ Agregar producto (modelo o nombre)" oninput="buscarProd()" autocomplete="off"><div id="ctProdRes"></div>
+    <label class="sw"><input type="checkbox" ${C.conIva ? 'checked' : ''} onchange="S.cot.conIva=this.checked;pintar()"> Con factura (+16% IVA)</label>
+    <label class="l">Notas (opcional)</label><input class="in" value="${esc(C.notas)}" oninput="S.cot.notas=this.value">
+  </div>
+  <div class="card" id="ctTot">${htmlTot(t)}</div>
+  <button class="btn p w" id="ctBtn" onclick="subirCot()">Subir cotización</button>
+  <div class="sub" style="margin-top:8px;text-align:center">Rafa o Yazmín la confirman y se vuelve pedido.</div>`;
+}
+function htmlTot(t){ return `<div class="tot"><span>Subtotal</span><span>${$$(t.subtotal)}</span></div><div class="tot"><span>IVA</span><span>${$$(t.iva)}</span></div><div class="tot g"><span>Total</span><span>${$$(t.total)}</span></div>`; }
+function totCot(){ const C = S.cot; $('ctTot').innerHTML = htmlTot(calcDoc(C.lineas.map(l => ({ cantidad: l.cantidad, precio_unitario: l.precio })), !C.conIva)); }
+function buscarCli(){
+  const q = norm(S.qCtCli || ''), box = $('ctCliRes'); if (!box) return;
+  if (q.length < 2) { box.innerHTML = ''; return; }
+  const l = misClientes().filter(c => norm(c.razon_social + ' ' + (c.nombre_comercial || '')).includes(q)).slice(0, 12);
+  box.innerHTML = l.length ? '<div class="res">' + l.map(c => `<div onclick="S.cot.cliente=${esc(JSON.stringify(c.razon_social))};S.cot.nuevo=false;pintar()"><b>${esc(c.razon_social)}</b>${c.ciudad ? '<div class="sub">' + esc(c.ciudad) + '</div>' : ''}</div>`).join('') + '</div>' : '<div class="sub" style="margin-top:6px">No encontré ese cliente.</div>';
+}
+function buscarProd(){
+  const q = norm($('ctProd').value), box = $('ctProdRes'); if (q.length < 2) { box.innerHTML = ''; return; }
+  const l = (S.d.productos || []).filter(p => p.activo !== false && p.activo !== 'false' && norm(p.sku + ' ' + p.descripcion).includes(q)).slice(0, 15);
+  box.innerHTML = '<div class="res">' + (l.map(p => `<div onclick="agregarProd(${esc(JSON.stringify(p.sku))})"><b>${esc(p.sku)}</b> <span class="sub">${disponible(p)} disponibles${+p.precio ? ' · lista ' + $0(S.cot.conIva && +p.precio_factura ? p.precio_factura : p.precio) : ''}</span><div class="sub">${esc(p.descripcion || '')}</div></div>`).join('') || '<div class="sub">Sin resultados</div>') + '</div>';
+}
+function agregarProd(sku){
+  const p = (S.d.productos || []).find(x => x.sku === sku); if (!p) return;
+  const ya = S.cot.lineas.find(l => l.sku === sku);
+  if (ya) ya.cantidad += 1;
+  else S.cot.lineas.push({ sku, desc: p.descripcion || '', cantidad: 1, precio: +(S.cot.conIva && +p.precio_factura ? p.precio_factura : p.precio) || 0, disp: disponible(p) });
+  pintar();
+}
+async function subirCot(){
+  const C = S.cot, cliente = String(C.cliente || '').trim();
+  if (!cliente) { toast('Falta el cliente', true); return; }
+  if (!C.lineas.length) { toast('Agrega al menos un producto', true); return; }
+  const mal = C.lineas.find(l => !(+l.cantidad > 0) || !(+l.precio > 0)); if (mal) { toast('Revisa cantidad y precio de ' + mal.sku + ' (deben ser mayores a 0)', true); return; }
+  const sinExist = C.lineas.filter(l => +l.cantidad > l.disp);
+  if (sinExist.length && !confirm('No hay suficientes piezas disponibles de: ' + sinExist.map(l => l.sku + ' (' + l.disp + ')').join(', ') + '. ¿Subirla de todos modos?')) return;
+  const btn = $('ctBtn'); btn.disabled = true; btn.textContent = 'Subiendo…';
+  C.id = C.id || ('app_cot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)); // reintento = mismo id, no se duplica
+  try {
+    if (C.nuevo && !(S.d.clientes || []).some(c => norm(c.razon_social) === norm(cliente))) {
+      const jc = await api({ accion: 'erp_crear', tabla: 'clientes', item: { id: 'cli_app_' + C.id, razon_social: cliente.toUpperCase(), telefono: C.tel || '', activo: true, fecha_alta: hoy(), notas: 'Alta desde la app de vendedores' } });
+      if (!jc.ok && !jc.ya_existia) throw new Error(jc.error || 'no se dio de alta el cliente');
+    }
+    const items = C.lineas.map(l => ({ sku: l.sku, descripcion: l.desc || l.sku, cantidad: +l.cantidad, precio_unitario: +l.precio, descuento_pct: 0, iva_pct: C.conIva ? 16 : 0 }));
+    const t = calcDoc(items, !C.conIva);
+    const item = { id: C.id, folio: '', fecha: hoy(), cliente: C.nuevo ? cliente.toUpperCase() : cliente, subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: !C.conIva,
+      items_json: JSON.stringify(items), notas: (C.notas ? C.notas + ' · ' : '') + (C.conIva ? '' : 'SIN IVA · ') + 'Cotización desde la app de vendedores' };
+    const j = await api({ accion: 'erp_crear', tabla: 'cotizaciones', item });
+    if (!j.ok && !j.ya_existia) throw new Error(j.error || 'no se guardó');
+    const folio = (j.item && j.item.folio) || '';
+    S.cot = { cliente: '', lineas: [], conIva: true, notas: '', nuevo: false, tel: '' }; S.qCtCli = '';
+    toast('✓ Cotización ' + folio + ' subida · Rafa o Yazmín la confirman');
+    S.tab = 'pedidos'; S.filtroPed = 'pend'; await cargar(true);
+    const nueva = (S.d.cotizaciones || []).find(x => String(x.id) === String(item.id)); if (nueva) abrirDoc('cotizaciones', nueva.id);
+  } catch(e){ toast('✗ No se subió: ' + e.message + ' · puedes reintentar, no se duplica', true); btn.disabled = false; btn.textContent = 'Subir cotización'; }
+}
+
+// ---------- arranque ----------
+function arrancar(){
+  TABLAS.forEach(t => S.d[t] = lsGet(K_CACHE + t, []));
+  marco(); pintar(); cargar(true);
+}
+window.addEventListener('load', () => {
+  if ('serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js'); } catch(e){} }
+  S.ses = lsGet(K_SES, null);
+  if (S.ses && S.ses.codigo) arrancar(); else pintarLogin();
+});
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.ses && (!S.hora || Date.now() - S.hora > 5 * 60 * 1000)) cargar(true); });
+</script>
+</body>
+</html>

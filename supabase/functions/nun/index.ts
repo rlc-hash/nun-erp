@@ -10,7 +10,7 @@ import postgres from 'npm:postgres@3.4.5';
 import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 
-const VERSION = 'supabase-1.1';
+const VERSION = 'supabase-1.2'; // v4.63 vendedores: cada uno recibe solo lo suyo
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -72,7 +72,7 @@ async function google(body: Record<string, unknown>, intentos = 3){
 async function sesion(c: string, necesitaAdmin: boolean){
   if (!c) return { ok: false, admin: false, nombre: '' };
   const h = await sha(c);
-  const [s] = await sql`select admin, nombre, hasta > now() as vigente, hasta from nun_sesiones where h = ${h}`;
+  const [s] = await sql`select admin, nombre, hasta > now() as vigente, hasta, rol, vend, todos, cotiza from nun_sesiones where h = ${h}`;
   let ok = !!(s && s.vigente), admin = !!(s && s.admin);
   if (!ok || (necesitaAdmin && s && s.admin === null)){
     const v = await google({ accion: 'listar_cuentas', codigo: c });
@@ -86,7 +86,68 @@ async function sesion(c: string, necesitaAdmin: boolean){
     if (ok) await sql`insert into nun_sesiones (h, admin, hasta) values (${h}, ${necesitaAdmin ? admin : (s ? s.admin : null)}, now() + interval '6 hours')
                       on conflict (h) do update set admin = excluded.admin, hasta = excluded.hasta`;
   }
-  return { ok, admin, nombre: (s && s.nombre) || '' };
+  // v4.63 — sesión sin rol guardado y que no es administrador: que vuelva a entrar una vez (así se sabe si es vendedor)
+  if (ok && s && !s.rol && s.admin !== true) return { ok: false, admin: false, nombre: s.nombre || '', relogin: true };
+  return { ok, admin, nombre: (s && s.nombre) || '', rol: (s && s.rol) || '', vend: (s && s.vend) || '', todos: !!(s && s.todos), cotiza: !!(s && s.cotiza) };
+}
+
+// ============================================================
+// v4.63 — VENDEDORES: cada uno recibe solo lo suyo (decidido por Rafa, 3 nov 2026)
+// · Solo estas tablas; sin costos; sin gastos ni kv. El que no ve a todos (ver_todos_clientes) solo ve sus clientes
+//   (clientes.vendedor) y los documentos con su nombre. Escribe solo: cotizaciones (si puede cotizar), clientes nuevos
+//   y pagos por verificar (los confirma Rafa o Yazmín en el sistema).
+// ============================================================
+const T_VEND = new Set(['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','notascredito','pagosverificar']);
+const A_VEND = /^(erp_listar|listar_cuentas|listar_vendedores|obtener_empresa|cfdi_xml_get|version|ping|erp_crear|erp_upsert_batch)$/;
+const nCli = (x: unknown) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/S\.?\s*A\.?\s*DE\s*C\.?\s*V\.?/g, '').replace(/[^A-Z0-9]/g, '');
+const SIN_COSTOS = ['costo', 'costo_factura'];
+async function misClientes(se: any, m: Map<string, any>){
+  const b = { accion: 'erp_listar', tabla: 'clientes', codigo: se.codigo };
+  const j = JSON.parse(await ejecutar('post', JSON.stringify(b), b, m, false));
+  return (j.items || []).filter((c: any) => norm(c.vendedor) === se.vend);
+}
+async function filtrarVend(tabla: string, items: any[], se: any, m: Map<string, any>){
+  if (tabla === 'productos') return items.map(p => { const q = { ...p }; SIN_COSTOS.forEach(k => delete q[k]); return q; });
+  if (se.todos) return items;
+  const cl = await misClientes(se, m);
+  if (tabla === 'clientes') return cl;
+  const mios = new Set(cl.map((c: any) => nCli(c.razon_social)));
+  return items.filter(r => norm(r.vendedor) === se.vend || mios.has(nCli(r.cliente || r.contraparte)));
+}
+// Revisa (y ajusta) lo que un vendedor quiere hacer. Regresa un error o null.
+async function revisarVend(body: any, se: any, m: Map<string, any>){
+  const a = String(body.accion || ''), t = String(body.tabla || '');
+  if (!A_VEND.test(a)) return 'Eso no está permitido desde la app de vendedores';
+  if (a === 'erp_listar' && !T_VEND.has(t)) return 'Tabla no disponible';
+  if (a === 'erp_crear'){
+    const it = body.item = { ...(body.item || {}) }; delete it._vaciar; delete it._sin_inventario;
+    if (t === 'cotizaciones'){
+      if (!se.cotiza) return 'Tu usuario no puede subir cotizaciones (pídeselo a Rafa)';
+      it.vendedor = se.vend; it.estatus = 'enviada'; it.creado_por = se.nombre || se.vend;
+    } else if (t === 'clientes'){ it.vendedor = se.vend; }
+    else if (t === 'pagosverificar'){
+      if (!(+it.monto > 0)) return 'El monto debe ser mayor a $0';
+      it.vendedor = se.vend; it.estatus = 'por_verificar'; it.creado_por = se.nombre || se.vend;
+      delete it.verificado_por; delete it.verificado_fecha; delete it.ingreso_id;
+    } else return 'Eso no está permitido desde la app de vendedores';
+    return null;
+  }
+  if (a === 'erp_upsert_batch'){
+    // solo cancelar una cotización propia que aún no se confirma, o un pago suyo que aún no se verifica
+    if (t !== 'cotizaciones' && t !== 'pagosverificar') return 'Eso no está permitido desde la app de vendedores';
+    const items = Array.isArray(body.items) ? body.items : [];
+    const b = { accion: 'erp_listar', tabla: t, codigo: se.codigo };
+    const rows = JSON.parse(await ejecutar('post', JSON.stringify(b), b, m, false)).items || [];
+    for (const it of items){
+      const r = rows.find((x: any) => String(x.id) === String(it && it.id));
+      if (!r || norm(r.vendedor) !== se.vend) return 'Solo puedes cambiar lo tuyo';
+      const ks = Object.keys(it).filter(k => k !== 'id');
+      if (t === 'cotizaciones' && (r.estatus !== 'enviada' || it.estatus !== 'cancelada' || ks.some(k => !['estatus', 'notas'].includes(k)))) return 'Solo puedes cancelar una cotización que aún no se confirma';
+      if (t === 'pagosverificar' && (r.estatus !== 'por_verificar' || it.estatus !== 'cancelado' || ks.some(k => !['estatus', 'motivo'].includes(k)))) return 'Solo puedes cancelar un pago que aún no se verifica';
+    }
+    return null;
+  }
+  return null;
 }
 
 async function cargar(db: any, nombres: string[]){
@@ -141,6 +202,14 @@ Deno.serve(async (req) => {
       accion = 'GET ' + (p.tabla || '');
       if (!p.tabla) return json({ ok: true, mensaje: 'NUN ERP backend ' + VERSION, db: MODO_DB });
       const c = norm(p.codigo), m = new Map(); if (c) m.set(c, await conReintento(() => sesion(c, false)));
+      const se = { ...(m.get(c) || {}), codigo: c }; quien = se.nombre || '';
+      if (se.relogin) return json({ ok: false, error: 'AUTH: vuelve a entrar con tu código', requiere_login: true });
+      if (se.ok && se.rol === 'vendedor'){ // v4.63
+        if (!T_VEND.has(String(p.tabla))) return json({ ok: false, error: 'Tabla no disponible' });
+        const j = JSON.parse(await conReintento(() => ejecutar('get', p, null, m, false)));
+        if (j.ok){ const f = await filtrarVend(String(p.tabla), j.data || j.items || [], se, m); j.data = f; j.items = f; }
+        return json(j);
+      }
       return json(await conReintento(() => ejecutar('get', p, null, m, false)));
     }
     const texto = await req.text();
@@ -154,8 +223,10 @@ Deno.serve(async (req) => {
       if (accion === 'login' && r && r.ok){
         const c = norm(body.codigo), rol = String((r.usuario && r.usuario.rol) || '').toLowerCase();
         const nom = String((r.usuario && r.usuario.nombre) || '').slice(0, 60);
-        await sql`insert into nun_sesiones (h, admin, nombre, hasta) values (${await sha(c)}, ${rol === 'admin'}, ${nom}, now() + interval '6 hours')
-                  on conflict (h) do update set admin = excluded.admin, nombre = excluded.nombre, hasta = excluded.hasta`;
+        const pm = (r.permisos && typeof r.permisos === 'object') ? r.permisos : {}; // v4.63
+        const vend = norm((r.usuario && r.usuario.vendedor_asignado) || nom), todos = !!pm.ver_todos_clientes, cotiza = !!pm.agregar_pedidos && !pm.solo_consulta;
+        await sql`insert into nun_sesiones (h, admin, nombre, hasta, rol, vend, todos, cotiza) values (${await sha(c)}, ${rol === 'admin'}, ${nom}, now() + interval '6 hours', ${rol || 'sin_rol'}, ${vend}, ${todos}, ${cotiza})
+                  on conflict (h) do update set admin = excluded.admin, nombre = excluded.nombre, hasta = excluded.hasta, rol = excluded.rol, vend = excluded.vend, todos = excluded.todos, cotiza = excluded.cotiza`;
         quien = nom;
       }
       ok = !!(r && r.ok); if (!ok) err = String(r && r.error || '').substring(0, 200);
@@ -174,7 +245,21 @@ Deno.serve(async (req) => {
     const necesitaAdmin = A_ADMIN.test(accion);
     const m = new Map();
     for (const c of new Set([body.codigo, body.codigo_usuario, body.codigo_admin].map(norm).filter(Boolean))) m.set(c, await conReintento(() => sesion(c, necesitaAdmin)));
-    quien = ((m.get(norm(body.codigo || body.codigo_usuario || body.codigo_admin)) || {}).nombre) || String(body._quien || '').slice(0, 60);
+    const _c = norm(body.codigo || body.codigo_usuario || body.codigo_admin), se = { ...(m.get(_c) || {}), codigo: _c };
+    quien = se.nombre || String(body._quien || '').slice(0, 60);
+    if ([...m.values()].some((x: any) => x.relogin)) return json({ ok: false, error: 'AUTH: vuelve a entrar con tu código', requiere_login: true }); // v4.63
+    if (se.ok && se.rol === 'vendedor'){ // v4.63
+      const e = await revisarVend(body, se, m);
+      if (e){ ok = false; err = e; return json({ ok: false, error: e }); }
+      const out = await conReintento(() => ejecutar('post', JSON.stringify(body), body, m, !A_LECTURA.test(accion)));
+      if (!A_LECTURA.test(accion)) accion += _det;
+      const j = JSON.parse(out); ok = !!j.ok; if (!ok) err = String(j.error || '').substring(0, 200);
+      // cotización cancelada por el vendedor: se libera lo que apartó (una sola vez: ya no está "enviada")
+      if (j.ok && body.accion === 'erp_upsert_batch' && body.tabla === 'cotizaciones')
+        for (const it of body.items || []){ const b = { accion: 'cotizacion_liberar', id: it.id, codigo: se.codigo }; try { await ejecutar('post', JSON.stringify(b), b, m, true); } catch(e){} }
+      if (body.accion === 'erp_listar' && j.ok && Array.isArray(j.items)) j.items = await filtrarVend(String(body.tabla), j.items, se, m);
+      return json(j);
+    }
     const out = await conReintento(() => ejecutar('post', texto, body, m, !A_LECTURA.test(accion)));
     if (!A_LECTURA.test(accion)) accion += _det;
     try { const j = JSON.parse(out); ok = !!j.ok; if (!ok) err = String(j.error || '').substring(0, 200); } catch(e){}

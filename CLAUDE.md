@@ -164,6 +164,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   su siguiente movimiento pide su código. App de vendedores: botón **Salir**. Prueba `prueba_v467_cerrar_sesiones.js`.
   ⚠ Al cambiar usuarios por API (actualizar_usuario / liberar_dispositivo) el usuario a cambiar va en `codigo` / `codigo_usuario` y el tuyo en
   `codigo_admin`: un ayudante que ponga tu código en `codigo` cambia TU usuario (pasó el 4 nov y se corrigió).
+- v4.68 / app v2.1.2 (4 nov): Chrome del teléfono de Rafa tenía guardada una instalación vieja rota ("Ya se instaló esta app" y al abrir "No se pudo
+  abrir la app"). Se cambió el `id` de los manifests (ERP `./?app=nun-erp-2` "NUN ERP"; ventas `./?app=nun-ventas-2` "NUN Ventas") y el link lleva ?v=
+  para que Chrome los tome como apps nuevas. Si vuelve a pasar: subir el número del id.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

@@ -7,7 +7,7 @@ try{
  r.manifest={name:m.name,display:m.display,iconos:m.icons.map(i=>i.sizes+' '+(i.purpose||''))};
  if(m.display!=='standalone'||!m.icons.some(i=>i.sizes==='192x192')||!m.icons.some(i=>i.sizes==='512x512'&&i.purpose==='maskable')) r.fallas.push('manifest');
  m.icons.concat([{src:'icons/apple-touch-icon.png'}]).forEach(i=>{ const f=path.join(raiz,i.src); if(!fs.existsSync(f)||fs.readFileSync(f).slice(1,4).toString()!=='PNG') r.fallas.push('icono '+i.src); });
- if(!/<link rel="manifest" href="manifest\.webmanifest">/.test(html)||!/rel="apple-touch-icon"/.test(html)) r.fallas.push('head');
+ if(!/<link rel="manifest" href="manifest\.webmanifest(\?v=\d+)?">/.test(html)||!/rel="apple-touch-icon"/.test(html)) r.fallas.push('head');
  if(/data:application\/json;base64/.test(html)) r.fallas.push('manifest-viejo');
  const sw=fs.readFileSync(path.join(raiz,'sw.js'),'utf8'); if(/caches\./.test(sw)) r.fallas.push('sw-con-cache');
  r.version=(html.match(/v4\.\d+ · Sistema NUN/)||[''])[0];

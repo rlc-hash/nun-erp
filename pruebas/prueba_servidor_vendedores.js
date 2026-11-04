@@ -21,10 +21,15 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
         return [];
       }
       if (/^select nombre from nun_hojas/.test(q)) return [...HOJAS.keys()].map(nombre => ({ nombre }));
-      if (/^select k, v from nun_props/.test(q)) return [...PROPS].map(([k, v]) => ({ k, v }));
+      if (/^select k, v from nun_props( where k not like 'push%')?$/.test(q)) return [...PROPS].map(([k, v]) => ({ k, v }));
       if (/^select nombre, filas from nun_hojas/.test(q)) return vals[0][MARCA].filter(n => HOJAS.has(n)).map(nombre => ({ nombre, filas: JSON.parse(JSON.stringify(HOJAS.get(nombre))) }));
       if (/^insert into nun_hojas/.test(q)) { HOJAS.set(vals[0], JSON.parse(JSON.stringify(vals[1]))); return []; }
+      if (/^insert into nun_props \(k, v\) values \('push_vapid'/.test(q)) { if (!PROPS.has('push_vapid')) PROPS.set('push_vapid', vals[0]); return []; }
       if (/^insert into nun_props/.test(q)) { PROPS.set(vals[0], vals[1]); return []; }
+      if (/^select v from nun_props where k = 'push_vapid'/.test(q)) return PROPS.has('push_vapid') ? [{ v: PROPS.get('push_vapid') }] : [];
+      if (/^select k, v from nun_props where k like 'push:%'/.test(q)) return [...PROPS].filter(([k]) => k.startsWith('push:')).map(([k, v]) => ({ k, v }));
+      if (/^select k, v from nun_props where k =/.test(q)) return PROPS.has(vals[0]) ? [{ k: vals[0], v: PROPS.get(vals[0]) }] : [];
+      if (/^update nun_props set v =/.test(q)) { PROPS.set(vals[1], vals[0]); return []; }
       return []; // historial, log, candado
     })();
     return Promise.resolve(res);
@@ -40,7 +45,9 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
     'ESTEBAN-1': { usuario: { nombre: 'Esteban', rol: 'vendedor', vendedor_asignado: 'Esteban' }, permisos: { ver_todos_clientes: false, solo_consulta: true } },
     'YAZ-1': { usuario: { nombre: 'Yaz', rol: 'cobranza', vendedor_asignado: '' }, permisos: {} }
   };
-  globalThis.fetch = async (u, o) => { const b = JSON.parse(o.body); const c = String(b.codigo || b.codigo_admin || '').toUpperCase(); const x = US[c];
+  const PUSH = [];
+  globalThis.fetch = async (u, o) => { if (String(u).startsWith('https://push.prueba/')) { PUSH.push({ u, h: o.headers, n: o.body.length }); return { status: String(u).endsWith('/vieja') ? 410 : 201 }; }
+    const b = JSON.parse(o.body); const c = String(b.codigo || b.codigo_admin || '').toUpperCase(); const x = US[c];
     let r = { ok: false, requiere_login: true };
     if (b.accion === 'login' && x) r = { ok: true, ...x };
     else if (b.accion === 'listar_cuentas' && x) r = { ok: true, cuentas: [] };
@@ -48,11 +55,13 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
     return { text: async () => JSON.stringify(r) }; };
   let handler; globalThis.Deno = { env: { get: () => 'postgres://postgres:x@db.vlqbzfotjltarelwenvu.supabase.co:5432/postgres' }, serve: h => { handler = h; } };
   const E = await import(path.join(R, 'supabase', 'functions', 'nun', 'emulador.js'));
-  globalThis.__N = { postgres: () => fake(), CODIGO: fs.readFileSync(path.join(R, 'backend', 'Codigo.gs'), 'utf8'), E };
+  const PU = await import(path.join(R, 'supabase', 'functions', 'nun', 'push.js'));
+  globalThis.__N = { postgres: () => fake(), CODIGO: fs.readFileSync(path.join(R, 'backend', 'Codigo.gs'), 'utf8'), E, P: PU };
   let ts = fs.readFileSync(path.join(R, 'supabase', 'functions', 'nun', 'index.ts'), 'utf8')
     .replace(/^import postgres from .*$/m, 'const postgres = globalThis.__N.postgres;')
     .replace(/^import CODIGO from .*$/m, 'const CODIGO = globalThis.__N.CODIGO;')
-    .replace(/^import \{ compilar, atender \} from .*$/m, 'const { compilar, atender } = globalThis.__N.E;');
+    .replace(/^import \{ compilar, atender \} from .*$/m, 'const { compilar, atender } = globalThis.__N.E;')
+    .replace(/^import \{ crearVapid, enviar \} from .*$/m, 'const { crearVapid, enviar } = globalThis.__N.P;');
   const tmp = path.join(os.tmpdir(), 'nun_index_' + process.pid + '.mjs'); fs.writeFileSync(tmp, stripTypeScriptTypes(ts));
   await import(tmp); fs.unlinkSync(tmp);
   const post = async b => JSON.parse(await (await handler(new Request('https://x/nun', { method: 'POST', body: JSON.stringify(b) }))).text());
@@ -80,6 +89,14 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
   // Edgar: ve a todos (sin costos)
   r.edgar = { cobranza: (await post({ accion: 'erp_listar', tabla: 'cobranza', codigo: 'EDGAR-1' })).items.length, costo: (await get('productos', 'EDGAR-1')).data[0].costo };
   ok('edgar', r.edgar.cobranza === 3 && r.edgar.costo === undefined);
+  // v4.65 — avisos push: la oficina se suscribe (Yazmín y el dueño); un vendedor no
+  const { webcrypto } = require('crypto');
+  const subDe = async (fin) => { const kp = await webcrypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+    return { endpoint: 'https://push.prueba/' + fin, keys: { p256dh: PU.b64u(await webcrypto.subtle.exportKey('raw', kp.publicKey)), auth: PU.b64u(webcrypto.getRandomValues(new Uint8Array(16))) } }; };
+  r.push = { clave: !!(await post({ accion: 'push_clave', codigo: D })).clave, vendedorNo: (await post({ accion: 'push_suscribir', sub: await subDe('v'), codigo: 'EDGAR-1' })).ok === false,
+    dueno: (await post({ accion: 'push_suscribir', sub: await subDe('rafa'), codigo: D })).ok, yaz: (await post({ accion: 'push_suscribir', sub: await subDe('vieja'), codigo: 'YAZ-1' })).ok };
+  r.push.prueba = (await post({ accion: 'push_probar', codigo: D })).enviados; r.push.enPrueba = PUSH.map(x => x.u.split('/').pop()).join(','); PUSH.length = 0;
+  ok('push-suscribir', r.push.clave && r.push.vendedorNo && r.push.dueno && r.push.yaz && r.push.prueba === 1);
   // Cotización: el servidor pone vendedor/estatus/folio; Esteban (solo consulta) no puede
   const cl = await post({ accion: 'erp_crear', tabla: 'cotizaciones', item: { id: 'q1', folio: '', cliente: 'Cliente de Luis', vendedor: 'EDGAR', estatus: 'convertida', total: 10, items_json: JSON.stringify([{ sku: 'RL001', cantidad: 2, precio_unitario: 5 }]) }, codigo: 'LUIS-1' });
   r.cot = { ok: cl.ok, folio: cl.item && cl.item.folio, vendedor: cl.item && cl.item.vendedor, estatus: cl.item && cl.item.estatus,
@@ -90,6 +107,11 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
     apartadoAntes: +(await post({ accion: 'erp_listar', tabla: 'productos', codigo: D })).items[0].stock_comprometido,
     cancelarPropia: (await post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q1', estatus: 'cancelada', notas: 'ya no' }], codigo: 'LUIS-1' })).ok,
     cancelarOtraVez: (await post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q1', estatus: 'cancelada' }], codigo: 'LUIS-1' })).ok };
+  await new Promise(z => setTimeout(z, 300));
+  r.push.alSubir = PUSH.map(x => x.u.split('/').pop()).sort().join(',');
+  r.push.cabeceras = PUSH[0] && PUSH[0].h['Content-Encoding'] === 'aes128gcm' && /^vapid t=.+, k=/.test(PUSH[0].h.Authorization);
+  r.push.viejaMarcada = JSON.parse([...PROPS].find(([k, v]) => k.startsWith('push:') && /vieja/.test(v))[1]).activo === false;
+  ok('push-cotizacion', r.push.alSubir === 'rafa,vieja' && r.push.cabeceras && r.push.viejaMarcada);
   r.cot.apartadoDespues = +(await post({ accion: 'erp_listar', tabla: 'productos', codigo: D })).items[0].stock_comprometido;
   ok('cotizacion', r.cot.ok && r.cot.folio === 'C0001' && r.cot.vendedor === 'LUIS' && r.cot.estatus === 'enviada' && !r.cot.esteban && !r.cot.pedidoDirecto && !r.cot.cancelarAjena && !r.cot.cambiarTotal && r.cot.cancelarPropia && !r.cot.cancelarOtraVez && r.cot.apartadoAntes === 2 && r.cot.apartadoDespues === 0);
   // Pago reportado: queda por verificar y NO toca Cobranza

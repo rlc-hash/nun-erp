@@ -146,6 +146,14 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   las demás (la app no cargaba). Ahora: LECTURAS con límite de 20 s → pool nuevo y un reintento (`lectura()` en index.ts; las escrituras nunca se repiten);
   la app pide de 3 en 3 con límite de 40 s y pinta conforme llega. La app trae también lo de la anterior: Cobranza (con saldo/vencidos/pagados),
   Pagos y comisión por mes (tocar Cobrado/Comisión en Inicio) y Facturas/Remisiones en Pedidos.
+- v4.65 / app v2.0.2 / servidor supabase-1.4 (4 nov): **avisos** de lo que suben los vendedores. ERP: campana con "N cotizaciones por confirmar" y
+  "N pagos por verificar" (ya no avisa de Bind); cada minuto revisa cotizaciones/pagosverificar y si llega algo nuevo sale arriba (una vez; vistos en
+  localStorage `nun_avisos_vistos`); lista de Cotizaciones dice "por confirmar"/"confirmada · pedido". **Push al teléfono**: campana → 📱 Activar
+  (`nunPushActivar`; iPhone solo con el sistema instalado). Servidor: `supabase/functions/nun/push.js` (Web Push aes128gcm + VAPID con WebCrypto, sin
+  librerías; verificado contra http_ece), llaves en nun_props `push_vapid`, suscripciones `push:<huella>` (oficina, no vendedores; las que ya no existen se
+  marcan activo:false); al crear un vendedor una cotización o un pago por verificar manda el aviso (?ir=cotizaciones / ?ir=cobranza abre el ERP ahí; `sw.js`
+  muestra el aviso). Las props `push%` no pasan a Codigo.gs. App: 📄 PDF de cotización/pedido/factura/remisión IGUAL al del ERP con `nun-pdf.js`
+  (copia de imprimirDocumento; si cambias el PDF del ERP: `python3 herramientas/copiar_pdf.py`). Pruebas `prueba_v465_avisos.js` y push en `prueba_servidor_vendedores.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

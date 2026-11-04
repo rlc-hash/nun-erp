@@ -9,8 +9,9 @@
 import postgres from 'npm:postgres@3.4.5';
 import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
+import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-1.3'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-1.4'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -128,6 +129,39 @@ async function filtrarVend(tabla: string, items: any[], se: any, m: Map<string, 
   const mios = new Set(cl.map((c: any) => nCli(c.razon_social)));
   return items.filter(r => norm(r.vendedor) === se.vend || mios.has(nCli(r.cliente || r.contraparte)));
 }
+// ============================================================
+// v4.65 — AVISOS PUSH a la oficina (Rafa, Yadah, Yazmín) cuando un vendedor sube una cotización o reporta un pago.
+// Las suscripciones viven en nun_props ('push:<huella>' → { sub, nombre, equipo, activo }); las llaves VAPID también ('push_vapid').
+// ============================================================
+const CONTACTO_PUSH = 'https://rlc-hash.github.io/nun-erp/';
+let _vapid: any = null;
+async function vapid(){
+  if (_vapid) return _vapid;
+  const [r] = await sql`select v from nun_props where k = 'push_vapid'`;
+  if (r) return (_vapid = JSON.parse(r.v));
+  const nueva = await crearVapid();
+  await sql`insert into nun_props (k, v) values ('push_vapid', ${JSON.stringify(nueva)}) on conflict (k) do nothing`;
+  const [r2] = await sql`select v from nun_props where k = 'push_vapid'`;
+  return (_vapid = JSON.parse(r2.v));
+}
+async function avisar(datos: any, soloK?: string){
+  const V = await vapid();
+  const rows = soloK ? await sql`select k, v from nun_props where k = ${soloK}` : await sql`select k, v from nun_props where k like 'push:%'`;
+  let ok = 0;
+  await Promise.all(rows.map(async (r: any) => {
+    let x: any; try { x = JSON.parse(r.v); } catch(e){ return; }
+    if (!x || x.activo === false || !x.sub) return;
+    try {
+      const st = await enviar(x.sub, datos, V, CONTACTO_PUSH);
+      if (st >= 200 && st < 300) ok++;
+      else if (st === 404 || st === 410) { x.activo = false; x.baja = new Date().toISOString(); await sql`update nun_props set v = ${JSON.stringify(x)} where k = ${r.k}`; } // ya no existe: se marca, no se borra
+    } catch(e){}
+  }));
+  return ok;
+}
+function enSegundoPlano(p: Promise<unknown>){ try { (globalThis as any).EdgeRuntime.waitUntil(p.catch(() => {})); } catch(e){ p.catch(() => {}); } }
+const pesos = (n: unknown) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 // Revisa (y ajusta) lo que un vendedor quiere hacer. Regresa un error o null.
 async function revisarVend(body: any, se: any, m: Map<string, any>){
   const a = String(body.accion || ''), t = String(body.tabla || '');
@@ -185,7 +219,7 @@ async function ejecutar(tipo: 'post'|'get', payload: string|Record<string,string
   const clave = accion + ':' + (tipo === 'get' ? (payload as any).tabla : (body.tabla || ''));
   const correrCon = async (db: any) => {
     const ex = (await db`select nombre from nun_hojas`).map((x: any) => x.nombre);
-    const props = Object.fromEntries((await db`select k, v from nun_props`).map((x: any) => [x.k, x.v]));
+    const props = Object.fromEntries((await db`select k, v from nun_props where k not like 'push%'`).map((x: any) => [x.k, x.v]));
     const r = await atender({ fn, existentes: ex, props, cargar: (ns: string[]) => cargar(db, ns), tipo, payload,
       sesion: (c: unknown) => !!(codigos.get(norm(c)) || {}).ok, admin: (c: unknown) => !!(codigos.get(norm(c)) || {}).admin,
       precarga: aprendidas.get(clave) || [] });
@@ -262,6 +296,24 @@ Deno.serve(async (req) => {
     const _c = norm(body.codigo || body.codigo_usuario || body.codigo_admin), se = { ...(m.get(_c) || {}), codigo: _c };
     quien = se.nombre || String(body._quien || '').slice(0, 60);
     if ([...m.values()].some((x: any) => x.relogin)) return json({ ok: false, error: 'AUTH: vuelve a entrar con tu código', requiere_login: true }); // v4.63
+    // v4.65 — avisos push: solo la oficina (no vendedores) se suscribe
+    if (/^push_(clave|suscribir|probar|quitar)$/.test(accion)){
+      if (!se.ok || se.rol === 'vendedor') return json({ ok: false, error: 'Solo la oficina recibe avisos' });
+      if (accion === 'push_clave') return json({ ok: true, clave: (await vapid()).publica });
+      const sub = body.sub || {};
+      if (accion === 'push_suscribir'){
+        if (!sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) return json({ ok: false, error: 'Suscripción incompleta' });
+        const k = 'push:' + (await sha(String(sub.endpoint))).slice(0, 32);
+        await sql`insert into nun_props (k, v) values (${k}, ${JSON.stringify({ sub, nombre: se.nombre || '', equipo: String(body.equipo || '').slice(0, 60), activo: true, alta: new Date().toISOString(), codigo_h: (await sha(se.codigo)).slice(0, 12) })})
+                  on conflict (k) do update set v = excluded.v`;
+        return json({ ok: true, k });
+      }
+      const h = (await sha(se.codigo)).slice(0, 12); // solo las de este código
+      const propios = (await sql`select k, v from nun_props where k like 'push:%'`).filter((r: any) => { try { return JSON.parse(r.v).codigo_h === h; } catch(e){ return false; } });
+      if (accion === 'push_probar'){ let n = 0; for (const r of propios) n += await avisar({ titulo: '🔔 Avisos de NUN activados', cuerpo: 'Así te va a llegar cuando un vendedor suba una cotización o reporte un pago.', url: './?ir=cotizaciones', tag: 'prueba' }, r.k); return json({ ok: true, enviados: n }); }
+      for (const r of propios){ const x = JSON.parse(r.v); x.activo = false; await sql`update nun_props set v = ${JSON.stringify(x)} where k = ${r.k}`; }
+      return json({ ok: true });
+    }
     if (se.ok && se.rol === 'vendedor'){ // v4.63
       const e = await revisarVend(body, se, m);
       if (e){ ok = false; err = e; return json({ ok: false, error: e }); }
@@ -273,6 +325,11 @@ Deno.serve(async (req) => {
       if (j.ok && body.accion === 'erp_upsert_batch' && body.tabla === 'cotizaciones')
         for (const it of body.items || []){ const b = { accion: 'cotizacion_liberar', id: it.id, codigo: se.codigo }; try { await ejecutar('post', JSON.stringify(b), b, m, true); } catch(e){} }
       if (body.accion === 'erp_listar' && j.ok && Array.isArray(j.items)) j.items = await filtrarVend(String(body.tabla), j.items, se, m);
+      // v4.65 — aviso a la oficina (sin esperar: el vendedor no se queda esperando)
+      if (j.ok && !j.ya_existia && body.accion === 'erp_crear' && body.tabla === 'cotizaciones'){ const it = j.item || body.item;
+        enSegundoPlano(avisar({ titulo: '🧾 Cotización nueva ' + (it.folio || '') + ' · ' + se.vend, cuerpo: (it.cliente || '') + ' · ' + pesos(it.total) + ' · tócala para confirmarla', url: './?ir=cotizaciones', tag: 'cot_' + it.id })); }
+      if (j.ok && !j.ya_existia && body.accion === 'erp_crear' && body.tabla === 'pagosverificar'){ const it = j.item || body.item;
+        enSegundoPlano(avisar({ titulo: '💵 ' + se.vend + ' reportó un pago', cuerpo: (it.cliente || '') + ' · ' + pesos(it.monto) + ' · por verificar', url: './?ir=cobranza', tag: 'pv_' + it.id })); }
       return json(j);
     }
     const _f = () => conReintento(() => ejecutar('post', texto, body, m, !A_LECTURA.test(accion)));

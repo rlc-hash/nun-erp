@@ -16,7 +16,7 @@ def parte(nombre, contenido, archivo=None, tipo='application/octet-stream'):
     if archivo: h += 'Content-Type: %s\r\n' % tipo
     partes.append(('--' + b + '\r\n' + h + '\r\n').encode() + contenido + b'\r\n')
 parte('metadata', json.dumps({'entrypoint_path': 'index.ts', 'name': 'nun', 'verify_jwt': False}).encode())
-for f in ('index.ts', 'emulador.js', 'codigo.js'):
+for f in ('index.ts', 'emulador.js', 'codigo.js', 'push.js'):
     parte('file', open(os.path.join(D, f), 'rb').read(), f, 'application/typescript' if f.endswith('.ts') else 'application/javascript')
 data = b''.join(partes) + ('--' + b + '--\r\n').encode()
 req = urllib.request.Request('https://api.supabase.com/v1/projects/%s/functions/deploy?slug=nun' % REF, data=data, method='POST',

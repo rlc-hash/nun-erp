@@ -73,11 +73,12 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 </head>
 <body>
 <div id="app"></div>
+<script src="nun-pdf.js?v=2.0.2"></script>
 <script>
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.0.1';
+const VERSION = 'v2.0.2';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -85,6 +86,21 @@ const VENDEDORES = ['EDGAR','LUIS','ESTEBAN','YADAH'];
 const PCT_COMISION = { EDGAR: 0.06, LUIS: 0.05, ESTEBAN: 0.05 }; // lo propio; Rafa confirma al cierre
 const S = { ses: null, d: {}, tab: 'inicio', cargando: false, verComo: '', filtroPed: 'todo', soloMios: true, cuentas: [] };
 TABLAS.forEach(t => S.d[t] = []);
+// v2.0.2 — PDF igual al del ERP (nun-pdf.js): lo que esa hoja espera encontrar
+var State = { data: S.d };
+const escapeHTML = s => esc(s);
+const fmtFull = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function nunR2(x){ return Math.round((+x || 0) * 100 + (x >= 0 ? 1e-9 : -1e-9)) / 100; }
+function nunEsVerdad(v){ return v === true || v === 1 || /^(true|1|s[ií]|yes|x)$/i.test(String(v == null ? '' : v).trim()); }
+function nunCalcLinea(it, sinIva){ const bruto = nunR2((+it.cantidad||0) * (+it.precio_unitario||0)); const desc = nunR2(bruto * (+it.descuento_pct||0) / 100); const base = nunR2(bruto - desc);
+  const pct = sinIva ? 0 : (+it.iva_pct||0); const iva = nunR2(base * pct / 100); return { bruto, desc, base, pct, iva, total: nunR2(base + iva) }; }
+function nunCalcDoc(items, sinIva){ let sub = 0, iva = 0; (items||[]).forEach(it => { const c = nunCalcLinea(it, sinIva); sub += c.base; iva += c.iva; }); sub = nunR2(sub); iva = nunR2(iva); return { subtotal: sub, iva, total: nunR2(sub + iva) }; }
+function nunSaldoDoc(doc, tabla){ const c = typeof cobroDeDoc === 'function' ? cobroDeDoc(tabla, doc) : null; return c ? Math.max(0, +c.pendiente || 0) : 0; }
+function pdfDoc(tabla, id){
+  if (typeof imprimirDocumento !== 'function') { toast('No se pudo cargar el PDF; revisa tu conexión', true); return; }
+  if (!S.d.empresa) toast('Cargando datos de la empresa…');
+  imprimirDocumento(tabla, id);
+}
 
 // ---------- utilidades ----------
 const $ = id => document.getElementById(id);
@@ -154,6 +170,7 @@ async function cargar(silencio){
     if (t !== 'pagosverificar') fallo++;
   };
   await Promise.all([0, 1, 2].map(async () => { while (cola.length) await una(cola.shift()); }));
+  try { const e = await api({ accion: 'obtener_empresa' }, 30000); if (e && e.ok) { S.d.empresa = e.config || {}; lsSet(K_CACHE + 'empresa', S.d.empresa); } } catch(e){}
   try { const c = await api({ accion: 'listar_cuentas' }); if (c.ok) S.cuentas = (c.cuentas || []).filter(x => x.activa !== false && x.activa !== 'false').map(x => x.nombre); } catch(e){}
   S.cargando = false; S.hora = new Date();
   if (fallo && !silencio) toast('No se pudo actualizar todo; se muestra lo último guardado', true);
@@ -368,7 +385,8 @@ function abrirDoc(tabla, id){
     ${cs.length ? `<div class="card"><div class="tot"><span>Pagado</span><span>${$$(pagado)}</span></div><div class="tot g"><span>Falta</span><span>${$$(falta)}</span></div>${verif ? '<div class="sub">' + $$(verif) + ' por verificar</div>' : ''}${cs.length > 1 ? '<div class="sub">Se cobra en: ' + cs.map(x => esc((x.tipo || '') + ' ' + x.numero)).join(', ') + '</div>' : ''}</div>` : ''}
     ${d.notas ? '<div class="sub" style="margin:6px 2px">' + esc(d.notas) + '</div>' : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-      <button class="btn" onclick="compartir('${tabla}','${esc(d.id)}')">💬 Mandar por WhatsApp</button>
+      <button class="btn" onclick="pdfDoc('${tabla}','${esc(d.id)}')">📄 PDF</button>
+      <button class="btn" onclick="compartir('${tabla}','${esc(d.id)}')">💬 WhatsApp</button>
       ${c && (+c.pendiente || 0) >= 1 ? `<button class="btn p" onclick="abrirPago('${esc(c.id)}')">💵 Registrar pago</button>` : ''}
       ${tabla === 'cotizaciones' && d.estatus === 'enviada' && (!esVendedor() || norm(d.vendedor) === miVendedor()) ? `<button class="btn" style="color:var(--bad)" onclick="cancelarCot('${esc(d.id)}')">Cancelar cotización</button>` : ''}
     </div>`);
@@ -521,7 +539,7 @@ async function subirCot(){
 
 // ---------- arranque ----------
 function arrancar(){
-  TABLAS.forEach(t => S.d[t] = lsGet(K_CACHE + t, []));
+  TABLAS.forEach(t => S.d[t] = lsGet(K_CACHE + t, [])); S.d.empresa = lsGet(K_CACHE + 'empresa', null) || undefined;
   marco(); pintar(); cargar(true);
 }
 window.addEventListener('load', () => {

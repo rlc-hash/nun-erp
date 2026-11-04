@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.63 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.65 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7554,6 +7554,8 @@ function afterDocOperativo(tabla) {
         if (/cancel/i.test(r.estatus||'')) return `<span class="tag red">${tabla === 'pedidos' ? 'cancelado' : 'cancelada'}</span>`; // v3.92 los pedidos dicen "cancelado"
         if (r.estatus === 'borrador')  return `<span class="tag">borrador</span>`;
         if (tabla === 'pedidos') { const sp = nunSaldoPedido(r); return sp == null ? `<span class="tag">${escapeHTML(String(r.estatus||'—').replace(/_/g,' '))}</span>` : (sp <= 0.01 ? `<span class="tag green">anticipo pagado</span>` : `<span class="tag amber">anticipo pendiente</span>`); } // v3.92
+        if (tabla === 'cotizaciones' && r.estatus === 'enviada') return `<span class="tag amber">por confirmar</span>`; // v4.65 la subió un vendedor
+        if (tabla === 'cotizaciones' && r.estatus === 'convertida') return `<span class="tag green">confirmada · pedido</span>`;
         if (tabla === 'remisiones' && r.estatus === 'facturada') return `<span class="tag blue">facturada</span>`; // v3.72
         if (tabla === 'facturas' && (r.estatus === 'timbrada' || r.uuid_sat)) { const sf = nunSaldoDoc(r, tabla); return `<span class="tag blue">timbrada</span>` + (sf <= 0.01 ? ` <span class="tag green">pagada</span>` : ''); } // v4.61 — Rafa: que diga timbrada
         const s = nunSaldoDoc(r, tabla); // v3.77
@@ -12395,6 +12397,13 @@ function abrirMiCuenta() {
 function generarNotificaciones() {
   const hoy = new Date();
   const notifs = [];
+  // v4.65 — lo que suben los vendedores, primero
+  const cotPend = (State.data.cotizaciones||[]).filter(c => c.estatus === 'enviada');
+  if (cotPend.length) notifs.push({ tipo:'cotizaciones', severidad:'red', titulo: cotPend.length + (cotPend.length === 1 ? ' cotización por confirmar' : ' cotizaciones por confirmar'),
+    detalle: cotPend.slice(0,3).map(c => (c.folio||'') + ' ' + (c.vendedor||'') + ' · ' + (c.cliente||'') + ' · ' + fmt(c.total)).join(' | '), cmd: () => navegar('cotizaciones') });
+  const pvPend = (State.data.pagosverificar||[]).filter(p => p.estatus === 'por_verificar');
+  if (pvPend.length) notifs.push({ tipo:'pagos_verificar', severidad:'red', titulo: pvPend.length + (pvPend.length === 1 ? ' pago reportado por verificar' : ' pagos reportados por verificar'),
+    detalle: pvPend.slice(0,3).map(p => (p.vendedor||'') + ' · ' + (p.cliente||'') + ' · ' + fmt(p.monto)).join(' | '), cmd: () => { navegar('cobranza'); setTimeout(() => { try { nunPVAbrir(); } catch(e){} }, 600); } });
 
   // 1. Facturas vencidas
   const vencidas = (State.data.cobranza||[]).filter(c =>
@@ -12458,8 +12467,8 @@ function generarNotificaciones() {
     });
   }
 
-  // 5. Última sync
-  const ultSync = localStorage.getItem('nun_sync_ultima');
+  // 5. Última sync (v4.65: Bind ya no se usa, ya no avisa)
+  const ultSync = (typeof NUN_BIND_APAGADO !== 'undefined' && NUN_BIND_APAGADO) ? null : localStorage.getItem('nun_sync_ultima');
   if (ultSync) {
     const horas = (Date.now() - new Date(ultSync)) / (1000*60*60);
     if (horas > 2) {
@@ -12474,6 +12483,68 @@ function generarNotificaciones() {
   }
 
   return notifs;
+}
+
+// ============================================================
+// v4.65 — AVISOS DE LO QUE SUBEN LOS VENDEDORES (cotizaciones y pagos reportados)
+// · Con el sistema abierto: revisa cada minuto; si llega algo nuevo sale un aviso arriba (y en el teléfono/compu si dio permiso).
+// · Con el sistema cerrado: notificación push al teléfono (🔔 Activar avisos en este teléfono). El servidor la manda al subirse.
+// ============================================================
+function nunAvisosEsOficina(){ const r = String(((State.sesion||{}).usuario||{}).rol||'').toLowerCase(); return !!State.sesion && r !== 'vendedor'; }
+async function nunAvisosRevisar(primera){
+  if (!nunAvisosEsOficina()) return;
+  try { await Promise.all([cargarTabla('cotizaciones', { ttl: 1 }), cargarTabla('pagosverificar', { ttl: 1 })]); } catch(e){ return; }
+  let vistos = {}; try { vistos = JSON.parse(localStorage.getItem('nun_avisos_vistos') || '{}'); } catch(e){}
+  const nuevos = [];
+  (State.data.cotizaciones||[]).filter(c => c.estatus === 'enviada').forEach(c => { if (!vistos['c' + c.id]) nuevos.push({ k: 'c' + c.id, t: '🧾 Cotización nueva ' + (c.folio||'') + ' de ' + (c.vendedor||''), d: (c.cliente||'') + ' · ' + fmtFull(c.total), ir: "navegar('cotizaciones')" }); });
+  (State.data.pagosverificar||[]).filter(p => p.estatus === 'por_verificar').forEach(p => { if (!vistos['p' + p.id]) nuevos.push({ k: 'p' + p.id, t: '💵 ' + (p.vendedor||'') + ' reportó un pago', d: (p.cliente||'') + ' · ' + fmtFull(p.monto), ir: "navegar('cobranza');setTimeout(()=>{try{nunPVAbrir()}catch(e){}},600)" }); });
+  nuevos.forEach(n => vistos[n.k] = Date.now());
+  try { localStorage.setItem('nun_avisos_vistos', JSON.stringify(vistos)); } catch(e){}
+  try { actualizarBadgeNotif(); } catch(e){}
+  if (!nuevos.length || primera === 'callado') return;
+  nunAvisoBanner(nuevos);
+  if (document.hidden && 'Notification' in window && Notification.permission === 'granted') { try { nuevos.slice(0, 3).forEach(n => new Notification(n.t, { body: n.d, icon: 'icons/icon-192.png', tag: n.k })); } catch(e){} }
+}
+function nunAvisoBanner(nuevos){
+  let b = document.getElementById('nunAvisoBanner');
+  if (!b) { b = document.createElement('div'); b.id = 'nunAvisoBanner'; b.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9800;width:min(520px,calc(100vw - 24px));display:flex;flex-direction:column;gap:8px'; document.body.appendChild(b); }
+  nuevos.slice(0, 4).forEach(n => {
+    const el = document.createElement('div');
+    el.style.cssText = 'background:#0a0a0a;color:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 12px 32px rgba(0,0,0,.3);display:flex;gap:10px;align-items:center;cursor:pointer';
+    el.innerHTML = `<div style="flex:1;min-width:0"><div style="font-weight:600">${escapeHTML(n.t)}</div><div style="font-size:12.5px;opacity:.75">${escapeHTML(n.d)}</div></div><button class="btn btn-sm" style="background:#fff;color:#0a0a0a">Ver</button><span style="opacity:.6;padding:0 4px">✕</span>`;
+    el.onclick = e => { el.remove(); if (e.target.tagName !== 'SPAN') { try { new Function(n.ir)(); } catch(x){} } };
+    b.appendChild(el); setTimeout(() => el.remove(), 60000);
+  });
+}
+setTimeout(() => nunAvisosRevisar('callado'), 8000); // al abrir: lo pendiente ya sale en la campana, sin aviso por cada uno
+setInterval(() => nunAvisosRevisar(), 60000);
+// Al tocar el aviso: abre el sistema en esa pantalla (?ir=cotizaciones / ?ir=cobranza), o si ya estaba abierto, se cambia ahí
+function nunIrA(m){ if (!/^(cotizaciones|cobranza)$/.test(String(m||''))) return; const go = (n) => { if (State.sesion && typeof navegar === 'function') { navegar(m); if (m === 'cobranza') setTimeout(() => { try { if (nunPVPendientes().length) nunPVAbrir(); } catch(e){} }, 1200); } else if (n < 20) setTimeout(() => go(n + 1), 1000); }; go(0); }
+try { const _ir = new URLSearchParams(location.search).get('ir'); if (_ir) { nunIrA(_ir); history.replaceState(null, '', location.pathname); } } catch(e){}
+try { navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.nunIr) nunIrA(e.data.nunIr); }); } catch(e){}
+// Push: avisos en el teléfono aunque el sistema esté cerrado
+function _nunB64aBytes(b){ const p = '='.repeat((4 - b.length % 4) % 4), s = atob((b + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...s].map(c => c.charCodeAt(0))); }
+async function nunPushEstado(){
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return 'no';
+  try { const reg = await navigator.serviceWorker.ready; const s = await reg.pushManager.getSubscription(); return s ? 'si' : (Notification.permission === 'denied' ? 'bloqueado' : 'falta'); } catch(e){ return 'no'; }
+}
+async function nunPushActivar(){
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    toast(/iPhone|iPad/i.test(navigator.userAgent) ? 'En iPhone primero instala el sistema: Safari → Compartir → Agregar a pantalla de inicio, y ábrelo desde ese ícono' : 'Este navegador no recibe avisos; usa Chrome', { type:'error', duration:9000 }); return;
+  }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { toast('No diste permiso de notificaciones (se cambia en los ajustes del navegador)', { type:'error', duration:7000 }); return; }
+    const k = await api({ accion:'push_clave' }); if (!k || !k.ok || !k.clave) throw new Error((k && k.error) || 'el servidor no dio la clave');
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: _nunB64aBytes(k.clave) });
+    const r = await api({ accion:'push_suscribir', sub: sub.toJSON(), equipo: (navigator.userAgent.match(/\(([^;)]+)/) || [,''])[1] });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'no se guardó');
+    await api({ accion:'push_probar' });
+    toast('✓ Avisos activados en este equipo. Te debe llegar uno de prueba.', { duration:6000 });
+    try { abrirNotificaciones(); } catch(e){}
+  } catch(e){ toast('✗ No se pudieron activar los avisos: ' + e.message, { type:'error', duration:9000 }); }
 }
 
 function actualizarBadgeNotif() {
@@ -12493,16 +12564,20 @@ function actualizarBadgeNotif() {
   }
 }
 
-function abrirNotificaciones() {
+async function abrirNotificaciones() {
   const notifs = generarNotificaciones();
+  const est = await nunPushEstado(); // v4.65
+  const push = `<div style="padding:12px 14px;border:1px solid var(--line);border-radius:10px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px"><b>📱 Avisos en este equipo</b><div style="font-size:12px;color:var(--mute)">${est === 'si' ? '✓ Activados: te llega un aviso cuando un vendedor sube una cotización o reporta un pago.' : est === 'bloqueado' ? 'Bloqueados en este navegador: actívalos en sus ajustes.' : 'Recibe un aviso cuando un vendedor sube una cotización o reporta un pago, aunque el sistema esté cerrado.'}</div></div>
+      ${est === 'si' ? '<button class="btn btn-secondary btn-sm" onclick="nunPushActivar()">Probar</button>' : '<button class="btn btn-primary btn-sm" onclick="nunPushActivar()">🔔 Activar</button>'}</div>`;
   if (notifs.length === 0) {
-    toast('✓ Todo en orden. Sin alertas pendientes.', { duration:3000 });
+    abrirDrawer({ title:'Centro de notificaciones', sub:'Sin alertas pendientes', tabs:[{ key:'notifs', label:'Notificaciones', body: push + '<div style="color:var(--mute);padding:10px">✓ Todo en orden.</div>' }] });
     return;
   }
   abrirDrawer({
     title:'Centro de notificaciones',
     sub:`${notifs.length} alertas activas`,
-    tabs:[{ key:'notifs', label:'Notificaciones', body:`
+    tabs:[{ key:'notifs', label:'Notificaciones', body: push + `
       <div style="display:flex;flex-direction:column;gap:10px">
         ${notifs.map((n,i) => {
           const colorBg = { red:'rgba(227,25,55,0.06)', amber:'rgba(209,136,0,0.06)', blue:'rgba(36,103,229,0.06)', green:'rgba(0,163,80,0.06)' }[n.severidad] || 'var(--bg-2)';

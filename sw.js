@@ -12,7 +12,7 @@ self.addEventListener('notificationclick', e => {
   e.notification.close();
   const url = new URL((e.notification.data && e.notification.data.url) || './', self.registration.scope).href;
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ws => {
-    const w = ws.find(x => x.url.startsWith(self.registration.scope) && !/vendedores\.html/.test(x.url));
+    const w = ws.find(x => x.url.startsWith(self.registration.scope) && !/vendedores\.html|\/ventas\//.test(x.url));
     if (w) { w.postMessage({ nunIr: new URL(url).searchParams.get('ir') || '' }); return w.focus(); }
     return self.clients.openWindow(url);
   }));

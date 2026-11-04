@@ -154,6 +154,10 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   marcan activo:false); al crear un vendedor una cotización o un pago por verificar manda el aviso (?ir=cotizaciones / ?ir=cobranza abre el ERP ahí; `sw.js`
   muestra el aviso). Las props `push%` no pasan a Codigo.gs. App: 📄 PDF de cotización/pedido/factura/remisión IGUAL al del ERP con `nun-pdf.js`
   (copia de imprimirDocumento; si cambias el PDF del ERP: `python3 herramientas/copiar_pdf.py`). Pruebas `prueba_v465_avisos.js` y push en `prueba_servidor_vendedores.js`.
+- **App de vendedores v2.1 (4 nov): vive en `ventas/index.html`** (liga https://rlc-hash.github.io/nun-erp/ventas/) con SU PROPIO alcance de app
+  (`ventas/manifest.webmanifest` id/start_url/scope "./", `ventas/sw.js`) e ícono BLANCO con logo negro (`ventas/icons/`, el del ERP invertido). Antes
+  vendedores.html compartía el alcance "./" del ERP y el teléfono abría el ERP. `vendedores.html` y `crm.html` (v1.9.23) mandan a `ventas/`.
+  Donde arriba dice vendedores.html / manifest-vendedores.webmanifest, ahora es ventas/index.html / ventas/manifest.webmanifest. El PDF usa `../nun-pdf.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

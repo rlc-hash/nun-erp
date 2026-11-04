@@ -132,7 +132,7 @@ const permVend={ver_gastos:false,editar_gastos:false,ver_ingresos:false,editar_i
   r.vendedor.guardarEdicionDoc={rechazado:!V.LOG.slice(nv).some(x=>x.accion==='actualizar_pedido'), alerta:(V.LOG.slice(nv).find(x=>x.alert)||{}).alert};
   V.w.eval("cambiarTab('micomision')"); await sleep(200);
   r.vendedor.miComision=(V.d.getElementById('heroMiComision')||{}).textContent.replace(/\s+/g,' ').trim().slice(0,200);
-  // v1.9.22 — el vendedor ahora se manda a vendedores.html (jsdom no navega: avisa 'navigation to another Document')
+  // v1.9.22 — el vendedor ahora se manda a la app de vendedores (v1.9.23: ventas/) (jsdom no navega: avisa 'navigation to another Document')
   r.vendedorVaAAppNueva=V.errs.some(e=>/navigation to another Document/.test(e));
   r.erroresVendedor=V.errs.filter(e=>!/navigation to another Document/.test(e)).slice(0,5);
   V.w.close();

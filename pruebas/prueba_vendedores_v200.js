@@ -1,15 +1,15 @@
-// App de vendedores v2.0 (vendedores.html): entrar, Inicio con lo suyo, cotizar (sube cotización con IVA bien calculado y sin
+// App de vendedores v2.0 (ventas/index.html; v2.1 se cambió de vendedores.html a /ventas/): entrar, Inicio con lo suyo, cotizar (sube cotización con IVA bien calculado y sin
 // folio: lo pone el servidor), registrar pago = queda "por verificar" (no toca Cobranza), Luis no ve "Todos", Edgar sí.
 // Servidor simulado (el filtro real del servidor se prueba en prueba_servidor_vendedores.js). Datos inventados, sin red.
 const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=require('path');
-const HTML=fs.readFileSync(process.env.NUN_VEND||path.join(__dirname,'..','vendedores.html'),'utf8').replace(/<script src="nun-pdf\.js[^"]*"><\/script>/, '<script>'+fs.readFileSync(path.join(__dirname,'..','nun-pdf.js'),'utf8')+'</script>');
+const HTML=fs.readFileSync(process.env.NUN_VEND||path.join(__dirname,'..','ventas','index.html'),'utf8').replace(/<script src="\.\.\/nun-pdf\.js[^"]*"><\/script>/, '<script>'+fs.readFileSync(path.join(__dirname,'..','nun-pdf.js'),'utf8')+'</script>');
 const sleep=t=>new Promise(z=>setTimeout(z,t));
 async function abrir(cod, usuario, permisos){
  const DB={clientes:[{id:'c1',razon_social:'CLIENTE UNO',vendedor:'LUIS',telefono:'5512345678'}],productos:[{id:'p1',sku:'RL001',descripcion:'Maleta',precio:1000,precio_factura:900,stock_actual:5,stock_comprometido:1}],
   cotizaciones:[],pedidos:[{id:'pe1',folio:'P0001',fecha:'2026-11-01',cliente:'CLIENTE UNO',vendedor:'LUIS',estatus:'confirmado',total:2320,items_json:'[]'}],facturas:[],remisiones:[],
   cobranza:[{id:'cob_pe1',numero:'P0001',tipo:'Pedido',cliente:'CLIENTE UNO',vendedor:'LUIS',total:2320,cobrado:0,pendiente:2320,factura_origen:'pe1',fecha_emision:'2026-11-01'}],ingresos:[],pagosverificar:[]};
  const env=[];const errs=[];const vc=new VirtualConsole();vc.on('jsdomError',e=>errs.push(String(e.message).slice(0,300)));
- const dom=new JSDOM(HTML,{runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,url:'https://rlc-hash.github.io/nun-erp/vendedores.html',
+ const dom=new JSDOM(HTML,{runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,url:'https://rlc-hash.github.io/nun-erp/ventas/',
   beforeParse(w){ w.confirm=()=>true; w.scrollTo=()=>{}; w.__abiertas=[]; w.open=(u)=>{ const v={u,html:'',document:{write:x=>{v.html+=x},close(){}},print(){}}; w.__abiertas.push(v); return v; };
    w.fetch=async(u,o)=>{ await sleep(2); const b=JSON.parse(o.body); env.push(b); let r={ok:true};
     if(b.accion==='login') r=b.codigo===cod?{ok:true,usuario,permisos}:{ok:false,error:'Código inválido'};
@@ -55,6 +55,10 @@ async function abrir(cod, usuario, permisos){
  const pdf=(L.w.__abiertas.slice(-1)[0]||{}).html||'';
  r.pdf={pedido:/PEDIDO/.test(pdf)&&/P0001/.test(pdf), letras:/M\.N\./.test(pdf), empresa:/EMPRESA PRUEBA/.test(pdf), cliente:/CLIENTE UNO/.test(pdf)};
  if(Object.values(r.pdf).some(v=>!v)) r.fallas.push('pdf');
+ // v2.1 — app aparte del ERP: su propia carpeta, alcance e ícono blanco; la liga vieja manda a /ventas/
+ const MV=JSON.parse(fs.readFileSync(path.join(__dirname,'..','ventas','manifest.webmanifest'),'utf8')), ME=JSON.parse(fs.readFileSync(path.join(__dirname,'..','manifest.webmanifest'),'utf8'));
+ r.app={scope:MV.scope,id:MV.id,erpScope:ME.scope,blanco:MV.theme_color, vieja:/location\.replace\('ventas\//.test(fs.readFileSync(path.join(__dirname,'..','vendedores.html'),'utf8')), icono:fs.existsSync(path.join(__dirname,'..','ventas','icons','icon-512.png'))};
+ if(MV.scope!=='./'||MV.start_url!=='./'||!/F5F5F5/i.test(MV.theme_color)||!r.app.vieja||!r.app.icono) r.fallas.push('app-aparte');
  r.nunCodigoEnTexto=/LUIS-X/.test(L.d.body.innerHTML); if(r.nunCodigoEnTexto) r.fallas.push('codigo-visible');
  // --- Edgar ve "Lo mío / Todos"; Esteban (solo consulta) no puede cotizar ---
  const E=await abrir('EDGAR-X',{nombre:'Edgar',rol:'vendedor',vendedor_asignado:'Edgar'},{agregar_pedidos:true,ver_todos_clientes:true});

@@ -142,6 +142,10 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   "vuelve a entrar" una vez. Pago del vendedor = tabla `pagosverificar` (no toca Cobranza); en el ERP, Cobranza muestra "🔔 N pagos reportados" →
   ✅ Verificar y registrar (`nunPVVerificar`: capturar_pago_cliente con la cuenta/fecha elegidas + estatus verificado) o ✕ Rechazar (motivo). Nada se borra.
   Pruebas: `prueba_servidor_vendedores.js` (corre el index.ts real sin tipos con base y Google simulados), `prueba_vendedores_v200.js`, `prueba_v463_pagos_verificar.js`.
+- v4.64 / app v2.0.1 / servidor supabase-1.3 (4 nov): con muchas lecturas al mismo tiempo una conexión del pooler se quedaba trabada (ClientRead) y colgaba
+  las demás (la app no cargaba). Ahora: LECTURAS con límite de 20 s → pool nuevo y un reintento (`lectura()` en index.ts; las escrituras nunca se repiten);
+  la app pide de 3 en 3 con límite de 40 s y pinta conforme llega. La app trae también lo de la anterior: Cobranza (con saldo/vencidos/pagados),
+  Pagos y comisión por mes (tocar Cobrado/Comisión en Inicio) y Facturas/Remisiones en Pedidos.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

@@ -26,7 +26,7 @@ async function abrir(cod, usuario, permisos){
  L.d.getElementById('lgCod').value='luis-x'; await L.w.eval('entrar()'); await sleep(300);
  r.version=txt(L.d.querySelector('.ver')); r.inicio=txt(L.d.getElementById('main')).slice(0,160);
  r.luisSinTodos=!/Todos/.test(r.inicio.slice(0,30));
- if(!/Te deben\s*\$2,320/i.test(r.inicio)||!r.luisSinTodos) r.fallas.push('inicio');
+ if(!/Te deben[ ›]*\$2,320/i.test(r.inicio)||!r.luisSinTodos) r.fallas.push('inicio');
  // cotizar
  await L.w.eval("ir('cotizar')"); await L.w.eval("S.cot.cliente='CLIENTE UNO'; agregarProd('RL001'); S.cot.lineas[0].cantidad=3; S.cot.lineas[0].precio=1234.57; pintar()");
  r.totCot=txt(L.d.getElementById('ctTot'));
@@ -46,6 +46,10 @@ async function abrir(cod, usuario, permisos){
  const antes=L.env.length; await L.w.eval("abrirPago('cob_pe1')"); L.d.getElementById('pgMonto').value='99999'; await L.w.eval("guardarPago('cob_pe1')"); await sleep(100);
  r.montoMayor=!L.env.slice(antes).some(b=>b.accion==='erp_crear'); if(!r.montoMayor) r.fallas.push('montoMayor');
  await L.w.eval("cerrarHoja();ir('inicio')"); r.inicioDespues=/Pagos por verificar \(1\)/.test(txt(L.d.getElementById('main'))); if(!r.inicioDespues) r.fallas.push('porVerificar');
+ // v2.0.1 — Cobranza, Pagos y comisión, Facturas (lo que tenía la app anterior)
+ await L.w.eval("ir('cobranza')"); r.cobranza=txt(L.d.getElementById('main')).slice(0,140); if(!/Cobranza.*Con saldo.*CLIENTE UNO.*Pedido P0001.*\$2,320/.test(r.cobranza)) r.fallas.push('cobranza');
+ await L.w.eval("ir('pagos')"); r.pagos=/Pagos y comisión/.test(txt(L.d.getElementById('main'))); if(!r.pagos) r.fallas.push('pagos');
+ await L.w.eval("S.filtroPed='fac';ir('pedidos')"); r.facturasChip=/Facturas/.test(txt(L.d.getElementById('main'))); if(!r.facturasChip) r.fallas.push('facturas');
  r.nunCodigoEnTexto=/LUIS-X/.test(L.d.body.innerHTML); if(r.nunCodigoEnTexto) r.fallas.push('codigo-visible');
  // --- Edgar ve "Lo mío / Todos"; Esteban (solo consulta) no puede cotizar ---
  const E=await abrir('EDGAR-X',{nombre:'Edgar',rol:'vendedor',vendedor_asignado:'Edgar'},{agregar_pedidos:true,ver_todos_clientes:true});

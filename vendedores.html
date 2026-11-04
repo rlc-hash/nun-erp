@@ -31,7 +31,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .ver{font:11px ui-monospace,Menlo,monospace;color:var(--mute);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
 main{padding:14px 16px calc(90px + env(safe-area-inset-bottom));max-width:720px;margin:0 auto}
 .nav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--card);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
-.nav button{flex:1;border:0;background:none;padding:8px 0 9px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--mute)}
+.nav button{flex:1;min-width:0;border:0;background:none;padding:8px 0 9px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;color:var(--mute)}
 .nav button i{font-style:normal;font-size:20px;line-height:1}.nav button.on{color:var(--ink);font-weight:600}
 h2{font-size:20px;margin:4px 0 12px}h3{font-size:15px;margin:18px 0 8px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
@@ -77,7 +77,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.0.0';
+const VERSION = 'v2.0.1';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -104,10 +104,12 @@ function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(
 function toast(msg, err){ const t = document.createElement('div'); t.className = 'toast' + (err ? ' err' : ''); t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), err ? 6000 : 3200); }
 function device(){ let d = lsGet(K_DEV, ''); if (!d) { d = 'v_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); lsSet(K_DEV, d); } return d; }
 
-async function api(body){
+async function api(body, ms){
   const b = Object.assign({}, body, { codigo: S.ses && S.ses.codigo });
-  const r = await fetch(URL_API, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
-  const j = await r.json();
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null; const t = ctl && ms ? setTimeout(() => ctl.abort(), ms) : null; // v2.0.1 nunca esperar para siempre
+  let j;
+  try { const r = await fetch(URL_API, { method: 'POST', body: JSON.stringify(b), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, signal: ctl ? ctl.signal : undefined }); j = await r.json(); }
+  finally { if (t) clearTimeout(t); }
   if (j && j.requiere_login) { salir('Vuelve a entrar con tu código'); throw new Error('Vuelve a entrar con tu código'); }
   return j;
 }
@@ -142,11 +144,16 @@ function salir(msg){ S.ses = null; try { localStorage.removeItem(K_SES); TABLAS.
 // ---------- datos ----------
 async function cargar(silencio){
   if (S.cargando) return; S.cargando = true; pintarTop();
-  let fallo = 0;
-  await Promise.all(TABLAS.map(async t => {
-    try { const j = await api({ accion: 'erp_listar', tabla: t }); if (j.ok) { S.d[t] = j.items || []; lsSet(K_CACHE + t, S.d[t]); } else if (t !== 'pagosverificar') fallo++; }
-    catch(e){ fallo++; }
-  }));
+  // v2.0.1 — de 3 en 3 (todas juntas trababan el servidor), cada una con límite de tiempo y un reintento; se pinta conforme llega
+  let fallo = 0; const cola = TABLAS.slice();
+  const una = async t => {
+    for (let i = 0; i < 2; i++) {
+      try { const j = await api({ accion: 'erp_listar', tabla: t }, 40000); if (j.ok) { S.d[t] = j.items || []; lsSet(K_CACHE + t, S.d[t]); if (S.tab !== 'cotizar') { try { pintar(); } catch(e){} } return; } }
+      catch(e){ if (/Vuelve a entrar/.test(e.message)) throw e; }
+    }
+    if (t !== 'pagosverificar') fallo++;
+  };
+  await Promise.all([0, 1, 2].map(async () => { while (cola.length) await una(cola.shift()); }));
   try { const c = await api({ accion: 'listar_cuentas' }); if (c.ok) S.cuentas = (c.cuentas || []).filter(x => x.activa !== false && x.activa !== 'false').map(x => x.nombre); } catch(e){}
   S.cargando = false; S.hora = new Date();
   if (fallo && !silencio) toast('No se pudo actualizar todo; se muestra lo último guardado', true);
@@ -190,7 +197,7 @@ function marco(){
     <div class="t"><b>${esc(u.nombre || miVendedor() || 'NUN')}</b><span id="topSub"></span></div>
     <span class="ver">${VERSION}</span></div>
   <main id="main"></main>
-  <nav class="nav">${[['inicio','🏠','Inicio'],['cotizar','➕','Cotizar'],['pedidos','🧾','Pedidos'],['clientes','👥','Clientes'],['catalogo','📦','Inventario']]
+  <nav class="nav">${[['inicio','🏠','Inicio'],['cotizar','➕','Cotizar'],['pedidos','🧾','Pedidos'],['cobranza','💰','Cobranza'],['clientes','👥','Clientes'],['catalogo','📦','Inventario']]
     .map(([k, i, n]) => `<button data-t="${k}" onclick="ir('${k}')"><i>${i}</i>${n}</button>`).join('')}</nav>`;
 }
 function ir(t){ S.tab = t; window.scrollTo(0, 0); pintar(); }
@@ -199,7 +206,8 @@ function pintar(){
   if (!$('main')) marco();
   pintarTop();
   document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('on', b.dataset.t === S.tab));
-  const f = { inicio: vInicio, cotizar: vCotizar, pedidos: vPedidos, clientes: vClientes, catalogo: vCatalogo }[S.tab] || vInicio;
+  const f = { inicio: vInicio, cotizar: vCotizar, pedidos: vPedidos, cobranza: vCobranza, pagos: vPagos, clientes: vClientes, catalogo: vCatalogo }[S.tab] || vInicio;
+  document.querySelectorAll('.nav button').forEach(b => { if (S.tab === 'pagos' && b.dataset.t === 'inicio') b.classList.add('on'); });
   $('main').innerHTML = f();
 }
 function selectorVendedor(){
@@ -223,9 +231,9 @@ function vInicio(){
   return `${selectorVendedor()}<h2>Hola${(S.ses.usuario || {}).nombre ? ', ' + esc(S.ses.usuario.nombre) : ''}</h2>
   <div class="kpis">
     <div class="kpi"><small>Vendido en ${MESES[+mes.slice(5) - 1]}</small><b>${$0(vendidoMes)}</b><span>${pedidos.filter(p => fecha10(p.fecha).slice(0, 7) === mes).length} pedidos</span></div>
-    <div class="kpi"><small>Cobrado en ${MESES[+mes.slice(5) - 1]}</small><b>${$0(cobradoMes)}</b><span>${ingMes.length} pagos</span></div>
-    <div class="kpi"><small>Te deben</small><b>${$0(debe)}</b><span>${cobros.filter(c => (+c.pendiente || 0) >= 1).length} documentos</span></div>
-    <div class="kpi"><small>Comisión aprox.</small><b>${pct ? $0(cobradoMes * pct) : '—'}</b><span>${pct ? Math.round(pct * 100) + '% de lo cobrado' : (v ? 'la calcula Rafa' : 'elige vendedor')}</span></div>
+    <div class="kpi" style="cursor:pointer" onclick="ir('pagos')"><small>Cobrado en ${MESES[+mes.slice(5) - 1]} ›</small><b>${$0(cobradoMes)}</b><span>${ingMes.length} pagos</span></div>
+    <div class="kpi" style="cursor:pointer" onclick="S.filtroCob='saldo';ir('cobranza')"><small>Te deben ›</small><b>${$0(debe)}</b><span>${cobros.filter(c => (+c.pendiente || 0) >= 1).length} documentos</span></div>
+    <div class="kpi" style="cursor:pointer" onclick="ir('pagos')"><small>Comisión aprox. ›</small><b>${pct ? $0(cobradoMes * pct) : '—'}</b><span>${pct ? Math.round(pct * 100) + '% de lo cobrado' : (v ? 'la calcula Rafa' : 'elige vendedor')}</span></div>
   </div>
   <div class="sub" style="margin:2px 0 10px">La comisión es aproximada; Rafa la confirma al cierre del mes.</div>
   ${puedeCotizar() ? '<button class="btn p w" onclick="ir(\'cotizar\')">➕ Nueva cotización</button>' : ''}
@@ -250,17 +258,69 @@ function estadoPed(p){
   const e = String(p.estatus || '').toLowerCase();
   return '<span class="tag ' + (e === 'facturado' || e === 'entregado' ? 't-blue' : 't-warn') + '">' + esc(e || 'pedido') + '</span>' + (debe >= 1 ? '<span style="display:block;font-size:12px;color:var(--mute)">debe ' + $0(debe) + '</span>' : '');
 }
+// v2.0.1 — facturas y remisiones (como en la app anterior): su cobro y su estado
+function cobroDeDoc(tabla, d){
+  const cob = S.d.cobranza || [], bid = String(d.id).replace(/^bind_(rem_|fac_)?/, ''), f = String(d.folio || '').trim();
+  return cob.find(x => vivo(x) && (String(x.factura_origen) === String(d.id) || x.id === 'cob_' + d.id || x.id === 'bind_cob_' + bid))
+    || cob.find(x => vivo(x) && norm(x.cliente) === norm(d.cliente) && (String(x.numero).trim() === f || String(x.numero).trim() === 'V01' + f)) || null;
+}
+function estadoDoc(tabla, d){
+  if (/cancel/i.test(d.estatus || '')) return '<span class="tag t-mute">cancelada</span>';
+  const c = cobroDeDoc(tabla, d);
+  const base = tabla === 'facturas' ? (d.uuid_sat || d.estatus === 'timbrada' ? 'timbrada' : (d.estatus || 'borrador')) : (d.estatus || 'remisión');
+  if (c && (+c.pendiente || 0) < 1) return '<span class="tag t-ok">pagada</span>';
+  return '<span class="tag t-blue">' + esc(base) + '</span>' + (c && (+c.pendiente || 0) >= 1 ? '<span style="display:block;font-size:12px;color:var(--mute)">debe ' + $0(c.pendiente) + '</span>' : '');
+}
+function filaDoc(tabla, d){ return `<div class="row" onclick="abrirDoc('${tabla}','${esc(d.id)}')"><div class="m"><b>${esc(d.cliente)}</b><span>${tabla === 'facturas' ? 'Factura' : 'Remisión'} ${esc(d.folio)} · ${fmtF(d.fecha)}</span></div><div class="r"><b>${$$(d.total)}</b>${estadoDoc(tabla, d)}</div></div>`; }
+
+// v2.0.1 — Cobranza (como la pestaña de la app anterior): lo que le deben, vencidos, pagados
+function vCobranza(){
+  const f = S.filtroCob || 'saldo', q = norm(S.qCob || '');
+  let l = filtroMios(cobrosVivos());
+  if (f === 'saldo') l = l.filter(c => (+c.pendiente || 0) >= 1);
+  else if (f === 'venc') l = l.filter(c => (+c.pendiente || 0) >= 1 && (+c.dias_vencido || 0) > 0);
+  else if (f === 'pag') l = l.filter(c => (+c.pendiente || 0) < 1);
+  if (q) l = l.filter(c => norm(c.cliente + ' ' + c.numero).includes(q));
+  l.sort((a, b) => f === 'pag' ? fecha10(b.fecha_emision).localeCompare(fecha10(a.fecha_emision)) : ((+b.pendiente || 0) - (+a.pendiente || 0)));
+  const tot = l.reduce((a, c) => a + ((+c.pendiente || 0) >= 1 ? +c.pendiente : 0), 0);
+  return `${selectorVendedor()}<h2>Cobranza</h2>
+  <div class="chips">${[['saldo','Con saldo'],['venc','Vencidos'],['pag','Pagados'],['todo','Todos']].map(([k, n]) => `<button class="${f === k ? 'on' : ''}" onclick="S.filtroCob='${k}';pintar()">${n}</button>`).join('')}</div>
+  <input class="in" placeholder="Buscar cliente o folio" value="${esc(S.qCob || '')}" oninput="S.qCob=this.value;clearTimeout(window._qb);window._qb=setTimeout(()=>{pintar();const i=document.querySelector('main .in');i.focus();i.setSelectionRange(i.value.length,i.value.length)},350)">
+  <div class="sub" style="margin:8px 2px">${l.length} documentos${tot ? ' · deben ' + $$(tot) : ''}</div>
+  <div class="card">${l.length ? l.slice(0, 250).map(c => { const p = +c.pendiente || 0, v = verificandoDe(c.id);
+    return `<div class="row" onclick="${p >= 1 ? `abrirPago('${esc(c.id)}')` : `abrirCliente(${esc(JSON.stringify(c.cliente))})`}"><div class="m"><b>${esc(c.cliente)}</b><span>${esc(c.tipo || '')} ${esc(c.numero)} · ${fmtF(c.fecha_emision)} · total ${$0(c.total)}${(+c.dias_vencido || 0) > 0 && p >= 1 ? ' · ' + (+c.dias_vencido) + ' días vencido' : ''}</span></div>
+      <div class="r">${p >= 1 ? '<b>' + $$(p) + '</b>' + (v ? '<span class="tag t-warn">' + $0(v) + ' por verificar</span>' : '<span>💵 registrar pago</span>') : '<span class="tag t-ok">pagado</span>'}</div></div>`; }).join('') : '<div class="vacio">Nada en esta vista</div>'}</div>`;
+}
+// v2.0.1 — Pagos recibidos y comisión por mes (como "Ingresos" y "Mi Comisión" de la app anterior)
+function vPagos(){
+  const v = miVendedor(), pct = PCT_COMISION[v] || 0;
+  const numsMios = new Set(filtroMios(cobrosVivos()).map(c => String(c.numero).trim()));
+  const todos = ingresosValidos().filter(i => numsMios.has(String(i.factura).trim()));
+  const meses = [...new Set(todos.map(i => fecha10(i.fecha).slice(0, 7)).concat([mesActual()]))].sort().reverse().slice(0, 12);
+  const mes = S.mesPagos || mesActual();
+  const l = todos.filter(i => fecha10(i.fecha).slice(0, 7) === mes).sort((a, b) => fecha10(b.fecha).localeCompare(fecha10(a.fecha)));
+  const tot = l.reduce((a, i) => a + (+i.monto || 0), 0);
+  const nm = m => MESES[+m.slice(5) - 1] + ' ' + m.slice(2, 4);
+  return `${selectorVendedor()}<h2>Pagos y comisión</h2>
+  <div class="chips">${meses.map(m => `<button class="${m === mes ? 'on' : ''}" onclick="S.mesPagos='${m}';pintar()">${nm(m)}</button>`).join('')}</div>
+  <div class="kpis"><div class="kpi"><small>Cobrado en ${nm(mes)}</small><b>${$0(tot)}</b><span>${l.length} pagos</span></div>
+    <div class="kpi"><small>Comisión aprox.</small><b>${pct ? $0(tot * pct) : '—'}</b><span>${pct ? Math.round(pct * 100) + '% de lo cobrado' : 'la calcula Rafa'}</span></div></div>
+  <div class="sub" style="margin:2px 0 10px">Aproximada: Rafa la confirma al cierre del mes.</div>
+  <div class="card">${l.length ? l.map(i => `<div class="row" onclick="abrirCliente(${esc(JSON.stringify(i.cliente))})"><div class="m"><b>${esc(i.cliente)}</b><span>${esc(i.factura || '')} · ${esc(i.cuenta || '')} · ${fmtF(i.fecha)}</span></div><div class="r"><b>${$$(i.monto)}</b>${pct ? '<span>comisión ' + $$(r2((+i.monto || 0) * pct)) + '</span>' : ''}</div></div>`).join('') : '<div class="vacio">Sin pagos en este mes</div>'}</div>`;
+}
+
 function vPedidos(){
   const f = S.filtroPed;
   const cots = filtroMios(S.d.cotizaciones || []).map(c => ({ k: 'c', d: c }));
   const peds = filtroMios((S.d.pedidos || []).filter(p => !/borrador|duplicad/i.test(p.estatus || ''))).map(p => ({ k: 'p', d: p }));
-  let l = f === 'cot' ? cots : f === 'ped' ? peds : f === 'pend' ? cots.filter(x => x.d.estatus === 'enviada') : cots.filter(x => x.d.estatus !== 'convertida').concat(peds);
+  const facs = filtroMios(S.d.facturas || []).map(d => ({ k: 'f', d })), rems = filtroMios(S.d.remisiones || []).map(d => ({ k: 'r', d }));
+  let l = f === 'cot' ? cots : f === 'ped' ? peds : f === 'fac' ? facs : f === 'rem' ? rems : f === 'pend' ? cots.filter(x => x.d.estatus === 'enviada') : cots.filter(x => x.d.estatus !== 'convertida').concat(peds);
   const q = norm(S.qPed || ''); if (q) l = l.filter(x => norm(x.d.cliente + ' ' + x.d.folio).includes(q));
   l.sort((a, b) => fecha10(b.d.fecha).localeCompare(fecha10(a.d.fecha)) || String(b.d.folio).localeCompare(String(a.d.folio)));
   return `${selectorVendedor()}<h2>Cotizaciones y pedidos</h2>
-  <div class="chips">${[['todo','Todo'],['pend','Por confirmar'],['cot','Cotizaciones'],['ped','Pedidos']].map(([k, n]) => `<button class="${f === k ? 'on' : ''}" onclick="S.filtroPed='${k}';pintar()">${n}</button>`).join('')}</div>
+  <div class="chips">${[['todo','Todo'],['pend','Por confirmar'],['cot','Cotizaciones'],['ped','Pedidos'],['fac','Facturas'],['rem','Remisiones']].map(([k, n]) => `<button class="${f === k ? 'on' : ''}" onclick="S.filtroPed='${k}';pintar()">${n}</button>`).join('')}</div>
   <input class="in" placeholder="Buscar cliente o folio" value="${esc(S.qPed || '')}" oninput="S.qPed=this.value;clearTimeout(window._qp);window._qp=setTimeout(()=>{pintar();const i=document.querySelector('main .in');i.focus();i.setSelectionRange(i.value.length,i.value.length)},350)">
-  <div class="card" style="margin-top:10px">${l.length ? l.slice(0, 150).map(x => x.k === 'c' ? filaCot(x.d) : `<div class="row" onclick="abrirDoc('pedidos','${esc(x.d.id)}')"><div class="m"><b>${esc(x.d.cliente)}</b><span>Pedido ${esc(x.d.folio)} · ${fmtF(x.d.fecha)}</span></div><div class="r"><b>${$$(x.d.total)}</b>${estadoPed(x.d)}</div></div>`).join('') : '<div class="vacio">No hay nada aquí todavía</div>'}</div>`;
+  <div class="card" style="margin-top:10px">${l.length ? l.slice(0, 200).map(x => x.k === 'c' ? filaCot(x.d) : x.k === 'p' ? `<div class="row" onclick="abrirDoc('pedidos','${esc(x.d.id)}')"><div class="m"><b>${esc(x.d.cliente)}</b><span>Pedido ${esc(x.d.folio)} · ${fmtF(x.d.fecha)}</span></div><div class="r"><b>${$$(x.d.total)}</b>${estadoPed(x.d)}</div></div>` : filaDoc(x.k === 'f' ? 'facturas' : 'remisiones', x.d)).join('') : '<div class="vacio">No hay nada aquí todavía</div>'}</div>`;
 }
 
 function saldoCliente(nombre){ const n = norm(nombre); return cobrosVivos().filter(c => norm(c.cliente) === n).reduce((a, c) => a + ((+c.pendiente || 0) >= 1 ? +c.pendiente : 0), 0); }
@@ -296,13 +356,13 @@ function itemsDe(d){ try { const a = JSON.parse(d.items_json || '[]'); return Ar
 function abrirDoc(tabla, id){
   const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)); if (!d) return;
   const its = itemsDe(d);
-  const cs = tabla === 'pedidos' ? cobrosDePedido(d) : [];
+  const cs = tabla === 'pedidos' ? cobrosDePedido(d) : (tabla === 'facturas' || tabla === 'remisiones') ? [cobroDeDoc(tabla, d)].filter(Boolean) : [];
   const c = cs.find(x => (+x.pendiente || 0) >= 1) || null;
   const pagado = cs.reduce((a, x) => a + (+x.cobrado || 0), 0), falta = cs.reduce((a, x) => a + Math.max(0, +x.pendiente || 0), 0);
   const verif = cs.reduce((a, x) => a + verificandoDe(x.id), 0);
-  const nombre = tabla === 'cotizaciones' ? 'Cotización ' + d.folio : 'Pedido ' + d.folio;
+  const nombre = ({ cotizaciones: 'Cotización ', pedidos: 'Pedido ', facturas: 'Factura ', remisiones: 'Remisión ' }[tabla] || '') + d.folio;
   hoja(esc(nombre), `<div class="sub">${esc(d.cliente)} · ${fmtF(d.fecha)}${d.vendedor ? ' · ' + esc(d.vendedor) : ''}</div>
-    <div style="margin:8px 0">${tabla === 'cotizaciones' ? estadoCot(d) : estadoPed(d)}</div>
+    <div style="margin:8px 0">${tabla === 'cotizaciones' ? estadoCot(d) : tabla === 'pedidos' ? estadoPed(d) : estadoDoc(tabla, d)}</div>
     <div class="card">${its.length ? its.map(i => `<div class="row" style="cursor:default"><div class="m"><b>${esc(i.sku)}</b><span>${esc(i.descripcion || '')}</span></div><div class="r"><b>${+i.cantidad} × ${$$(i.precio_unitario)}</b><span>${$$(r2((+i.cantidad || 0) * (+i.precio_unitario || 0)))}</span></div></div>`).join('') : '<div class="vacio">Sin detalle de productos</div>'}
       <div class="tot"><span>Subtotal</span><span>${$$(d.subtotal)}</span></div><div class="tot"><span>IVA</span><span>${$$(d.iva)}</span></div><div class="tot g"><span>Total</span><span>${$$(d.total)}</span></div></div>
     ${cs.length ? `<div class="card"><div class="tot"><span>Pagado</span><span>${$$(pagado)}</span></div><div class="tot g"><span>Falta</span><span>${$$(falta)}</span></div>${verif ? '<div class="sub">' + $$(verif) + ' por verificar</div>' : ''}${cs.length > 1 ? '<div class="sub">Se cobra en: ' + cs.map(x => esc((x.tipo || '') + ' ' + x.numero)).join(', ') + '</div>' : ''}</div>` : ''}
@@ -315,7 +375,7 @@ function abrirDoc(tabla, id){
 }
 function compartir(tabla, id){
   const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)); if (!d) return;
-  const t = (tabla === 'cotizaciones' ? '*Cotización ' : '*Pedido ') + d.folio + '* · NUN\n' + d.cliente + '\n\n' + itemsDe(d).map(i => '• ' + i.cantidad + ' × ' + i.sku + ' ' + (i.descripcion || '') + ' — ' + $$(i.precio_unitario)).join('\n')
+  const t = '*' + ({ cotizaciones: 'Cotización ', pedidos: 'Pedido ', facturas: 'Factura ', remisiones: 'Remisión ' }[tabla] || '') + d.folio + '* · NUN\n' + d.cliente + '\n\n' + itemsDe(d).map(i => '• ' + i.cantidad + ' × ' + i.sku + ' ' + (i.descripcion || '') + ' — ' + $$(i.precio_unitario)).join('\n')
     + '\n\nSubtotal ' + $$(d.subtotal) + (+d.iva ? '\nIVA ' + $$(d.iva) : '') + '\n*Total ' + $$(d.total) + '*';
   const tel = String(((S.d.clientes || []).find(c => norm(c.razon_social) === norm(d.cliente)) || {}).telefono || '').replace(/\D/g, '');
   window.open('https://wa.me/' + (tel.length === 10 ? '52' + tel : tel) + '?text=' + encodeURIComponent(t), '_blank');

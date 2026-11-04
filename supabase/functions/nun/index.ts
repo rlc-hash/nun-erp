@@ -10,7 +10,7 @@ import postgres from 'npm:postgres@3.4.5';
 import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 
-const VERSION = 'supabase-1.2'; // v4.63 vendedores: cada uno recibe solo lo suyo
+const VERSION = 'supabase-1.3'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -30,6 +30,20 @@ function dbLista(){
     catch(e){ try { await sql.end({ timeout: 1 }); } catch(_){} MODO_DB = 'directa'; sql = postgres(DB_DIRECTA, { max: 1, prepare: false, idle_timeout: 3, connect_timeout: 8 }); }
   })();
   return _dbProbada;
+}
+// v4.64 — una lectura que se traba (una conexión del pooler se quedó esperando) ya no cuelga a las demás: a los 20 s se corta,
+// se abre un pool nuevo y se reintenta una vez. SOLO lecturas (una escritura nunca se repite: podría quedar doble).
+function poolNuevo(){ return MODO_DB === 'directa' ? postgres(DB_DIRECTA, { max: 1, prepare: false, idle_timeout: 3, connect_timeout: 8 })
+                                                   : postgres(urlPooler(), { max: 3, prepare: false, idle_timeout: 5, connect_timeout: 8 }); }
+async function lectura<T>(f: () => Promise<T>, ms = 20000): Promise<T> {
+  for (let i = 0; ; i++) {
+    let t: any; const lim = new Promise<never>((_, rej) => { t = setTimeout(() => rej(new Error('LECTURA_TRABADA')), ms); });
+    try { return await Promise.race([f(), lim]); }
+    catch(e){
+      if (!String(e).includes('LECTURA_TRABADA') || i >= 1) throw e;
+      const viejo = sql; sql = poolNuevo(); viejo.end({ timeout: 1 }).catch(() => {});
+    } finally { clearTimeout(t); }
+  }
 }
 const esErrorConexion = (e: unknown) => /connection slots|too many (clients|connections)|ECONNRESET|CONNECT_TIMEOUT|CONNECTION_(CLOSED|ENDED|DESTROYED)|Max client connections|terminating connection/i.test(String(e));
 // Reintenta lo que falló por falta de conexión (en ese punto no se guardó nada: la transacción no llegó a confirmarse).
@@ -103,7 +117,7 @@ const nCli = (x: unknown) => String(x || '').normalize('NFD').replace(/[\u0300-\
 const SIN_COSTOS = ['costo', 'costo_factura'];
 async function misClientes(se: any, m: Map<string, any>){
   const b = { accion: 'erp_listar', tabla: 'clientes', codigo: se.codigo };
-  const j = JSON.parse(await ejecutar('post', JSON.stringify(b), b, m, false));
+  const j = JSON.parse(await lectura(() => ejecutar('post', JSON.stringify(b), b, m, false)));
   return (j.items || []).filter((c: any) => norm(c.vendedor) === se.vend);
 }
 async function filtrarVend(tabla: string, items: any[], se: any, m: Map<string, any>){
@@ -137,7 +151,7 @@ async function revisarVend(body: any, se: any, m: Map<string, any>){
     if (t !== 'cotizaciones' && t !== 'pagosverificar') return 'Eso no está permitido desde la app de vendedores';
     const items = Array.isArray(body.items) ? body.items : [];
     const b = { accion: 'erp_listar', tabla: t, codigo: se.codigo };
-    const rows = JSON.parse(await ejecutar('post', JSON.stringify(b), b, m, false)).items || [];
+    const rows = JSON.parse(await lectura(() => ejecutar('post', JSON.stringify(b), b, m, false))).items || [];
     for (const it of items){
       const r = rows.find((x: any) => String(x.id) === String(it && it.id));
       if (!r || norm(r.vendedor) !== se.vend) return 'Solo puedes cambiar lo tuyo';
@@ -206,11 +220,11 @@ Deno.serve(async (req) => {
       if (se.relogin) return json({ ok: false, error: 'AUTH: vuelve a entrar con tu código', requiere_login: true });
       if (se.ok && se.rol === 'vendedor'){ // v4.63
         if (!T_VEND.has(String(p.tabla))) return json({ ok: false, error: 'Tabla no disponible' });
-        const j = JSON.parse(await conReintento(() => ejecutar('get', p, null, m, false)));
+        const j = JSON.parse(await lectura(() => conReintento(() => ejecutar('get', p, null, m, false))));
         if (j.ok){ const f = await filtrarVend(String(p.tabla), j.data || j.items || [], se, m); j.data = f; j.items = f; }
         return json(j);
       }
-      return json(await conReintento(() => ejecutar('get', p, null, m, false)));
+      return json(await lectura(() => conReintento(() => ejecutar('get', p, null, m, false))));
     }
     const texto = await req.text();
     let body: any; try { body = JSON.parse(texto); } catch(e){ return json({ ok: false, error: 'Petición inválida' }); }
@@ -251,7 +265,8 @@ Deno.serve(async (req) => {
     if (se.ok && se.rol === 'vendedor'){ // v4.63
       const e = await revisarVend(body, se, m);
       if (e){ ok = false; err = e; return json({ ok: false, error: e }); }
-      const out = await conReintento(() => ejecutar('post', JSON.stringify(body), body, m, !A_LECTURA.test(accion)));
+      const _f = () => conReintento(() => ejecutar('post', JSON.stringify(body), body, m, !A_LECTURA.test(accion)));
+      const out = A_LECTURA.test(accion) ? await lectura(_f) : await _f();
       if (!A_LECTURA.test(accion)) accion += _det;
       const j = JSON.parse(out); ok = !!j.ok; if (!ok) err = String(j.error || '').substring(0, 200);
       // cotización cancelada por el vendedor: se libera lo que apartó (una sola vez: ya no está "enviada")
@@ -260,7 +275,8 @@ Deno.serve(async (req) => {
       if (body.accion === 'erp_listar' && j.ok && Array.isArray(j.items)) j.items = await filtrarVend(String(body.tabla), j.items, se, m);
       return json(j);
     }
-    const out = await conReintento(() => ejecutar('post', texto, body, m, !A_LECTURA.test(accion)));
+    const _f = () => conReintento(() => ejecutar('post', texto, body, m, !A_LECTURA.test(accion)));
+    const out = A_LECTURA.test(accion) ? await lectura(_f) : await _f(); // v4.64
     if (!A_LECTURA.test(accion)) accion += _det;
     try { const j = JSON.parse(out); ok = !!j.ok; if (!ok) err = String(j.error || '').substring(0, 200); } catch(e){}
     return json(out);

@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.68 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.69 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4978,7 +4978,7 @@ function abrirDrawerCobranza(idDoc) {
   const doc = (State.data.cobranza||[]).find(c => c.id === idDoc);
   if (!doc) return;
   const saldo = +doc.pendiente || 0;
-  const cuentas = State.data.cuentas || [];
+  const cuentas = State.data.cuentas || []; nunCuentasSiFaltan(); // v4.69
   const pagos = (State.data.pagosclientes || []).filter(p => p.id_doc === idDoc);
 
   const tabPago = `
@@ -5820,7 +5820,7 @@ function descargarXMLCFDI(idFactura) {
 }
 
 async function abrirNuevoPedido() {
-  const cuentas = State.data.cuentas || [];
+  const cuentas = State.data.cuentas || []; nunCuentasSiFaltan(); // v4.69
   const clientes = State.data.clientes || [];
   const vendedores = State.data.vendedores || [];
   abrirDrawer({
@@ -8395,7 +8395,7 @@ async function nunAbrirComplementoPago(idFactura){
   // el número de parcialidad lo escribe Rafa (no se inventa): así el complemento cuadra con lo que ya tiene el SAT.
   const esBind = /^bind_/.test(String(f.id||'')) && !reps.length;
   if (esBind && c) saldo = Math.max(0, nunR2(+c.pendiente||0));
-  const cuentas = State.data.cuentas || [];
+  const cuentas = State.data.cuentas || []; nunCuentasSiFaltan(); // v4.69
   // v3.93 — lo que se debe en Cobranza (o el total si la factura no tiene renglón) vs lo que dicen los complementos:
   // si un complemento ya se timbró pero su pago no quedó en Ingresos, se registra solo el pago (sin timbrar otro)
   const debeCobro = c ? Math.max(0, nunR2(+c.pendiente||0)) : Math.max(0, nunR2((+f.total||0) - _nc));
@@ -12350,7 +12350,8 @@ async function nunActualizarTodo(){
     }
     const base = ['clientes','productos','cotizaciones','pedidos','remisiones','facturas','notascredito','cobranza','ingresos'];
     const usadas = Object.keys(State.data || {}).filter(t => Array.isArray(State.data[t]) && State.data[t].length && !/Todos$|Duplicados$/.test(t));
-    const tablas = [...new Set(base.concat(usadas))].filter(t => t !== 'gastos' || nunEsDuenoGastos());
+    const tablas = [...new Set(base.concat(usadas))].filter(t => (t !== 'gastos' || nunEsDuenoGastos()) && t !== 'cuentas'); // v4.69 las cuentas van por cargarCuentas (solo activas y sin repetir)
+    try { cargarCuentas(); } catch(e){}
     await Promise.all(tablas.map(t => cargarTabla(t, { ttl: 0 }).catch(()=>{})));
     try { if (typeof kvPull === 'function') await kvPull(); } catch(e){}
     try { _nunSitIdx = null; } catch(e){}
@@ -12754,9 +12755,15 @@ window.nunAdminCuentas = nunAdminCuentas; window.nunAdminCuentasPintar = nunAdmi
 async function cargarCuentas() {
   try {
     const d = await api({ accion:'listar_cuentas' });
-    if (d.ok) { const _vistas = new Set(); State.data.cuentas = (d.cuentas||[]).filter(c => c.activa && !_vistas.has(String(c.nombre||'').trim().toUpperCase()) && _vistas.add(String(c.nombre||'').trim().toUpperCase())); } // v3.76 sin repetidas
+    if (d.ok) { const _vistas = new Set(); State.data.cuentas = (d.cuentas||[]).filter(c => c.activa && !_vistas.has(String(c.nombre||'').trim().toUpperCase()) && _vistas.add(String(c.nombre||'').trim().toUpperCase())); nunCuentasRellenar(); } // v3.76 sin repetidas
   } catch(e){}
 }
+// v4.69 — si un cobro se abrió con la lista de cuentas vacía (no habían llegado), se llena sola en cuanto llegan, sin perder lo elegido
+function nunCuentasRellenar(){
+  ['pcCuenta','repCuenta','pfvCuenta'].forEach(idSel => { const sel = document.getElementById(idSel); if (!sel || sel.options.length > 1) return; const v = sel.value;
+    sel.insertAdjacentHTML('beforeend', (State.data.cuentas||[]).map(c => `<option value="${escapeHTML(c.nombre)}">${escapeHTML(c.nombre)}</option>`).join('')); if (v) sel.value = v; });
+}
+function nunCuentasSiFaltan(){ if (!(State.data.cuentas||[]).length) setTimeout(() => cargarCuentas(), 50); }
 async function cargarUsuarios() {
   try {
     const d = await api({ accion:'listar_usuarios', codigo_admin:State.sesion.codigo });

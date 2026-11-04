@@ -168,6 +168,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   abrir la app"). Se cambió el `id` de los manifests (ERP `./?app=nun-erp-2` "NUN ERP"; ventas `./?app=nun-ventas-2` "NUN Ventas") y el link lleva ?v=
   para que Chrome los tome como apps nuevas. Si vuelve a pasar: subir el número del id.
   App v2.1.3: Ventas ya no está fijada en vertical (orientation any, como el ERP): en el Fold abierto la orientación fija puede impedir abrirla.
+- v4.69 (4 nov): Capturar pago salía sin cuentas (las cuentas solo se pedían al abrir el sistema y esa vez no llegaron). Ahora si un cobro se abre con la
+  lista vacía se vuelven a pedir y el selector se llena solo (`nunCuentasSiFaltan` / `nunCuentasRellenar`: pcCuenta, repCuenta, pfvCuenta); al tocar el
+  logo se recargan con cargarCuentas (solo activas, sin repetir; ya no por erp_listar). Prueba `prueba_v469_cuentas.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

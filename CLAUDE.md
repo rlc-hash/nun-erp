@@ -155,7 +155,8 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   muestra el aviso). Las props `push%` no pasan a Codigo.gs. App: 📄 PDF de cotización/pedido/factura/remisión IGUAL al del ERP con `nun-pdf.js`
   (copia de imprimirDocumento; si cambias el PDF del ERP: `python3 herramientas/copiar_pdf.py`). Pruebas `prueba_v465_avisos.js` y push en `prueba_servidor_vendedores.js`.
 - **App de vendedores v2.1 (4 nov): vive en `ventas/index.html`** (liga https://rlc-hash.github.io/nun-erp/ventas/) con SU PROPIO alcance de app
-  (`ventas/manifest.webmanifest` id/start_url/scope "./", `ventas/sw.js`) e ícono BLANCO con logo negro (`ventas/icons/`, el del ERP invertido). Antes
+  (`ventas/manifest.webmanifest` id/start_url/scope "./", `ventas/sw.js`) [si GitHub Pages se traba ("in progress deployment" / un re-run que no sale de la fila),
+  un push nuevo arranca otra publicación; revisar con gh api repos/rlc-hash/nun-erp/actions/runs] e ícono BLANCO con logo negro (`ventas/icons/`, el del ERP invertido). Antes
   vendedores.html compartía el alcance "./" del ERP y el teléfono abría el ERP. `vendedores.html` y `crm.html` (v1.9.23) mandan a `ventas/`.
   Donde arriba dice vendedores.html / manifest-vendedores.webmanifest, ahora es ventas/index.html / ventas/manifest.webmanifest. El PDF usa `../nun-pdf.js`.
 - v4.67 / app v2.1.1 / servidor supabase-1.5 (4 nov): Usuarios con columna **Sesiones** ("2 de 5" dispositivos) y 🚪 Cerrar sesión por usuario o

@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-1.4'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-1.5'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -296,6 +296,14 @@ Deno.serve(async (req) => {
     const _c = norm(body.codigo || body.codigo_usuario || body.codigo_admin), se = { ...(m.get(_c) || {}), codigo: _c };
     quien = se.nombre || String(body._quien || '').slice(0, 60);
     if ([...m.values()].some((x: any) => x.relogin)) return json({ ok: false, error: 'AUTH: vuelve a entrar con tu código', requiere_login: true }); // v4.63
+    // v4.67 — cerrar la sesión de otros (Rafa): su siguiente movimiento le pide volver a entrar con su código
+    if (accion === 'cerrar_sesiones'){
+      if (!se.ok || se.admin !== true) return json({ ok: false, error: 'Solo administradores' });
+      const cods = (Array.isArray(body.codigos) ? body.codigos : []).map(norm).filter((c: string) => c && c !== se.codigo);
+      let n = 0;
+      for (const c of cods){ const r = await sql`update nun_sesiones set rol = null, admin = null, hasta = now() where h = ${await sha(c)}`; n += (r && r.count) || 0; }
+      return json({ ok: true, cerradas: n });
+    }
     // v4.65 — avisos push: solo la oficina (no vendedores) se suscribe
     if (/^push_(clave|suscribir|probar|quitar)$/.test(accion)){
       if (!se.ok || se.rol === 'vendedor') return json({ ok: false, error: 'Solo la oficina recibe avisos' });

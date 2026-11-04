@@ -158,6 +158,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   (`ventas/manifest.webmanifest` id/start_url/scope "./", `ventas/sw.js`) e ícono BLANCO con logo negro (`ventas/icons/`, el del ERP invertido). Antes
   vendedores.html compartía el alcance "./" del ERP y el teléfono abría el ERP. `vendedores.html` y `crm.html` (v1.9.23) mandan a `ventas/`.
   Donde arriba dice vendedores.html / manifest-vendedores.webmanifest, ahora es ventas/index.html / ventas/manifest.webmanifest. El PDF usa `../nun-pdf.js`.
+- v4.67 / app v2.1.1 / servidor supabase-1.5 (4 nov): Usuarios con columna **Sesiones** ("2 de 5" dispositivos) y 🚪 Cerrar sesión por usuario o
+  🚪 Cerrar sesión de todos (menos tú): libera sus dispositivos (liberar_dispositivo) y `cerrar_sesiones` (servidor, solo admin) deja su sesión sin rol →
+  su siguiente movimiento pide su código. App de vendedores: botón **Salir**. Prueba `prueba_v467_cerrar_sesiones.js`.
+  ⚠ Al cambiar usuarios por API (actualizar_usuario / liberar_dispositivo) el usuario a cambiar va en `codigo` / `codigo_usuario` y el tuyo en
+  `codigo_admin`: un ayudante que ponga tu código en `codigo` cambia TU usuario (pasó el 4 nov y se corrigió).
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

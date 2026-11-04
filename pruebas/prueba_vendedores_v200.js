@@ -59,7 +59,11 @@ async function abrir(cod, usuario, permisos){
  const MV=JSON.parse(fs.readFileSync(path.join(__dirname,'..','ventas','manifest.webmanifest'),'utf8')), ME=JSON.parse(fs.readFileSync(path.join(__dirname,'..','manifest.webmanifest'),'utf8'));
  r.app={scope:MV.scope,id:MV.id,erpScope:ME.scope,blanco:MV.theme_color, vieja:/location\.replace\('ventas\//.test(fs.readFileSync(path.join(__dirname,'..','vendedores.html'),'utf8')), icono:fs.existsSync(path.join(__dirname,'..','ventas','icons','icon-512.png'))};
  if(MV.scope!=='./'||MV.start_url!=='./'||!/F5F5F5/i.test(MV.theme_color)||!r.app.vieja||!r.app.icono) r.fallas.push('app-aparte');
- r.nunCodigoEnTexto=/LUIS-X/.test(L.d.body.innerHTML); if(r.nunCodigoEnTexto) r.fallas.push('codigo-visible');
+ r.nunCodigoEnTexto=/LUIS-X/.test(L.d.body.innerHTML);
+ // v2.1.1 — botón Salir: borra la sesión del teléfono y regresa a la pantalla de entrar
+ const salirBtn=[...L.d.querySelectorAll('.top button')].find(b=>/Salir/.test(b.textContent)); if(salirBtn) salirBtn.click(); await sleep(50);
+ r.salir={boton:!!salirBtn, login:!!L.d.getElementById('lgCod'), sesion:L.w.localStorage.getItem('nunv_sesion')};
+ if(!r.salir.boton||!r.salir.login||r.salir.sesion) r.fallas.push('salir'); if(r.nunCodigoEnTexto) r.fallas.push('codigo-visible');
  // --- Edgar ve "Lo mío / Todos"; Esteban (solo consulta) no puede cotizar ---
  const E=await abrir('EDGAR-X',{nombre:'Edgar',rol:'vendedor',vendedor_asignado:'Edgar'},{agregar_pedidos:true,ver_todos_clientes:true});
  E.d.getElementById('lgCod').value='EDGAR-X'; await E.w.eval('entrar()'); await sleep(300);

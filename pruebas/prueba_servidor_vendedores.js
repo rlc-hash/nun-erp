@@ -30,6 +30,7 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
       if (/^select k, v from nun_props where k like 'push:%'/.test(q)) return [...PROPS].filter(([k]) => k.startsWith('push:')).map(([k, v]) => ({ k, v }));
       if (/^select k, v from nun_props where k =/.test(q)) return PROPS.has(vals[0]) ? [{ k: vals[0], v: PROPS.get(vals[0]) }] : [];
       if (/^update nun_props set v =/.test(q)) { PROPS.set(vals[1], vals[0]); return []; }
+      if (/^update nun_sesiones set rol = null, admin = null, hasta = now\(\) where h =/.test(q)) { const x = SES.get(vals[0]); if (x) { x.rol = null; x.admin = null; } const r = []; r.count = x ? 1 : 0; return r; }
       return []; // historial, log, candado
     })();
     return Promise.resolve(res);
@@ -121,6 +122,13 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
     edgarNoLoVe: !(await post({ accion: 'erp_listar', tabla: 'pagosverificar', codigo: 'ESTEBAN-1' })).items.length,
     duenoLoVe: (await post({ accion: 'erp_listar', tabla: 'pagosverificar', codigo: D })).items.length };
   ok('pago', r.pago.ok && r.pago.estatus === 'por_verificar' && r.pago.vendedor === 'LUIS' && r.pago.pendiente === 100 && r.pago.edgarNoLoVe && r.pago.duenoLoVe === 1);
+  // v4.67 — Rafa cierra la sesión de Edgar: su siguiente movimiento pide volver a entrar; un vendedor no puede cerrar sesiones
+  r.cerrar = { vendedorNo: (await post({ accion: 'cerrar_sesiones', codigos: ['LUIS-1'], codigo: 'EDGAR-1' })).ok === false,
+    dueno: (await post({ accion: 'cerrar_sesiones', codigos: ['EDGAR-1', 'DUENO-1'], codigo: D })).cerradas };
+  r.cerrar.edgarFuera = (await post({ accion: 'erp_listar', tabla: 'cobranza', codigo: 'EDGAR-1' })).requiere_login === true;
+  r.cerrar.duenoSigue = (await post({ accion: 'erp_listar', tabla: 'cobranza', codigo: D })).ok === true;
+  await post({ accion: 'login', codigo: 'EDGAR-1', device_id: 'd' }); r.cerrar.edgarVuelve = (await post({ accion: 'erp_listar', tabla: 'cobranza', codigo: 'EDGAR-1' })).ok === true;
+  ok('cerrar-sesiones', r.cerrar.vendedorNo && r.cerrar.dueno === 1 && r.cerrar.edgarFuera && r.cerrar.duenoSigue && r.cerrar.edgarVuelve);
   // sesión vieja sin rol (no administrador): vuelve a entrar una vez; el administrador no
   SES.forEach((s, h) => { if (s.nombre === 'Yaz' || s.nombre === 'Rafa') { delete s.rol; } });
   r.relogin = { yaz: (await post({ accion: 'erp_listar', tabla: 'cobranza', codigo: 'YAZ-1' })).requiere_login === true, rafa: (await post({ accion: 'erp_listar', tabla: 'cobranza', codigo: D })).ok,

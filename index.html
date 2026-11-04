@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.66 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.67 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -9902,9 +9902,31 @@ async function cerrarImportacion(id) {
 function renderUsuariosUI() {
   return `
     <div class="page-title"><div><h1>Usuarios</h1><div class="sub">${(State.data.usuarios||[]).length} usuarios</div></div>
-      <div class="actions"><button class="btn btn-primary" onclick="abrirUsuario()">+ Nuevo usuario</button></div></div>
+      <div class="actions"><button class="btn btn-secondary" onclick="nunCerrarSesionesTodos()" title="Todos (menos tú) tendrán que volver a entrar con su código">🚪 Cerrar sesión de todos</button><button class="btn btn-primary" onclick="abrirUsuario()">+ Nuevo usuario</button></div></div>
     <div id="usrMount"></div>
   `;
+}
+// v4.67 — cerrar la sesión de alguien (o de todos menos tú): se liberan sus dispositivos y su siguiente movimiento le pide su código otra vez
+async function nunCerrarSesionesDe(codigos, sinPreguntar){
+  const yo = String((State.sesion||{}).codigo||'').toUpperCase();
+  const us = (State.data.usuarios||[]).filter(u => codigos.map(c => String(c).toUpperCase()).includes(String(u.codigo||'').toUpperCase()) && String(u.codigo||'').toUpperCase() !== yo);
+  if (!us.length) return;
+  const nombres = us.map(u => u.nombre || u.vendedor_asignado || String(u.codigo).split('-')[0]).join(', ');
+  if (!sinPreguntar && !(await confirmDialog({ title: '¿Cerrar sesión?', message: 'Se cierra la sesión de ' + nombres + ' en todos sus teléfonos y computadoras. Para volver a usar el sistema tendrán que escribir su código. No se borra nada.', ok: 'Cerrar sesión' }))) return;
+  let mal = 0;
+  for (const u of us) for (const d of (Array.isArray(u.dispositivos) ? u.dispositivos : [])) {
+    try { const r = await api({ accion:'liberar_dispositivo', codigo_usuario: u.codigo, device_id: d.id, codigo_admin: State.sesion.codigo }); if (!r || !r.ok) mal++; } catch(e){ mal++; }
+  }
+  let r = null; try { r = await api({ accion:'cerrar_sesiones', codigos: us.map(u => u.codigo) }); } catch(e){}
+  await cargarUsuarios(); try { afterRenderUsuarios(); } catch(e){}
+  if (r && r.ok && !mal) toast('✓ Sesión cerrada: ' + nombres, { duration:5000 });
+  else toast('⚠ ' + (r && r.ok ? 'Se cerró la sesión pero ' + mal + ' dispositivo(s) no se liberaron' : 'No se pudo cerrar la sesión: ' + ((r && r.error) || 'sin respuesta')), { type:'error', duration:8000 });
+}
+async function nunCerrarSesionesTodos(){
+  const yo = String((State.sesion||{}).codigo||'').toUpperCase();
+  const us = (State.data.usuarios||[]).filter(u => String(u.codigo||'').toUpperCase() !== yo && !(u.activo === false || u.activo === 'false'));
+  if (!(await confirmDialog({ title: '¿Cerrar la sesión de todos?', message: 'Todos (' + us.length + ' usuarios, menos tú) tendrán que volver a escribir su código en el ERP y en la app de vendedores. No se borra nada.', ok: 'Cerrar sesión de todos', danger: true }))) return;
+  return nunCerrarSesionesDe(us.map(u => u.codigo), true);
 }
 function afterRenderUsuarios() {
   const html = renderDataTable({
@@ -9914,7 +9936,11 @@ function afterRenderUsuarios() {
       { key:'nombre', label:'Nombre' },
       { key:'rol', label:'Rol', render:r=>`<span class="tag">${escapeHTML(r.rol||'')}</span>` },
       { key:'vendedor_asignado', label:'Vendedor', render:r=>r.vendedor_asignado||'—' },
-      { key:'activo', label:'Estado', render:r=>(r.activo===false||r.activo==='false')?'<span class="tag red">inactivo</span>':'<span class="tag green">activo</span>' }
+      { key:'activo', label:'Estado', render:r=>(r.activo===false||r.activo==='false')?'<span class="tag red">inactivo</span>':'<span class="tag green">activo</span>' },
+      // v4.67 — dispositivos donde está abierto y botón para cerrarle la sesión
+      { key:'dispositivos', label:'Sesiones', render:r=>{ const n = (Array.isArray(r.dispositivos) ? r.dispositivos : []).length, mx = (r.rol === 'admin' || +r.max_dispositivos <= 0 && r.max_dispositivos !== '') ? '∞' : (+r.max_dispositivos || 2);
+        const yo = String(r.codigo||'').toUpperCase() === String((State.sesion||{}).codigo||'').toUpperCase();
+        return `<span class="mono">${n} de ${mx}</span>` + (yo ? ' <span class="tag">tú</span>' : ` <button class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11.5px" onclick="event.stopPropagation();nunCerrarSesionesDe([${escapeHTML(JSON.stringify(String(r.codigo)))}])">🚪 Cerrar sesión</button>`); } }
     ],
     rows: State.data.usuarios || [],
     onRowClick:(r) => abrirUsuario(r.codigo)

@@ -18,7 +18,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   r.piezas={zsf0025:P('ZSF0025 MALETA TELA AZUL 28 PULGADAS',''), zsf0042:P('ZSF0042 MALETA TELA AQUA 20 PULGADAS',''), pp22:P('MALETA PP 22 PULGADAS AZUL',''), conModelo:P('MALETA RL004 NEGRO','RL004N')};
   ok(r.piezas.zsf0025 && r.piezas.zsf0025.fam==='SF002' && r.piezas.zsf0025.pulg===28 && Math.abs(r.piezas.zsf0025.costo-SF/112*28)<0.01,'ZSF0025 = set SF002 ÷ 112 × 28');
   ok(r.piezas.zsf0042 && r.piezas.zsf0042.fam==='SF004' && r.piezas.zsf0042.pulg===20 && Math.abs(r.piezas.zsf0042.costo-w.eval('COSTOS_NUN.SF004')/60*20)<0.01,'ZSF0042 = SF004 (set de 3) ÷ 60 × 20');
-  r.zsf0011=P('ZSF0011 MALETA TELA NEGRO 18 PULGADAS',''); ok(Math.abs(r.zsf0011.costo-291.54)<0.01,'ZSF0011 de 18" = $291.54 (como ya estaba en el sistema)');
+  r.zsf0011=P('ZSF0011 MALETA TELA NEGRO 18 PULGADAS',''); ok(Math.abs(r.zsf0011.costo-w.eval('COSTOS_NUN.SF001')/112*18)<0.01,'ZSF0011 de 18" = set SF001 ÷ 112 × 18 (v4.64: costo real)');
   ok(r.piezas.pp22 && r.piezas.pp22.fam==='RL001' && Math.abs(r.piezas.pp22.costo-RL/60*22)<0.01,'maleta PP sin modelo = RL001 ÷ 60 × 22');
   ok(r.piezas.conModelo===null,'producto con modelo y sin pulgadas no usa la regla');
   const S=w.eval('State'); const it=(sku,desc,q,pu,iva)=>JSON.stringify([{sku,descripcion:desc,cantidad:q,precio_unitario:pu,iva_pct:iva}]);
@@ -32,6 +32,11 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   const esperado=500+440+2*(w.eval('COSTOS_NUN.SF001')/112*28);
   ok(Math.abs(a.costo-esperado)<0.05,'costo = 500 (remisión, sin factura) + 440 (factura, con factura) + 2 piezas ZSF0015');
   ok(a.ventaSinCosto===0 && sinCosto.length===0,'ya no quedan ventas sin costo');
+  // v4.64 — 💲 Cargar costos no le pone a una pieza suelta (ZSF006N18) el costo del set completo
+  S.data.productos=[{id:'a',sku:'SF006N',costo:1},{id:'b',sku:'ZSF006N18',costo:317.15},{id:'c',sku:'ZPP001A22',costo:1}];
+  w.confirm=()=>false; await w.cargarCostosNUN();
+  const cb=Object.fromEntries(S.data.productos.map(p=>[p.sku,p.costo])); r.botonCargar=cb;
+  ok(cb.SF006N===w.eval('COSTOS_NUN.SF006') && cb.ZSF006N18===317.15 && cb.ZPP001A22===377.19,'Cargar costos: set con costo real, pieza suelta intacta, ZPP001 de 22" con su especial');
   r.version=(w.document.querySelector('.rwd-version')||{}).textContent;
  }catch(e){ r.error=String(e&&e.stack||e).slice(0,600); }
  if(errs.length) r.erroresPagina=errs.slice(0,5);

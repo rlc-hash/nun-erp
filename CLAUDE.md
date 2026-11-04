@@ -146,7 +146,7 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   las demás (la app no cargaba). Ahora: LECTURAS con límite de 20 s → pool nuevo y un reintento (`lectura()` en index.ts; las escrituras nunca se repiten);
   la app pide de 3 en 3 con límite de 40 s y pinta conforme llega. La app trae también lo de la anterior: Cobranza (con saldo/vencidos/pagados),
   Pagos y comisión por mes (tocar Cobrado/Comisión en Inicio) y Facturas/Remisiones en Pedidos.
-- v4.65 / app v2.0.2 / servidor supabase-1.4 (4 nov): **avisos** de lo que suben los vendedores. ERP: campana con "N cotizaciones por confirmar" y
+- v4.65 (v4.66 en el letrero = junta con la v4.64 de costos hecha en otra sesión) / app v2.0.2 / servidor supabase-1.4 (4 nov): **avisos** de lo que suben los vendedores. ERP: campana con "N cotizaciones por confirmar" y
   "N pagos por verificar" (ya no avisa de Bind); cada minuto revisa cotizaciones/pagosverificar y si llega algo nuevo sale arriba (una vez; vistos en
   localStorage `nun_avisos_vistos`); lista de Cotizaciones dice "por confirmar"/"confirmada · pedido". **Push al teléfono**: campana → 📱 Activar
   (`nunPushActivar`; iPhone solo con el sistema instalado). Servidor: `supabase/functions/nun/push.js` (Web Push aes128gcm + VAPID con WebCrypto, sin

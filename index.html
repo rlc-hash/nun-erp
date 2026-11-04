@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.63 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.64 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -14989,24 +14989,27 @@ window.cfdiGuardarTodo = cfdiGuardarTodo;
 /* ============================================================
    v3.39 — COSTEO NUN: cargar costos por familia + margen
 ============================================================ */
+// v4.64 — COSTOS REALES puestos en almacén (Rafa, 4 nov 2026): China × tipo de cambio pagado + flete marítimo + lo que cobró Shayo
+// (pedimento, impuestos, flete, almacenaje, liberación) ÷ piezas del contenedor. Sin factura (el IVA de importación es costo).
+// El costo CON factura de cada producto está en Productos (costo_factura). RL004 = caja de 6 carry-on.
 const COSTOS_NUN = {
-  SF001:1814.01, SF002:1814.01, SF003:1814.01, SF004:1814.01,
-  SF007:979.99, SF006:1007.23, RL001:981.95, RL004:1494, RL003:1492.32,
-  RL005:814.93, RL006:814.93, RL007:814.93,
-  RL009:854.70, RL010:854.70, RL011:854.70, RL012:854.70, // v3.50 nuevos (caja)
-  YH001:160.24, YH002:146.24, YH003:148.24, YH004:177.84, YH005:185,
-  YH006:169.24, YH007:162.24, YH008:199.25, YH009:168.24, YH010:158.24,
-  YH011:187.25, YH012:155
+  SF001:1953.94, SF002:1953.94, SF003:1953.94, SF004:1953.94,
+  SF007:1060.38, SF006:1057.17, RL001:1028.70, RL004:1456.62, RL003:1492.32,
+  RL005:830.39, RL006:830.39, RL007:830.39,
+  RL009:854.70, RL010:854.70, RL011:854.70, RL012:854.70, // v3.50 nuevos (caja) — aún sin costo real (contenedores en camino)
+  YH001:155.56, YH002:138.55, YH003:140.98, YH004:176.95, YH005:186.43,
+  YH006:166.50, YH007:157.99, YH008:202.96, YH009:165.29, YH010:153.13,
+  YH011:188.38, YH012:165.02
 };
-// v3.41 — costos especiales por SKU/tamaño (no encajan en el modelo de familia)
+// v3.41 — costos especiales por SKU/tamaño (no encajan en el modelo de familia) · v4.64 con costo real
 const COSTOS_NUN_ESPECIAL = [
-  { test: s => /^ZPP001/.test(s) && /18$/.test(s), costo: 294, fam:'ZPP001-18' },
-  { test: s => /^ZPP001/.test(s) && /20$/.test(s), costo: 327, fam:'ZPP001-20' },
-  { test: s => /^ZPP001/.test(s) && /22$/.test(s), costo: 360, fam:'ZPP001-22' },
-  { test: s => /^ZSF0011/.test(s) || s === '53121503', costo: 291, fam:'ZSF0011' },
-  { test: s => /^ZF0001/.test(s), costo: 291.53, fam:'ZF0001-18' },
-  { test: s => /^ZF0002/.test(s), costo: 323.92, fam:'ZF0002-20' },
-  { test: s => /^ZF0003/.test(s), costo: 356.32, fam:'ZF0003-22' },
+  { test: s => /^ZPP001/.test(s) && /18$/.test(s), costo: 308.62, fam:'ZPP001-18' },
+  { test: s => /^ZPP001/.test(s) && /20$/.test(s), costo: 342.90, fam:'ZPP001-20' },
+  { test: s => /^ZPP001/.test(s) && /22$/.test(s), costo: 377.19, fam:'ZPP001-22' },
+  { test: s => /^ZSF0011/.test(s) || s === '53121503', costo: 314.02, fam:'ZSF0011' },
+  { test: s => /^ZF0001/.test(s), costo: 314.02, fam:'ZF0001-18' },
+  { test: s => /^ZF0002/.test(s), costo: 348.91, fam:'ZF0002-20' },
+  { test: s => /^ZF0003/.test(s), costo: 383.81, fam:'ZF0003-22' },
   { test: s => /^RL0*(9|10|11|12)CO/.test(s), costo: 265.28, fam:'RL009-12-CO' } // v3.50 versiones CO (pieza individual)
 ];
 // Derivar la familia base de un SKU (RL004A→RL004, ZSF006N18→SF006, etc.)
@@ -15030,6 +15033,7 @@ async function cargarCostosNUN(){
   const cambios = [];
   prods.forEach(p => {
     const r = costoFamiliaDeSku(p.sku);
+    if (r && /^Z/i.test(String(p.sku||'')) && !/^Z(PP001|SF0011|F000)/i.test(String(p.sku||''))) return; // v4.64 — pieza suelta: no le pongas el costo del set completo
     if (r && Math.abs((+p.costo||0) - r.costo) > 0.01){ p.costo = r.costo; cambios.push(p); }
   });
   if (!cambios.length){ toast('Todos los productos ya tienen su costo correcto'); return; }

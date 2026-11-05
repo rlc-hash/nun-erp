@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>NUN Vendedores</title>
+<title>NUN CRM</title>
 <meta name="theme-color" content="#F5F5F5">
-<link rel="manifest" href="manifest.webmanifest?v=213">
+<link rel="manifest" href="manifest.webmanifest?v=214">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="NUN Vendedores">
+<meta name="apple-mobile-web-app-title" content="NUN CRM">
 <!--
   App de vendedores NUN v2.0 (3 nov 2026, decidido por Rafa) · v2.1 (4 nov): vive en /ventas/ con su propio alcance e ícono BLANCO
   (antes compartía el del ERP y el teléfono abría el ERP)
@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.3';
+const VERSION = 'v2.1.4';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -139,7 +139,7 @@ const veTodos = () => !!S.ses && (!esVendedor() || !!(S.ses.permisos || {}).ver_
 
 function pintarLogin(err){
   document.getElementById('app').innerHTML = `<div class="login">
-    <img src="icons/icon-192.png" alt="NUN"><h1>NUN Vendedores</h1><p>Escribe tu código de acceso</p>
+    <img src="icons/icon-192.png" alt="NUN"><h1>NUN CRM</h1><p>Escribe tu código de acceso</p>
     <input id="lgCod" class="in" placeholder="TU-CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false" onkeydown="if(event.key==='Enter')entrar()">
     <button class="btn p w" id="lgBtn" onclick="entrar()">Entrar</button>
     <div class="err" id="lgErr">${esc(err || '')}</div>

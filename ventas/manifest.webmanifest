@@ -1,8 +1,8 @@
 {
-  "name": "NUN Ventas",
-  "short_name": "NUN Ventas",
-  "description": "App de vendedores NUN · Comercializadora Casraf",
-  "id": "./?app=nun-ventas-2",
+  "name": "NUN CRM",
+  "short_name": "NUN CRM",
+  "description": "CRM de vendedores NUN · Comercializadora Casraf",
+  "id": "./?app=nun-crm-3",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

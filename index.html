@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.69 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.70 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -12344,9 +12344,9 @@ async function nunActualizarTodo(){
   toast('🔄 Actualizando…', { duration:1500 });
   try {
     if (/^https?:$/.test(location.protocol)) {
-      try { const r = await fetch(location.pathname + '?_v=' + Date.now(), { cache:'no-store' });
+      try { const r = await fetch((window.NUN_PAGINA || location.pathname) + '?_v=' + Date.now(), { cache:'no-store' }); // v4.70 en la app /nun-app/ la página real es /nun-erp/
         if (r.ok) { const t = await r.text(), re = /rwd-version\">v(\d+\.\d+)/, m = t.match(re), yo = (document.documentElement.innerHTML.match(re) || [])[1];
-          if (m && yo && m[1] !== yo) { location.replace(location.pathname + '?v=' + m[1].replace('.', '') + '&t=' + Date.now() + location.hash); return; } } } catch(e){}
+          if (m && yo && m[1] !== yo) { if (window.NUN_PAGINA) { location.reload(); return; } location.replace(location.pathname + '?v=' + m[1].replace('.', '') + '&t=' + Date.now() + location.hash); return; } } } catch(e){}
     }
     const base = ['clientes','productos','cotizaciones','pedidos','remisiones','facturas','notascredito','cobranza','ingresos'];
     const usadas = Object.keys(State.data || {}).filter(t => Array.isArray(State.data[t]) && State.data[t].length && !/Todos$|Duplicados$/.test(t));
@@ -17913,7 +17913,7 @@ if (document.readyState === 'loading') {
   async function revisar(){
     try {
       if (!/^https?:$/.test(location.protocol) || document.getElementById('nunAvisoVersion')) return;
-      const r = await fetch(location.pathname + '?_v=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return;
+      const r = await fetch((window.NUN_PAGINA || location.pathname) + '?_v=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return; // v4.70
       const t = await r.text(), m = t.match(RE), yo = actual(); if (!m || !yo || !mayor(m[1], yo)) return;
       const d = document.createElement('div'); d.id = 'nunAvisoVersion';
       d.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9999;background:#111;color:#fff;padding:12px 16px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.35);font:14px system-ui,sans-serif;display:flex;gap:12px;align-items:center;max-width:92vw';

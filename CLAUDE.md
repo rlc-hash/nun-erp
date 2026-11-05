@@ -171,6 +171,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - v4.69 (4 nov): Capturar pago salía sin cuentas (las cuentas solo se pedían al abrir el sistema y esa vez no llegaron). Ahora si un cobro se abre con la
   lista vacía se vuelven a pedir y el selector se llena solo (`nunCuentasSiFaltan` / `nunCuentasRellenar`: pcCuenta, repCuenta, pfvCuenta); al tocar el
   logo se recargan con cargarCuentas (solo activas, sin repetir; ya no por erp_listar). Prueba `prueba_v469_cuentas.js`.
+- v4.70 (5 nov): **ERP como app en dirección propia** https://rlc-hash.github.io/nun-app/ (repo `rlc-hash/nun-app`, archivos en `herramientas/app-erp/`):
+  Chrome del teléfono de Rafa tenía registrada una app vieja con alcance /nun-erp/ y no dejaba instalar nada ahí. La página de nun-app NO copia el
+  sistema: baja /nun-erp/index.html al abrir (con `<base href="/nun-erp/">`, su manifest y su sw.js con avisos push) → mismo sistema, datos y sesión.
+  `window.NUN_PAGINA` hace que el aviso de versión nueva revise /nun-erp/ y en la app recargue en lugar de cambiar de dirección.
+  Si se cambia herramientas/app-erp/, hay que subirlo también al repo nun-app.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

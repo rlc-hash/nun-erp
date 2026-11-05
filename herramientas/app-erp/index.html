@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NUN ERP</title>
+<meta name="theme-color" content="#0A0A0A">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="/nun-erp/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/nun-erp/icons/apple-touch-icon.png">
+<!--
+  NUN ERP como APP INSTALABLE en su propia dirección (v4.70, nov 2026).
+  Chrome del teléfono de Rafa tenía registrada una app vieja con alcance /nun-erp/ y ya no dejaba instalar nada ahí.
+  Esta página NO tiene copia del sistema: baja el ERP publicado (/nun-erp/index.html) cada vez que se abre, así siempre está al día.
+  Mismo servidor, mismos datos y misma sesión (mismo sitio rlc-hash.github.io).
+-->
+<style>html,body{margin:0;background:#0a0a0a;color:#fff;font-family:system-ui,sans-serif;height:100%}
+.c{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+.c img{width:72px;height:72px;border-radius:18px}.c a{color:#fff}</style>
+</head>
+<body>
+<div class="c" id="cargando"><img src="/nun-erp/icons/icon-192.png" alt="NUN"><div>Abriendo NUN ERP…</div></div>
+<script>
+// avisos push y la app instalable: el service worker de ESTA dirección
+if ('serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js'); } catch(e){} }
+(async function abrir(intento){
+  try {
+    const r = await fetch('/nun-erp/index.html?app=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    let h = await r.text();
+    // las ligas relativas del ERP (íconos, PDF…) siguen apuntando a /nun-erp/; el manifest es el de esta app
+    h = h.replace(/<head([^>]*)>/i, '<head$1><base href="/nun-erp/"><script>window.NUN_PAGINA = "/nun-erp/index.html";<\/script>')
+         .replace(/<link rel="manifest"[^>]*>/i, '<link rel="manifest" href="/nun-app/manifest.webmanifest">')
+         .replace(/navigator\.serviceWorker\.register\('sw\.js'\)/g, "navigator.serviceWorker.register('/nun-app/sw.js', { scope: '/nun-app/' })");
+    document.open(); document.write(h); document.close();
+  } catch(e){
+    if (intento < 3) return setTimeout(() => abrir(intento + 1), 1500 * (intento + 1));
+    document.getElementById('cargando').innerHTML = '<div>No se pudo abrir el sistema (' + String(e.message).slice(0, 60) + ').</div><a href="#" onclick="location.reload();return false">Reintentar</a>';
+  }
+})(0);
+</script>
+</body>
+</html>

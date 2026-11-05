@@ -178,6 +178,8 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   Si se cambia herramientas/app-erp/, hay que subirlo también al repo nun-app.
   (5 nov) Rafa logró instalar el ERP desde /nun-erp/ directo; el repo nun-app NO se creó (queda listo en herramientas/app-erp por si hace falta).
   App de vendedores v2.1.4 se llama **NUN CRM** (manifest id ./?app=nun-crm-3).
+  En /nun-erp/ventas/ Chrome NO deja instalar el CRM si el ERP ya está instalado (queda dentro de su alcance) → CRM en dirección propia
+  https://rlc-hash.github.io/nun-crm/ (repo `rlc-hash/nun-crm`, archivos en `herramientas/app-crm/`, mismo esquema que app-erp: baja ventas/index.html al abrir).
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

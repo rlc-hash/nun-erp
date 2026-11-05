@@ -1,0 +1,33 @@
+{
+  "name": "NUN CRM",
+  "short_name": "NUN CRM",
+  "description": "CRM de vendedores NUN · Comercializadora Casraf",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F5F5F5",
+  "theme_color": "#F5F5F5",
+  "lang": "es-MX",
+  "icons": [
+    {
+      "src": "/nun-erp/ventas/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/nun-erp/ventas/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/nun-erp/ventas/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

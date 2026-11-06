@@ -190,6 +190,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   el QR se dibuja con qrcode-generator 1.4.4 de cdnjs porque la imagen de api.qrserver.com no se deja copiar; el logo SVG se pasa a <img> con su tamaño)
   y Enviar usa navigator.share (el teléfono pide tocar un botón: por eso se preparan antes). Solo mensaje = wa.me con el teléfono del cliente.
   En la compu baja los archivos y abre WhatsApp. Revisado con Playwright (PDF real, logo y QR bien).
+  v2.1.7: Chrome en Android NO deja compartir archivos .xml (navigator.share da "Permission denied"; su lista permitida no trae xml) → se comparte
+  solo el PDF (y mensaje) y el XML se guarda en Descargas ANTES de compartir (bajar no gasta el permiso de tocar); el vendedor lo adjunta con 📎 → Documento.
+  El botón 📃 XML también solo baja el archivo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

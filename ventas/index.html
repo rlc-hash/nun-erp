@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.6';
+const VERSION = 'v2.1.7';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -120,10 +120,11 @@ async function xmlDoc(uuid, folio){
   toast('Bajando XML…');
   const x = await xmlDe(uuid);
   if (!x) { toast('No encontré el XML de esta factura en el servidor', true); return; }
-  const f = new File([x], 'Factura_' + String(folio || uuid).replace(/[^\w-]/g, '') + '.xml', { type: 'application/xml' });
-  try { if (navigator.canShare && navigator.canShare({ files: [f] }) && /Android|iPhone|iPad/i.test(navigator.userAgent)) { await navigator.share({ files: [f], title: f.name }); return; } } catch(e){ if (e && e.name === 'AbortError') return; }
-  const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  // v2.1.7: se baja al teléfono (Chrome en Android no deja compartir archivos .xml: da "Permission denied")
+  bajar(new File([x], 'Factura_' + String(folio || uuid).replace(/[^\w-]/g, '') + '.xml', { type: 'application/xml' }));
+  toast('XML guardado en Descargas');
 }
+function bajar(f){ const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }
 
 // ---------- utilidades ----------
 const $ = id => document.getElementById(id);
@@ -471,7 +472,7 @@ function enviarWA(tabla, id){
   const fila = (k, txt, on) => `<label class="row" style="cursor:pointer;gap:10px"><input type="checkbox" id="wa_${k}" ${on ? 'checked' : ''} style="width:22px;height:22px"><div class="m"><b>${txt}</b><span id="wa_${k}_st"></span></div></label>`;
   hoja('Enviar por WhatsApp', `<div class="sub">${esc(({ cotizaciones: 'Cotización ', pedidos: 'Pedido ', facturas: 'Factura ', remisiones: 'Remisión ' }[tabla] || '') + d.folio)} · ${esc(d.cliente)}</div>
     <div class="card">${fila('pdf', '📄 PDF', true)}${conXml ? fila('xml', '📃 XML', true) : ''}${fila('txt', '💬 Mensaje con el resumen', !conXml)}</div>
-    <div class="sub" style="margin:6px 2px">Al tocar Enviar se abre el menú del teléfono: elige <b>WhatsApp</b> y luego el chat del cliente.</div>
+    <div class="sub" style="margin:6px 2px">Al tocar Enviar se abre el menú del teléfono: elige <b>WhatsApp</b> y luego el chat del cliente.${conXml ? ' El XML se guarda en Descargas (el teléfono no deja mandarlo directo): en el chat tócale 📎 → Documento.' : ''}</div>
     <button class="btn p w" id="waBtn" onclick="enviarWAYa('${tabla}','${esc(d.id)}')">Enviar</button>`);
   const st = (k, t) => { const e = $('wa_' + k + '_st'); if (e) e.textContent = t; };
   st('pdf', 'Preparando…');
@@ -484,17 +485,20 @@ async function enviarWAYa(tabla, id){
   const texto = quiere('txt') ? textoDoc(tabla, id) : '';
   if (quiere('pdf') && !prep.pdf) { toast(prep.err ? 'No se pudo hacer el PDF' : 'Espera, el PDF todavía se está preparando…', !!prep.err); return; }
   if (quiere('xml') && !prep.xml) { toast('Espera, el XML todavía se está preparando…'); return; }
-  const files = [quiere('pdf') && prep.pdf, quiere('xml') && prep.xml].filter(Boolean);
-  if (!files.length && !texto) { toast('Elige qué quieres enviar', true); return; }
+  const xml = quiere('xml') ? prep.xml : null;
+  const files = [quiere('pdf') && prep.pdf].filter(Boolean); // v2.1.7: Chrome en Android NO deja compartir .xml ("Permission denied"); el XML se guarda en Descargas
+  if (!files.length && !texto && !xml) { toast('Elige qué quieres enviar', true); return; }
   const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)) || {};
-  if (!files.length) { window.open('https://wa.me/' + telCliente(d.cliente) + '?text=' + encodeURIComponent(texto), '_blank'); return; }
-  const datos = texto ? { files, text: texto } : { files };
+  const avisoXml = () => { if (xml) { bajar(xml); toast('El XML se guardó en Descargas: en WhatsApp tócale 📎 → Documento y elige ' + xml.name); } };
+  if (!files.length) { avisoXml(); window.open('https://wa.me/' + telCliente(d.cliente) + (texto ? '?text=' + encodeURIComponent(texto) : ''), '_blank'); return; }
   if (navigator.canShare && navigator.canShare({ files })) {
-    try { await navigator.share(datos); cerrarHoja(); } catch(e) { if (!e || e.name !== 'AbortError') toast('No se pudo compartir: ' + (e && e.message || e), true); }
+    avisoXml(); // primero se guarda el XML (no gasta el permiso de compartir), luego se comparte el PDF
+    try { await navigator.share(texto ? { files, text: texto } : { files }); cerrarHoja(); }
+    catch(e) { if (!e || e.name !== 'AbortError') { toast('No se pudo compartir: ' + (e && e.message || e), true); } }
     return;
   }
   // computadora: se bajan los archivos y se abre WhatsApp con el mensaje para adjuntarlos
-  files.forEach(f => { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); });
+  files.forEach(bajar); if (xml) bajar(xml);
   toast('Se bajaron los archivos: adjúntalos en WhatsApp');
   window.open('https://wa.me/' + telCliente(d.cliente) + (texto ? '?text=' + encodeURIComponent(texto) : ''), '_blank');
 }

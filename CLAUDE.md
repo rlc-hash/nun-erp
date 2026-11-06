@@ -196,6 +196,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   v2.1.8 (decidido por Rafa 6 nov): **Cotizar** muestra la lista del inventario a la vista (solo disponible > 0, activos) y se agrega con un toque
   (✓ N = ya en la cotización; el buscador filtra). Las piezas **INDIVIDUALES** (`esIndividual`: sku empieza con Z o la descripción dice INDIVIDUAL,
   ej. ZRL004…) NO se cotizan: solo sirven para facturar. Prueba `prueba_v218_cotizar_lista.js`.
+- v4.71 (6 nov, Rafa) **Estado de cuenta del cliente**: Cobranza → 📄 Estado de cuenta (y botón en "Pedidos (como tu Excel)" de la ficha) →
+  `nunEstadoCuentaAbrir(cliId)`: eliges cliente (lista), palomeas pedidos (Todos / Solo los que deben / a mano) y documentos con saldo SIN pedido
+  (cobros vivos que no usa ningún pedido; `nunPedidosExcelCalc` ahora regresa también `cobs`), con o sin detalle de productos y pagos recibidos
+  (ingresos cuyo `factura` es el folio del pedido, de sus documentos o de sus cobros). PDF con la marca NUN (`nunECHTML`): Total · Pagado ·
+  Saldo pendiente (con letra). Mismos números que la ficha. Prueba `prueba_v471_estado_cuenta.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

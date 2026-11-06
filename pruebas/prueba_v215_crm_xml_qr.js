@@ -24,7 +24,7 @@ const XML='<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante xmlns:cfdi="h
  const w=dom.window,d=w.document; await sleep(400);
  d.getElementById('lgCod').value='edgar-x'; await w.eval('entrar()'); await sleep(300);
  r.version=(d.querySelector('.ver')||{}).textContent;
- if(r.version!=='v2.1.7') r.fallas.push('version');
+ if(!/^v2\.1\.([7-9]|\d\d)/.test(r.version)) r.fallas.push('version');
  await w.eval("S.d.empresa={razon_social:'EMPRESA PRUEBA'}; abrirDoc('facturas','f1')"); await sleep(100);
  r.botonXml=/📃 XML/.test(d.getElementById('hoja').textContent); if(!r.botonXml) r.fallas.push('botonXml');
  r.xmlAlAbrir=env.filter(b=>b.accion==='cfdi_xml_get').length>0;

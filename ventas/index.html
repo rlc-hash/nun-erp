@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.7';
+const VERSION = 'v2.1.8';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -188,7 +188,7 @@ async function cargar(silencio){
   let fallo = 0; const cola = TABLAS.slice();
   const una = async t => {
     for (let i = 0; i < 2; i++) {
-      try { const j = await api({ accion: 'erp_listar', tabla: t }, 40000); if (j.ok) { S.d[t] = j.items || []; lsSet(K_CACHE + t, S.d[t]); if (S.tab !== 'cotizar') { try { pintar(); } catch(e){} } return; } }
+      try { const j = await api({ accion: 'erp_listar', tabla: t }, 40000); if (j.ok) { S.d[t] = j.items || []; lsSet(K_CACHE + t, S.d[t]); if (S.tab !== 'cotizar') { try { pintar(); } catch(e){} } else if (t === 'productos') { try { buscarProd(); } catch(e){} } return; } }
       catch(e){ if (/Vuelve a entrar/.test(e.message)) throw e; }
     }
     if (t !== 'pagosverificar') fallo++;
@@ -585,7 +585,8 @@ function vCotizar(){
       <div class="li"><label>Cantidad<input class="in" type="number" inputmode="numeric" min="1" value="${l.cantidad}" oninput="S.cot.lineas[${i}].cantidad=+this.value;totCot()"></label>
       <label>Precio c/u${C.conIva ? ' sin IVA' : ''}<input class="in" type="number" inputmode="decimal" step="0.01" placeholder="$" value="${l.precio || ''}" oninput="S.cot.lineas[${i}].precio=+this.value;totCot()"></label>
       <button class="x" onclick="S.cot.lineas.splice(${i},1);pintar()">✕</button></div></div>`).join('')}
-    <input id="ctProd" class="in" style="margin-top:8px" placeholder="➕ Agregar producto (modelo o nombre)" oninput="buscarProd()" autocomplete="off"><div id="ctProdRes"></div>
+    <label class="l">Toca un producto para agregarlo · solo los que hay en inventario</label>
+    <input id="ctProd" class="in" placeholder="🔎 Buscar modelo o color" value="${esc(S.qProd || '')}" oninput="S.qProd=this.value;buscarProd()" autocomplete="off"><div id="ctProdRes">${htmlProds()}</div>
     <label class="sw"><input type="checkbox" ${C.conIva ? 'checked' : ''} onchange="S.cot.conIva=this.checked;pintar()"> Con factura (+16% IVA)</label>
     <label class="l">Notas (opcional)</label><input class="in" value="${esc(C.notas)}" oninput="S.cot.notas=this.value">
   </div>
@@ -601,17 +602,25 @@ function buscarCli(){
   const l = misClientes().filter(c => norm(c.razon_social + ' ' + (c.nombre_comercial || '')).includes(q)).slice(0, 12);
   box.innerHTML = l.length ? '<div class="res">' + l.map(c => `<div onclick="S.cot.cliente=${esc(JSON.stringify(c.razon_social))};S.cot.nuevo=false;pintar()"><b>${esc(c.razon_social)}</b>${c.ciudad ? '<div class="sub">' + esc(c.ciudad) + '</div>' : ''}</div>`).join('') + '</div>' : '<div class="sub" style="margin-top:6px">No encontré ese cliente.</div>';
 }
-function buscarProd(){
-  const q = norm($('ctProd').value), box = $('ctProdRes'); if (q.length < 2) { box.innerHTML = ''; return; }
-  const l = (S.d.productos || []).filter(p => p.activo !== false && p.activo !== 'false' && norm(p.sku + ' ' + p.descripcion).includes(q)).slice(0, 15);
-  box.innerHTML = '<div class="res">' + (l.map(p => `<div onclick="agregarProd(${esc(JSON.stringify(p.sku))})"><b>${esc(p.sku)}</b> <span class="sub">${disponible(p)} disponibles${+p.precio ? ' · lista ' + $0(S.cot.conIva && +p.precio_factura ? p.precio_factura : p.precio) : ''}</span><div class="sub">${esc(p.descripcion || '')}</div></div>`).join('') || '<div class="sub">Sin resultados</div>') + '</div>';
+// v2.1.8 — Cotizar: la lista completa del inventario a la vista (solo con existencias) y se agrega con un toque.
+// Las piezas INDIVIDUALES (clave que empieza con Z o dice INDIVIDUAL) no se cotizan: solo sirven para facturar.
+function esIndividual(p){ return /^Z/i.test(String(p.sku || '').trim()) || /INDIVIDUAL/i.test(String(p.descripcion || '')); }
+function prodsCotizables(){ return (S.d.productos || []).filter(p => p.activo !== false && p.activo !== 'false' && !esIndividual(p) && disponible(p) > 0).sort((a, b) => String(a.sku).localeCompare(String(b.sku))); }
+function htmlProds(){
+  const q = norm(S.qProd || ''), todos = prodsCotizables(), l = q ? todos.filter(p => norm(p.sku + ' ' + p.descripcion).includes(q)) : todos;
+  if (!todos.length) return '<div class="sub" style="margin-top:6px">' + ((S.d.productos || []).length ? 'No hay productos con inventario.' : 'Cargando inventario…') + '</div>';
+  const en = sku => { const x = S.cot.lineas.find(l => l.sku === sku); return x ? x.cantidad : 0; };
+  return '<div class="res" style="max-height:340px">' + (l.map(p => `<div onclick="agregarProd(${esc(JSON.stringify(p.sku))})" style="display:flex;gap:10px;align-items:center"><div style="flex:1;min-width:0"><b>${esc(p.sku)}</b> <span class="sub">${disponible(p)} disponibles${+p.precio ? ' · lista ' + $0(S.cot.conIva && +p.precio_factura ? p.precio_factura : p.precio) : ''}</span><div class="sub">${esc(p.descripcion || '')}</div></div>${en(p.sku) ? `<b style="white-space:nowrap">✓ ${en(p.sku)}</b>` : '<span style="font-size:20px;opacity:.6">＋</span>'}</div>`).join('') || '<div class="sub">Sin resultados</div>') + '</div>';
 }
+function buscarProd(){ const box = $('ctProdRes'); if (box) box.innerHTML = htmlProds(); }
 function agregarProd(sku){
   const p = (S.d.productos || []).find(x => x.sku === sku); if (!p) return;
   const ya = S.cot.lineas.find(l => l.sku === sku);
   if (ya) ya.cantidad += 1;
   else S.cot.lineas.push({ sku, desc: p.descripcion || '', cantidad: 1, precio: +(S.cot.conIva && +p.precio_factura ? p.precio_factura : p.precio) || 0, disp: disponible(p) });
-  pintar();
+  const r = document.querySelector('#ctProdRes .res'), top = r ? r.scrollTop : 0, y = window.scrollY; // la lista se queda donde estaba
+  pintar(); const r2 = document.querySelector('#ctProdRes .res'); if (r2) r2.scrollTop = top; window.scrollTo(0, y);
+  toast('✓ ' + sku + ' agregado');
 }
 async function subirCot(){
   const C = S.cot, cliente = String(C.cliente || '').trim();

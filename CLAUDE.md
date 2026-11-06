@@ -185,6 +185,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   Para crear el repo/Pages Rafa lo hace a mano (Settings → Pages → main / root → Save); Claude no puede prender Pages por API.
 - App de vendedores v2.1.5 (6 nov): el PDF de factura timbrada sale con QR del SAT y sellos (nun-pdf.js ahora trae también cfdiTimbreHTML/cfdiTimbreData;
   la app baja el XML con cfdi_xml_get al abrir la factura) y botón 📃 XML (comparte el archivo en el teléfono). Prueba `prueba_v215_crm_xml_qr.js`.
+  v2.1.6: **💬 Enviar por WhatsApp** (`enviarWA`/`enviarWAYa`): el vendedor palomea PDF / XML / mensaje; al abrir la hoja se preparan los archivos
+  (`pdfArchivo`: el HTML de imprimirDocumento en un iframe oculto → html2pdf.js 0.10.1 de cdnjs, cargado DENTRO del iframe con sus opciones creadas ahí;
+  el QR se dibuja con qrcode-generator 1.4.4 de cdnjs porque la imagen de api.qrserver.com no se deja copiar; el logo SVG se pasa a <img> con su tamaño)
+  y Enviar usa navigator.share (el teléfono pide tocar un botón: por eso se preparan antes). Solo mensaje = wa.me con el teléfono del cliente.
+  En la compu baja los archivos y abre WhatsApp. Revisado con Playwright (PDF real, logo y QR bien).
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

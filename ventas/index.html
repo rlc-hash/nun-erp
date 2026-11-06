@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.5';
+const VERSION = 'v2.1.6';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -411,17 +411,92 @@ function abrirDoc(tabla, id){
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button class="btn" onclick="pdfDoc('${tabla}','${esc(d.id)}')">📄 PDF</button>
       ${tabla === 'facturas' && d.uuid_sat ? `<button class="btn" onclick="xmlDoc('${esc(d.uuid_sat)}','${esc(d.folio)}')">📃 XML</button>` : ''}
-      <button class="btn" onclick="compartir('${tabla}','${esc(d.id)}')">💬 WhatsApp</button>
+      <button class="btn" onclick="enviarWA('${tabla}','${esc(d.id)}')">💬 Enviar por WhatsApp</button>
       ${c && (+c.pendiente || 0) >= 1 ? `<button class="btn p" onclick="abrirPago('${esc(c.id)}')">💵 Registrar pago</button>` : ''}
       ${tabla === 'cotizaciones' && d.estatus === 'enviada' && (!esVendedor() || norm(d.vendedor) === miVendedor()) ? `<button class="btn" style="color:var(--bad)" onclick="cancelarCot('${esc(d.id)}')">Cancelar cotización</button>` : ''}
     </div>`);
 }
-function compartir(tabla, id){
-  const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)); if (!d) return;
+function textoDoc(tabla, id){
+  const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)); if (!d) return '';
   const t = '*' + ({ cotizaciones: 'Cotización ', pedidos: 'Pedido ', facturas: 'Factura ', remisiones: 'Remisión ' }[tabla] || '') + d.folio + '* · NUN\n' + d.cliente + '\n\n' + itemsDe(d).map(i => '• ' + i.cantidad + ' × ' + i.sku + ' ' + (i.descripcion || '') + ' — ' + $$(i.precio_unitario)).join('\n')
     + '\n\nSubtotal ' + $$(d.subtotal) + (+d.iva ? '\nIVA ' + $$(d.iva) : '') + '\n*Total ' + $$(d.total) + '*';
-  const tel = String(((S.d.clientes || []).find(c => norm(c.razon_social) === norm(d.cliente)) || {}).telefono || '').replace(/\D/g, '');
-  window.open('https://wa.me/' + (tel.length === 10 ? '52' + tel : tel) + '?text=' + encodeURIComponent(t), '_blank');
+  return t;
+}
+function telCliente(cliente){ const tel = String(((S.d.clientes || []).find(c => norm(c.razon_social) === norm(cliente)) || {}).telefono || '').replace(/\D/g, ''); return tel.length === 10 ? '52' + tel : tel; }
+// v2.1.6 — 💬 Enviar por WhatsApp: el vendedor elige qué manda (PDF, XML, mensaje). Los archivos se preparan al abrir la hoja
+// (el teléfono solo deja compartir justo después de tocar un botón), luego se comparten y en el menú se elige WhatsApp.
+const LIB_PDF = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+const LIB_QR = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+const NOMBRE_DOC = { cotizaciones: 'Cotizacion', pedidos: 'Pedido', facturas: 'Factura', remisiones: 'Remision' };
+function scriptEn(doc, src){ return new Promise((ok, mal) => { const s = doc.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => mal(new Error('no cargó ' + src.split('/').pop())); doc.head.appendChild(s); }); }
+function htmlDoc(tabla, id){ // el mismo PDF del ERP (imprimirDocumento), pero como texto en vez de abrir una ventana
+  let html = ''; const oO = window.open, oC = URL.createObjectURL;
+  window.open = () => ({ document: { write: x => { html += x; }, close(){} }, print(){}, closed: false }); URL.createObjectURL = undefined;
+  try { imprimirDocumento(tabla, id); } finally { window.open = oO; URL.createObjectURL = oC; }
+  return html;
+}
+async function pdfArchivo(tabla, id){
+  const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)); if (!d) throw new Error('No encontré el documento');
+  if (typeof imprimirDocumento !== 'function') throw new Error('No se pudo cargar el PDF');
+  if (tabla === 'facturas' && d.uuid_sat && !cfdiGetTimbres()[d.uuid_sat]) await xmlDe(d.uuid_sat);
+  const html = htmlDoc(tabla, id);
+  const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true');
+  f.style.cssText = 'position:fixed;left:-10000px;top:0;width:710px;height:1000px;border:0;background:#fff';
+  document.body.appendChild(f);
+  try {
+    await new Promise(ok => { f.onload = ok; f.srcdoc = html; });
+    const w = f.contentWindow, doc = f.contentDocument;
+    await scriptEn(doc, LIB_PDF);
+    const qr = doc.querySelector('img[alt="QR SAT"]'); // el QR se dibuja aquí mismo (la imagen de internet no se deja copiar al PDF)
+    if (qr) { try { await scriptEn(doc, LIB_QR); const q = w.qrcode(0, 'M'); q.addData(new URL(qr.src).searchParams.get('data')); q.make(); qr.src = q.createDataURL(4, 0); } catch(e){} }
+    doc.querySelectorAll('svg').forEach(sv => { // el logo (SVG) como imagen: así sale igual que en el ERP (dibujado directo pierde los huecos)
+      if (!sv.getAttribute('xmlns')) sv.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      const r = sv.getBoundingClientRect(), im = doc.createElement('img');
+      sv.setAttribute('width', Math.round(r.width)); sv.setAttribute('height', Math.round(r.height)); // tamaño propio de la imagen = el que tiene en la hoja
+      im.className = sv.getAttribute('class') || ''; im.style.cssText = (sv.getAttribute('style') || '') + ';width:' + r.width + 'px;height:' + r.height + 'px';
+      im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(sv)); sv.replaceWith(im);
+    });
+    await Promise.all(Array.from(doc.images).map(i => i.complete ? 0 : new Promise(z => { i.onload = i.onerror = z; })));
+    const op = w.JSON.parse(JSON.stringify({ margin: [12, 14, 12, 14], image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'] } })); // opciones creadas dentro del iframe (html2pdf revisa "instanceof Array")
+    const blob = await w.html2pdf().set(op).from(doc.body).outputPdf('blob');
+    return new File([blob], (NOMBRE_DOC[tabla] || 'Documento') + '_' + String(d.folio || id).replace(/[^\w-]/g, '') + '.pdf', { type: 'application/pdf' });
+  } finally { f.remove(); }
+}
+const WA = {};
+function enviarWA(tabla, id){
+  const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)); if (!d) return;
+  const conXml = tabla === 'facturas' && !!d.uuid_sat;
+  const prep = WA[tabla + ':' + id] = { pdf: null, xml: null, err: '' };
+  const fila = (k, txt, on) => `<label class="row" style="cursor:pointer;gap:10px"><input type="checkbox" id="wa_${k}" ${on ? 'checked' : ''} style="width:22px;height:22px"><div class="m"><b>${txt}</b><span id="wa_${k}_st"></span></div></label>`;
+  hoja('Enviar por WhatsApp', `<div class="sub">${esc(({ cotizaciones: 'Cotización ', pedidos: 'Pedido ', facturas: 'Factura ', remisiones: 'Remisión ' }[tabla] || '') + d.folio)} · ${esc(d.cliente)}</div>
+    <div class="card">${fila('pdf', '📄 PDF', true)}${conXml ? fila('xml', '📃 XML', true) : ''}${fila('txt', '💬 Mensaje con el resumen', !conXml)}</div>
+    <div class="sub" style="margin:6px 2px">Al tocar Enviar se abre el menú del teléfono: elige <b>WhatsApp</b> y luego el chat del cliente.</div>
+    <button class="btn p w" id="waBtn" onclick="enviarWAYa('${tabla}','${esc(d.id)}')">Enviar</button>`);
+  const st = (k, t) => { const e = $('wa_' + k + '_st'); if (e) e.textContent = t; };
+  st('pdf', 'Preparando…');
+  pdfArchivo(tabla, id).then(f => { prep.pdf = f; st('pdf', 'Listo · ' + f.name); }).catch(e => { prep.err = e.message; st('pdf', 'No se pudo hacer el PDF: ' + e.message); });
+  if (conXml) { st('xml', 'Preparando…'); xmlDe(d.uuid_sat).then(x => { if (x) { prep.xml = new File([x], 'Factura_' + String(d.folio || '').replace(/[^\w-]/g, '') + '.xml', { type: 'application/xml' }); st('xml', 'Listo · ' + prep.xml.name); } else st('xml', 'No encontré el XML en el servidor'); }); }
+}
+async function enviarWAYa(tabla, id){
+  const prep = WA[tabla + ':' + id] || {};
+  const quiere = k => { const e = $('wa_' + k); return !!(e && e.checked); };
+  const texto = quiere('txt') ? textoDoc(tabla, id) : '';
+  if (quiere('pdf') && !prep.pdf) { toast(prep.err ? 'No se pudo hacer el PDF' : 'Espera, el PDF todavía se está preparando…', !!prep.err); return; }
+  if (quiere('xml') && !prep.xml) { toast('Espera, el XML todavía se está preparando…'); return; }
+  const files = [quiere('pdf') && prep.pdf, quiere('xml') && prep.xml].filter(Boolean);
+  if (!files.length && !texto) { toast('Elige qué quieres enviar', true); return; }
+  const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)) || {};
+  if (!files.length) { window.open('https://wa.me/' + telCliente(d.cliente) + '?text=' + encodeURIComponent(texto), '_blank'); return; }
+  const datos = texto ? { files, text: texto } : { files };
+  if (navigator.canShare && navigator.canShare({ files })) {
+    try { await navigator.share(datos); cerrarHoja(); } catch(e) { if (!e || e.name !== 'AbortError') toast('No se pudo compartir: ' + (e && e.message || e), true); }
+    return;
+  }
+  // computadora: se bajan los archivos y se abre WhatsApp con el mensaje para adjuntarlos
+  files.forEach(f => { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); });
+  toast('Se bajaron los archivos: adjúntalos en WhatsApp');
+  window.open('https://wa.me/' + telCliente(d.cliente) + (texto ? '?text=' + encodeURIComponent(texto) : ''), '_blank');
 }
 async function cancelarCot(id){
   if (!confirm('¿Cancelar esta cotización? Se libera lo que apartó.')) return;

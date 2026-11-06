@@ -1,12 +1,13 @@
 // App de vendedores v2.1.5: el PDF de una factura timbrada sale con el QR del SAT y los sellos (toma el XML del servidor con cfdi_xml_get,
-// igual que el ERP) y hay botón 📃 XML para bajarlo. Servidor simulado, datos inventados, sin red.
+// igual que el ERP) y hay botón 📃 XML para bajarlo. v2.1.6: 💬 Enviar por WhatsApp = elegir PDF / XML / mensaje y compartirlos
+// (el PDF como archivo con html2pdf se probó con Playwright; aquí se simula). Servidor simulado, datos inventados, sin red.
 const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=require('path');
 const HTML=fs.readFileSync(process.env.NUN_VEND||path.join(__dirname,'..','ventas','index.html'),'utf8').replace(/<script src="\.\.\/nun-pdf\.js[^"]*"><\/script>/, '<script>'+fs.readFileSync(path.join(__dirname,'..','nun-pdf.js'),'utf8')+'</script>');
 const sleep=t=>new Promise(z=>setTimeout(z,t));
 const UUID='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const XML='<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Total="1160.00" NoCertificado="00001000000500000000" Sello="SELLOCFDXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXAbCd1234=="><cfdi:Emisor Rfc="EKU9003173C9"/><cfdi:Receptor Rfc="XAXX010101000"/><cfdi:Complemento><tfd:TimbreFiscalDigital UUID="'+UUID.toUpperCase()+'" FechaTimbrado="2026-11-01T10:00:00" SelloCFD="SELLOCFDXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXAbCd1234==" SelloSAT="SELLOSATYYYY" NoCertificadoSAT="00001000000700000000" RfcProvCertif="SPR190613I52"/></cfdi:Complemento></cfdi:Comprobante>';
 (async()=>{const r={fallas:[]};try{
- const DB={clientes:[{id:'c1',razon_social:'CLIENTE UNO',vendedor:'EDGAR'}],productos:[],cotizaciones:[],pedidos:[],remisiones:[],ingresos:[],pagosverificar:[],
+ const DB={clientes:[{id:'c1',razon_social:'CLIENTE UNO',vendedor:'EDGAR',telefono:'5512345678'}],productos:[],cotizaciones:[],pedidos:[],remisiones:[],ingresos:[],pagosverificar:[],
   facturas:[{id:'f1',folio:'FT0001',fecha:'2026-11-01',cliente:'CLIENTE UNO',vendedor:'EDGAR',estatus:'timbrada',uuid_sat:UUID,subtotal:1000,iva:160,total:1160,items_json:'[{"sku":"RL001","descripcion":"Maleta","cantidad":1,"precio_unitario":1000,"iva_pct":16}]'},
            {id:'f2',folio:'FT0002',fecha:'2026-11-01',cliente:'CLIENTE UNO',vendedor:'EDGAR',estatus:'borrador',total:100,items_json:'[]'}],
   cobranza:[]};
@@ -23,7 +24,7 @@ const XML='<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante xmlns:cfdi="h
  const w=dom.window,d=w.document; await sleep(400);
  d.getElementById('lgCod').value='edgar-x'; await w.eval('entrar()'); await sleep(300);
  r.version=(d.querySelector('.ver')||{}).textContent;
- if(r.version!=='v2.1.5') r.fallas.push('version');
+ if(r.version!=='v2.1.6') r.fallas.push('version');
  await w.eval("S.d.empresa={razon_social:'EMPRESA PRUEBA'}; abrirDoc('facturas','f1')"); await sleep(100);
  r.botonXml=/📃 XML/.test(d.getElementById('hoja').textContent); if(!r.botonXml) r.fallas.push('botonXml');
  r.xmlAlAbrir=env.filter(b=>b.accion==='cfdi_xml_get').length>0;
@@ -35,6 +36,16 @@ const XML='<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante xmlns:cfdi="h
  const bl=w.__bajadas.slice(-1)[0]; r.xml=bl?{nombre:bl.name,igual:(await bl.text())===XML}:null;
  if(!r.xml||r.xml.nombre!=='Factura_FT0001.xml'||!r.xml.igual) r.fallas.push('xml');
  await w.eval("cerrarHoja();abrirDoc('facturas','f2')"); r.sinTimbrarSinXml=!/📃 XML/.test(d.getElementById('hoja').textContent); if(!r.sinTimbrarSinXml) r.fallas.push('sinTimbrar');
+ // v2.1.6 — Enviar por WhatsApp
+ await w.eval("cerrarHoja(); pdfArchivo=async()=>new File(['%PDF'],'Factura_FT0001.pdf',{type:'application/pdf'}); enviarWA('facturas','f1')"); await sleep(150);
+ r.wa={pdfSt:d.getElementById('wa_pdf_st').textContent, xmlSt:d.getElementById('wa_xml_st').textContent, txt:d.getElementById('wa_txt').checked};
+ let comp=null; w.navigator.canShare=()=>true; w.navigator.share=async x=>{ comp={files:x.files.map(f=>f.name),texto:!!x.text}; };
+ await w.eval("enviarWAYa('facturas','f1')"); await sleep(50); r.wa.compartido=comp;
+ if(!comp||comp.files.join()!=='Factura_FT0001.pdf,Factura_FT0001.xml'||comp.texto) r.fallas.push('waArchivos');
+ // solo mensaje: abre WhatsApp con el teléfono del cliente
+ await w.eval("enviarWA('facturas','f1')"); await sleep(150); d.getElementById('wa_pdf').checked=false; d.getElementById('wa_xml').checked=false; d.getElementById('wa_txt').checked=true;
+ const n=w.__abiertas.length; await w.eval("enviarWAYa('facturas','f1')"); const ab=w.__abiertas[n]; r.wa.soloTexto=ab&&ab.u.slice(0,40);
+ if(!ab||!/^https:\/\/wa\.me\/52\d{10}\?text=.*FT0001/.test(decodeURIComponent(ab.u))) r.fallas.push('waTexto');
  r.errs=errs.slice(0,3); if(errs.length) r.fallas.push('errores');
 }catch(e){r.error=String(e.stack).slice(0,400);}
 console.log(JSON.stringify(r,null,1)); process.exit(r.error||r.fallas.length?1:0);})();

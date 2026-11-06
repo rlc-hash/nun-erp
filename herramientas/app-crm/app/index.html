@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NUN CRM</title>
+<meta name="theme-color" content="#F5F5F5">
+<link rel="manifest" href="manifest.webmanifest?v=5">
+<link rel="icon" href="/nun-erp/ventas/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/nun-erp/ventas/icons/apple-touch-icon.png">
+<!--
+  NUN CRM (app de vendedores) como APP INSTALABLE en su propia dirección (5 nov 2026). Desde el 6 nov vive en /nun-crm/app/: Chrome del teléfono de Rafa tenía registrado algo viejo en /nun-crm/.
+  En /nun-erp/ventas/ Chrome no deja instalarla si el ERP ya está instalado (su dirección queda "dentro" de la del ERP).
+  Esta página NO tiene copia: baja la app publicada (/nun-erp/ventas/index.html) cada vez que se abre, así siempre está al día.
+  Mismo servidor, mismos datos, misma sesión.
+-->
+<style>html,body{margin:0;background:#f5f5f5;color:#0a0a0a;font-family:system-ui,sans-serif;height:100%}
+.c{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+.c img{width:72px;height:72px;border-radius:18px}.c a{color:inherit}</style>
+</head>
+<body>
+<div class="c" id="cargando"><img src="/nun-erp/ventas/icons/icon-192.png" alt="NUN"><div>Abriendo NUN CRM…</div></div>
+<script>
+if ('serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.js'); } catch(e){} }
+(async function abrir(intento){
+  try {
+    const r = await fetch('/nun-erp/ventas/index.html?app=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    let h = await r.text();
+    h = h.replace(/<head([^>]*)>/i, '<head$1><base href="/nun-erp/ventas/">')
+         .replace(/<link rel="manifest"[^>]*>/i, '<link rel="manifest" href="/nun-crm/app/manifest.webmanifest?v=5">')
+         .replace(/navigator\.serviceWorker\.register\('sw\.js'[^)]*\)/g, "navigator.serviceWorker.register('/nun-crm/app/sw.js', { scope: '/nun-crm/app/' })");
+    document.open(); document.write(h); document.close();
+  } catch(e){
+    if (intento < 3) return setTimeout(() => abrir(intento + 1), 1500 * (intento + 1));
+    document.getElementById('cargando').innerHTML = '<div>No se pudo abrir (' + String(e.message).slice(0, 60) + ').</div><a href="#" onclick="location.reload();return false">Reintentar</a>';
+  }
+})(0);
+</script>
+</body>
+</html>

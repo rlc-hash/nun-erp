@@ -1,8 +1,8 @@
 // ============================================================
 // nun-pdf.js — PDF de documentos IGUAL al del ERP (puente para la app de vendedores, v2.0.2).
-// Es copia de imprimirDocumento / numeroALetras / fmtFechaLarga de index.html (v4.64). Si cambias el PDF del ERP,
+// Es copia de imprimirDocumento / numeroALetras / fmtFechaLarga y del timbre (cfdiTimbreHTML: QR y sellos) de index.html. Si cambias el PDF del ERP,
 // vuelve a copiarlo aquí (python3 herramientas/copiar_pdf.py). La app pone antes: State.data, escapeHTML, fmtFull,
-// nunCalcDoc, nunCalcLinea, nunEsVerdad, nunR2, nunSaldoDoc.
+// nunCalcDoc, nunCalcLinea, nunEsVerdad, nunR2, nunSaldoDoc, cfdiGetStore.
 // ============================================================
 const fmtFechaLarga = (f) => {
   if (!f) return '—';
@@ -266,4 +266,72 @@ function imprimirDocumento(tipo, idDoc) {
   // Legacy / test fallback
   const w = window.open('', '_blank', 'width=900,height=700');
   if (w) { w.document.write(partsHTML); w.document.close(); setTimeout(()=>{ try{w.print();}catch(e){} }, 600); }
+}
+function cfdiGetTimbres(){ try { return JSON.parse(localStorage.getItem('nun_cfdi_timbres')||'{}'); } catch(e){ return {}; } }
+function cfdiSetTimbres(s){ try { localStorage.setItem('nun_cfdi_timbres', JSON.stringify(s)); } catch(e){} }
+function cfdiTimbreData(xmlText){
+  try {
+    const xdoc = new DOMParser().parseFromString(xmlText, 'text/xml');
+    const all = Array.from(xdoc.getElementsByTagName('*'));
+    const find = (ln) => all.find(n => n.localName === ln);
+    const comp = xdoc.documentElement, tfd = find('TimbreFiscalDigital'), emi = find('Emisor'), rec = find('Receptor');
+    if (!tfd) return null;
+    return {
+      uuid: tfd.getAttribute('UUID')||'',
+      ft: tfd.getAttribute('FechaTimbrado')||'',
+      sc: (tfd.getAttribute('SelloCFD')||comp.getAttribute('Sello')||'').substring(0,180),
+      fe: (tfd.getAttribute('SelloCFD')||comp.getAttribute('Sello')||'').slice(-8),
+      ss: (tfd.getAttribute('SelloSAT')||'').substring(0,180),
+      nc: comp.getAttribute('NoCertificado')||'',
+      ns: tfd.getAttribute('NoCertificadoSAT')||'',
+      pac: tfd.getAttribute('RfcProvCertif')||'',
+      re: emi ? (emi.getAttribute('Rfc')||'') : '',
+      rr: rec ? (rec.getAttribute('Rfc')||'') : '',
+      tt: comp.getAttribute('Total')||''
+    };
+  } catch(e){ return null; }
+}
+function cfdiTimbreHTML(doc, totalNum){
+  const uuid = doc.uuid_sat || '';
+  // v3.36 — leer primero del almacén COMPACTO de timbres (siempre disponible)
+  const td = uuid ? (cfdiGetTimbres()[uuid]) : null;
+  let t = null;
+  if (td){
+    t = { uuid:td.uuid||uuid, fechaTimbrado:td.ft, selloCFDI:td.sc, fe:td.fe, selloSAT:td.ss, noCertCFDI:td.nc, noCertSAT:td.ns, rfcPac:td.pac, rfcEmisor:td.re, rfcReceptor:td.rr, total:td.tt||String(totalNum||'') };
+  } else {
+    // fallback: parsear del XML completo si está guardado
+    const e = uuid ? cfdiGetStore()[uuid] : null;
+    if (!e || !e.xml){
+      return '<div class="cfdi-info"><strong>Comprobante Fiscal Digital por Internet (CFDI 4.0)</strong><div class="cfdi-uuid">UUID: '+escapeHTML(uuid)+'</div>'
+        + '<div style="margin-top:4px;color:#888">Sube el XML en «Importar CFDI» para mostrar el sello completo.</div></div>';
+    }
+    const d = cfdiTimbreData(e.xml);
+    if (!d) return '<div class="cfdi-info"><strong>CFDI 4.0</strong><div class="cfdi-uuid">UUID: '+escapeHTML(uuid)+'</div></div>';
+    t = { uuid:d.uuid||uuid, fechaTimbrado:d.ft, selloCFDI:d.sc, fe:d.fe, selloSAT:d.ss, noCertCFDI:d.nc, noCertSAT:d.ns, rfcPac:d.pac, rfcEmisor:d.re, rfcReceptor:d.rr, total:d.tt||String(totalNum||'') };
+  }
+  // URL de verificación SAT + QR (estándar oficial)
+  const ult8 = t.fe || (t.selloCFDI||'').slice(-8);  // v3.52 — usa los últimos 8 del sello COMPLETO (antes se cortaba a 180 → QR inválido en SAT)
+  const ttFmt = (parseFloat(t.total)||0).toFixed(6).padStart(17,'0').slice(0,18);
+  // v3.54 — el 'fe' (últimos 8 del sello) va LITERAL, sin URL-encode. Si se codifica el "==" a "%3D%3D"
+  // el SAT no auto-llena los campos. Bind lo manda literal; ahora el QR sí funciona en el SAT.
+  const verifUrl = 'https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx?id='+t.uuid+'&re='+t.rfcEmisor+'&rr='+t.rfcReceptor+'&tt='+ttFmt+'&fe='+ult8;
+  const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=0&data='+encodeURIComponent(verifUrl);
+  const fmtFecha = (s)=>{ try { return new Date(s).toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'medium'}); } catch(e){ return s; } };
+  const row = (k,v)=> v ? '<div style="display:flex;gap:8px;margin-top:3px"><span style="min-width:120px;color:#7a8190;font-weight:600">'+k+'</span><span style="font-family:\'Courier New\',monospace;word-break:break-all;flex:1">'+escapeHTML(v)+'</span></div>' : '';
+  return ''
+    + '<div style="margin-top:16px;padding:12px 14px;border:1px solid #d4dcf0;border-radius:10px;background:linear-gradient(90deg,#f5f8ff,#fafcff)">'
+    +   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong style="font-size:10px;letter-spacing:0.04em">COMPROBANTE FISCAL DIGITAL POR INTERNET · CFDI 4.0</strong><span style="font-size:8px;color:#7a8190">Timbrado: '+escapeHTML(fmtFecha(t.fechaTimbrado))+'</span></div>'
+    +   '<div style="display:flex;gap:14px;align-items:flex-start">'
+    +     '<img src="'+qrSrc+'" width="108" height="108" style="flex-shrink:0;border:1px solid #e0e6f5;border-radius:6px;background:#fff" alt="QR SAT"/>'
+    +     '<div style="flex:1;font-size:8px;line-height:1.5">'
+    +       row('Folio fiscal (UUID)', t.uuid)
+    +       row('No. certificado CSD', t.noCertCFDI)
+    +       row('No. certificado SAT', t.noCertSAT)
+    +       row('RFC proveedor cert.', t.rfcPac)
+    +       '<div style="display:flex;gap:8px;margin-top:3px"><span style="min-width:120px;color:#7a8190;font-weight:600">Sello digital CFDI</span><span style="font-family:\'Courier New\',monospace;word-break:break-all;flex:1;max-height:26px;overflow:hidden">'+escapeHTML((t.selloCFDI||'').substring(0,170))+'…</span></div>'
+    +       '<div style="display:flex;gap:8px;margin-top:3px"><span style="min-width:120px;color:#7a8190;font-weight:600">Sello del SAT</span><span style="font-family:\'Courier New\',monospace;word-break:break-all;flex:1;max-height:26px;overflow:hidden">'+escapeHTML((t.selloSAT||'').substring(0,170))+'…</span></div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div style="margin-top:8px;font-size:7px;color:#9aa0ac;text-align:center;border-top:1px solid #e8edf7;padding-top:6px">Este documento es una representación impresa de un CFDI · Verifica en verificacfdi.facturaelectronica.sat.gob.mx</div>'
+    + '</div>';
 }

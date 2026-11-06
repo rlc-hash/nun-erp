@@ -180,6 +180,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   App de vendedores v2.1.4 se llama **NUN CRM** (manifest id ./?app=nun-crm-3).
   En /nun-erp/ventas/ Chrome NO deja instalar el CRM si el ERP ya está instalado (queda dentro de su alcance) → CRM en dirección propia
   https://rlc-hash.github.io/nun-crm/ (repo `rlc-hash/nun-crm`, archivos en `herramientas/app-crm/`, mismo esquema que app-erp: baja ventas/index.html al abrir).
+  (6 nov) En /nun-crm/ Chrome del teléfono de Rafa decía "Ya se instaló esta app" aunque nunca se instaló → la app vive en **/nun-crm/app/**
+  (manifest id ./?app=nun-crm-5, sw con alcance /nun-crm/app/); /nun-crm/ solo manda a app/. La liga para vendedores sigue siendo /nun-crm/.
+  Para crear el repo/Pages Rafa lo hace a mano (Settings → Pages → main / root → Save); Claude no puede prender Pages por API.
+- App de vendedores v2.1.5 (6 nov): el PDF de factura timbrada sale con QR del SAT y sellos (nun-pdf.js ahora trae también cfdiTimbreHTML/cfdiTimbreData;
+  la app baja el XML con cfdi_xml_get al abrir la factura) y botón 📃 XML (comparte el archivo en el teléfono). Prueba `prueba_v215_crm_xml_qr.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

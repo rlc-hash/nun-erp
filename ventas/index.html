@@ -74,12 +74,12 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 </head>
 <body>
 <div id="app"></div>
-<script src="../nun-pdf.js?v=2.1.0"></script>
+<script src="../nun-pdf.js?v=2.1.5"></script>
 <script>
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.4';
+const VERSION = 'v2.1.5';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -97,10 +97,32 @@ function nunCalcLinea(it, sinIva){ const bruto = nunR2((+it.cantidad||0) * (+it.
   const pct = sinIva ? 0 : (+it.iva_pct||0); const iva = nunR2(base * pct / 100); return { bruto, desc, base, pct, iva, total: nunR2(base + iva) }; }
 function nunCalcDoc(items, sinIva){ let sub = 0, iva = 0; (items||[]).forEach(it => { const c = nunCalcLinea(it, sinIva); sub += c.base; iva += c.iva; }); sub = nunR2(sub); iva = nunR2(iva); return { subtotal: sub, iva, total: nunR2(sub + iva) }; }
 function nunSaldoDoc(doc, tabla){ const c = typeof cobroDeDoc === 'function' ? cobroDeDoc(tabla, doc) : null; return c ? Math.max(0, +c.pendiente || 0) : 0; }
-function pdfDoc(tabla, id){
+function cfdiGetStore(){ return {}; }
+// v2.1.5 — XML de la factura (del servidor): da el QR del SAT y los sellos en el PDF, y se puede descargar
+const _xml = {};
+async function xmlDe(uuid){
+  const u = String(uuid || ''); if (!u) return '';
+  if (_xml[u]) return _xml[u];
+  for (const x of [u, u.toUpperCase(), u.toLowerCase()]) {
+    try { const r = await api({ accion: 'cfdi_xml_get', uuid: x }); if (r && r.ok && r.xml) { _xml[u] = r.xml; break; } } catch(e){}
+  }
+  if (_xml[u] && typeof cfdiTimbreData === 'function') { const tm = cfdiGetTimbres(); if (!tm[u]) { const td = cfdiTimbreData(_xml[u]); if (td) { tm[u] = td; cfdiSetTimbres(tm); } } }
+  return _xml[u] || '';
+}
+async function pdfDoc(tabla, id){
   if (typeof imprimirDocumento !== 'function') { toast('No se pudo cargar el PDF; revisa tu conexión', true); return; }
   if (!S.d.empresa) toast('Cargando datos de la empresa…');
+  const d = (S.d[tabla] || []).find(x => String(x.id) === String(id));
+  if (tabla === 'facturas' && d && d.uuid_sat && !cfdiGetTimbres()[d.uuid_sat]) { toast('Cargando el timbre del SAT…'); await xmlDe(d.uuid_sat); }
   imprimirDocumento(tabla, id);
+}
+async function xmlDoc(uuid, folio){
+  toast('Bajando XML…');
+  const x = await xmlDe(uuid);
+  if (!x) { toast('No encontré el XML de esta factura en el servidor', true); return; }
+  const f = new File([x], 'Factura_' + String(folio || uuid).replace(/[^\w-]/g, '') + '.xml', { type: 'application/xml' });
+  try { if (navigator.canShare && navigator.canShare({ files: [f] }) && /Android|iPhone|iPad/i.test(navigator.userAgent)) { await navigator.share({ files: [f], title: f.name }); return; } } catch(e){ if (e && e.name === 'AbortError') return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
 }
 
 // ---------- utilidades ----------
@@ -373,6 +395,7 @@ function cerrarHoja(){ const h = $('hoja'); if (h) h.remove(); }
 function itemsDe(d){ try { const a = JSON.parse(d.items_json || '[]'); return Array.isArray(a) ? a : []; } catch(e){ return []; } }
 function abrirDoc(tabla, id){
   const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)); if (!d) return;
+  if (tabla === 'facturas' && d.uuid_sat) xmlDe(d.uuid_sat);
   const its = itemsDe(d);
   const cs = tabla === 'pedidos' ? cobrosDePedido(d) : (tabla === 'facturas' || tabla === 'remisiones') ? [cobroDeDoc(tabla, d)].filter(Boolean) : [];
   const c = cs.find(x => (+x.pendiente || 0) >= 1) || null;
@@ -387,6 +410,7 @@ function abrirDoc(tabla, id){
     ${d.notas ? '<div class="sub" style="margin:6px 2px">' + esc(d.notas) + '</div>' : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button class="btn" onclick="pdfDoc('${tabla}','${esc(d.id)}')">📄 PDF</button>
+      ${tabla === 'facturas' && d.uuid_sat ? `<button class="btn" onclick="xmlDoc('${esc(d.uuid_sat)}','${esc(d.folio)}')">📃 XML</button>` : ''}
       <button class="btn" onclick="compartir('${tabla}','${esc(d.id)}')">💬 WhatsApp</button>
       ${c && (+c.pendiente || 0) >= 1 ? `<button class="btn p" onclick="abrirPago('${esc(c.id)}')">💵 Registrar pago</button>` : ''}
       ${tabla === 'cotizaciones' && d.estatus === 'enviada' && (!esVendedor() || norm(d.vendedor) === miVendedor()) ? `<button class="btn" style="color:var(--bad)" onclick="cancelarCot('${esc(d.id)}')">Cancelar cotización</button>` : ''}

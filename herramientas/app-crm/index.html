@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>NUN CRM</title>
 <meta name="theme-color" content="#F5F5F5">
-<link rel="manifest" href="manifest.webmanifest">
+<link rel="manifest" href="manifest.webmanifest?v=4">
 <link rel="icon" href="/nun-erp/ventas/icons/icon-192.png">
 <link rel="apple-touch-icon" href="/nun-erp/ventas/icons/apple-touch-icon.png">
 <!--
@@ -28,7 +28,7 @@ if ('serviceWorker' in navigator) { try { navigator.serviceWorker.register('sw.j
     if (!r.ok) throw new Error('HTTP ' + r.status);
     let h = await r.text();
     h = h.replace(/<head([^>]*)>/i, '<head$1><base href="/nun-erp/ventas/">')
-         .replace(/<link rel="manifest"[^>]*>/i, '<link rel="manifest" href="/nun-crm/manifest.webmanifest">')
+         .replace(/<link rel="manifest"[^>]*>/i, '<link rel="manifest" href="/nun-crm/manifest.webmanifest?v=4">')
          .replace(/navigator\.serviceWorker\.register\('sw\.js'[^)]*\)/g, "navigator.serviceWorker.register('/nun-crm/sw.js', { scope: '/nun-crm/' })");
     document.open(); document.write(h); document.close();
   } catch(e){

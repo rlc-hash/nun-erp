@@ -196,6 +196,13 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   v2.1.8 (decidido por Rafa 6 nov): **Cotizar** muestra la lista del inventario a la vista (solo disponible > 0, activos) y se agrega con un toque
   (✓ N = ya en la cotización; el buscador filtra). Las piezas **INDIVIDUALES** (`esIndividual`: sku empieza con Z o la descripción dice INDIVIDUAL,
   ej. ZRL004…) NO se cotizan: solo sirven para facturar. Prueba `prueba_v218_cotizar_lista.js`.
+  v2.1.9 (Rafa 9 nov): **carry on por SET de 6** (`pzSet`: categoría CARRY ON o sku RL0xxCO…): Inventario y Cotizar muestran sets ("31 sets (186 pz)",
+  lista = precio × 6 "el set"); en la cotización el renglón va en sets con botón para partirlo en **Piezas** (`modoLinea`). Se GUARDA en piezas
+  (cantidad × 6, precio ÷ 6; la descripción dice "· N sets de 6 pz") porque el inventario y lo apartado van en piezas. Maletas de set de 3
+  (unidad 'juego') dicen "sets". La cotización arranca **sin IVA** (conIva false). Prueba `prueba_v219_carry_on_sets.js`.
+- Productos RL009–RL012 (9 nov, datos cargados por Claude con autorización de Rafa): sets 3 pz `RL009N`… (unidad juego, clave SAT 53121502) y carry on
+  `RL009CON`… (pieza, 53121503); color: PU púrpura, N, R rosa, PL plata, RD rosa dorado, LV lila, K caqui, AG azul gris, RJ rojo, OR oro rosa,
+  AO azul oscuro, QG quartz gris, BC beige claro. Precio CON IVA (precio = con IVA, precio_factura = ÷1.16). Costos pendientes.
 - v4.71 (6 nov, Rafa) **Estado de cuenta del cliente**: Cobranza → 📄 Estado de cuenta (y botón en "Pedidos (como tu Excel)" de la ficha) →
   `nunEstadoCuentaAbrir(cliId)`: eliges cliente (lista), palomeas pedidos (Todos / Solo los que deben / a mano) y documentos con saldo SIN pedido
   (cobros vivos que no usa ningún pedido; `nunPedidosExcelCalc` ahora regresa también `cobs`), con o sin detalle de productos y pagos recibidos

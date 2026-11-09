@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.8';
+const VERSION = 'v2.1.9';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -376,6 +376,10 @@ function vClientes(){
 }
 
 function disponible(p){ return Math.max(0, (+p.stock_actual || 0) - (+p.stock_comprometido || 0)); }
+// v2.1.9 — los carry on (RL0xxCO…, categoría CARRY ON) se venden por SET de 6 piezas: el inventario sigue en piezas, la app lo muestra en sets
+function pzSet(p){ return p && (String(p.categoria || '').toUpperCase() === 'CARRY ON' || /^RL\d{3}CO/i.test(String(p.sku || ''))) ? 6 : 1; }
+function esSet3(p){ return String(p && p.unidad || '').toLowerCase() === 'juego' || /^SET /i.test(String(p && p.categoria || '')); } // maletas que ya se manejan por set de 3
+function dispTxt(p){ const d = disponible(p), k = pzSet(p); return k > 1 ? Math.floor(d / k) + ' sets (' + d + ' pz)' : d + (esSet3(p) ? ' sets de 3 pz' : ' disponibles'); }
 function vCatalogo(){
   const q = norm(S.qCat || '');
   let l = (S.d.productos || []).filter(p => p.activo !== false && p.activo !== 'false');
@@ -386,7 +390,7 @@ function vCatalogo(){
   <div class="chips"><button class="${!S.soloExist ? 'on' : ''}" onclick="S.soloExist=false;pintar()">Todos</button><button class="${S.soloExist ? 'on' : ''}" onclick="S.soloExist=true;pintar()">Con existencia</button></div>
   <input class="in" placeholder="Buscar modelo o descripción" value="${esc(S.qCat || '')}" oninput="S.qCat=this.value;clearTimeout(window._qk);window._qk=setTimeout(()=>{pintar();const i=document.querySelector('main .in');i.focus();i.setSelectionRange(i.value.length,i.value.length)},350)">
   <div class="sub" style="margin:8px 2px">Disponible = existencia menos lo apartado en cotizaciones. Solo se lleva inventario de la mercancía nueva.</div>
-  <div class="card">${l.length ? l.slice(0, 300).map(p => { const d = disponible(p); return `<div class="row" style="cursor:default"><div class="m"><b>${esc(p.sku)}</b><span>${esc(p.descripcion || '')}</span></div><div class="r"><b>${d} pzs</b><span>${(+p.stock_comprometido || 0) ? (+p.stock_comprometido) + ' apartadas · ' : ''}${+p.precio ? 'lista ' + $0(p.precio) : ''}</span></div></div>`; }).join('') : '<div class="vacio">Sin productos</div>'}</div>`;
+  <div class="card">${l.length ? l.slice(0, 300).map(p => { const d = disponible(p); return `<div class="row" style="cursor:default"><div class="m"><b>${esc(p.sku)}</b><span>${esc(p.descripcion || '')}</span></div><div class="r"><b>${pzSet(p) > 1 ? Math.floor(d / pzSet(p)) + ' sets' : d + (esSet3(p) ? ' sets' : ' pzs')}</b><span>${pzSet(p) > 1 ? d + ' pz · ' : ''}${(+p.stock_comprometido || 0) ? (+p.stock_comprometido) + ' apartadas · ' : ''}${+p.precio ? 'lista ' + $0(p.precio * pzSet(p)) + (pzSet(p) > 1 ? ' el set' : '') : ''}</span></div></div>`; }).join('') : '<div class="vacio">Sin productos</div>'}</div>`;
 }
 
 // ---------- hojas (detalle) ----------
@@ -567,7 +571,7 @@ async function guardarPago(cobroId){
 }
 
 // ---------- cotizar ----------
-S.cot = { cliente: '', lineas: [], conIva: true, notas: '', nuevo: false, tel: '' };
+S.cot = { cliente: '', lineas: [], conIva: false, notas: '', nuevo: false, tel: '' }; // v2.1.9: sin IVA predeterminado (Rafa)
 function vCotizar(){
   if (!puedeCotizar()) return '<h2>Cotizar</h2><div class="card vacio">Tu usuario todavía no puede subir cotizaciones.<br>Pídeselo a Rafa.</div>';
   const C = S.cot, its = C.lineas.map(l => ({ cantidad: l.cantidad, precio_unitario: l.precio })), t = calcDoc(its, !C.conIva);
@@ -581,9 +585,10 @@ function vCotizar(){
   </div>
   <div class="card">
     <label class="l" style="margin-top:0">Productos</label>
-    ${C.lineas.map((l, i) => `<div class="linea"><b>${esc(l.sku)}</b> <small>${esc(l.desc || '')} · ${l.disp} disponibles</small>
-      <div class="li"><label>Cantidad<input class="in" type="number" inputmode="numeric" min="1" value="${l.cantidad}" oninput="S.cot.lineas[${i}].cantidad=+this.value;totCot()"></label>
-      <label>Precio c/u${C.conIva ? ' sin IVA' : ''}<input class="in" type="number" inputmode="decimal" step="0.01" placeholder="$" value="${l.precio || ''}" oninput="S.cot.lineas[${i}].precio=+this.value;totCot()"></label>
+    ${C.lineas.map((l, i) => `<div class="linea"><b>${esc(l.sku)}</b> <small>${esc(l.desc || '')} · ${(l.ps || 1) > 1 ? Math.floor(l.disp / l.ps) + ' sets (' + l.disp + ' pz)' : l.disp + (l.s3 ? ' sets' : '')} disponibles</small>
+      ${(l.ps || 1) > 1 ? `<div class="chips" style="margin:6px 0 0"><button class="${l.modo !== 'pz' ? 'on' : ''}" onclick="modoLinea(${i},'set')">Sets de ${l.ps}</button><button class="${l.modo === 'pz' ? 'on' : ''}" onclick="modoLinea(${i},'pz')">Piezas</button></div>` : ''}
+      <div class="li"><label>${(l.ps || 1) > 1 && l.modo !== 'pz' ? 'Sets' : 'Cantidad'}<input class="in" type="number" inputmode="numeric" min="1" value="${l.cantidad}" oninput="S.cot.lineas[${i}].cantidad=+this.value;totCot()"></label>
+      <label>Precio ${(l.ps || 1) > 1 && l.modo !== 'pz' ? 'por set' : 'c/u'}${C.conIva ? ' sin IVA' : ''}<input class="in" type="number" inputmode="decimal" step="0.01" placeholder="$" value="${l.precio || ''}" oninput="S.cot.lineas[${i}].precio=+this.value;totCot()"></label>
       <button class="x" onclick="S.cot.lineas.splice(${i},1);pintar()">✕</button></div></div>`).join('')}
     <label class="l">Toca un producto para agregarlo · solo los que hay en inventario</label>
     <input id="ctProd" class="in" placeholder="🔎 Buscar modelo o color" value="${esc(S.qProd || '')}" oninput="S.qProd=this.value;buscarProd()" autocomplete="off"><div id="ctProdRes">${htmlProds()}</div>
@@ -610,25 +615,32 @@ function htmlProds(){
   const q = norm(S.qProd || ''), todos = prodsCotizables(), l = q ? todos.filter(p => norm(p.sku + ' ' + p.descripcion).includes(q)) : todos;
   if (!todos.length) return '<div class="sub" style="margin-top:6px">' + ((S.d.productos || []).length ? 'No hay productos con inventario.' : 'Cargando inventario…') + '</div>';
   const en = sku => { const x = S.cot.lineas.find(l => l.sku === sku); return x ? x.cantidad : 0; };
-  return '<div class="res" style="max-height:340px">' + (l.map(p => `<div onclick="agregarProd(${esc(JSON.stringify(p.sku))})" style="display:flex;gap:10px;align-items:center"><div style="flex:1;min-width:0"><b>${esc(p.sku)}</b> <span class="sub">${disponible(p)} disponibles${+p.precio ? ' · lista ' + $0(S.cot.conIva && +p.precio_factura ? p.precio_factura : p.precio) : ''}</span><div class="sub">${esc(p.descripcion || '')}</div></div>${en(p.sku) ? `<b style="white-space:nowrap">✓ ${en(p.sku)}</b>` : '<span style="font-size:20px;opacity:.6">＋</span>'}</div>`).join('') || '<div class="sub">Sin resultados</div>') + '</div>';
+  return '<div class="res" style="max-height:340px">' + (l.map(p => `<div onclick="agregarProd(${esc(JSON.stringify(p.sku))})" style="display:flex;gap:10px;align-items:center"><div style="flex:1;min-width:0"><b>${esc(p.sku)}</b> <span class="sub">${dispTxt(p)}${+p.precio ? ' · lista ' + $0((S.cot.conIva && +p.precio_factura ? p.precio_factura : p.precio) * pzSet(p)) + (pzSet(p) > 1 ? ' el set' : '') : ''}</span><div class="sub">${esc(p.descripcion || '')}</div></div>${en(p.sku) ? `<b style="white-space:nowrap">✓ ${en(p.sku)}</b>` : '<span style="font-size:20px;opacity:.6">＋</span>'}</div>`).join('') || '<div class="sub">Sin resultados</div>') + '</div>';
 }
 function buscarProd(){ const box = $('ctProdRes'); if (box) box.innerHTML = htmlProds(); }
 function agregarProd(sku){
   const p = (S.d.productos || []).find(x => x.sku === sku); if (!p) return;
   const ya = S.cot.lineas.find(l => l.sku === sku);
   if (ya) ya.cantidad += 1;
-  else S.cot.lineas.push({ sku, desc: p.descripcion || '', cantidad: 1, precio: +(S.cot.conIva && +p.precio_factura ? p.precio_factura : p.precio) || 0, disp: disponible(p) });
+  else { const k = pzSet(p); S.cot.lineas.push({ sku, desc: p.descripcion || '', cantidad: 1, precio: r2((+(S.cot.conIva && +p.precio_factura ? p.precio_factura : p.precio) || 0) * k), disp: disponible(p), ps: k, modo: k > 1 ? 'set' : 'pz', s3: esSet3(p) }); }
   const r = document.querySelector('#ctProdRes .res'), top = r ? r.scrollTop : 0, y = window.scrollY; // la lista se queda donde estaba
-  pintar(); const r2 = document.querySelector('#ctProdRes .res'); if (r2) r2.scrollTop = top; window.scrollTo(0, y);
+  pintar(); const rr = document.querySelector('#ctProdRes .res'); if (rr) rr.scrollTop = top; window.scrollTo(0, y);
   toast('✓ ' + sku + ' agregado');
 }
+function modoLinea(i, modo){ // el vendedor puede partir el set en piezas (o regresarlo a sets)
+  const l = S.cot.lineas[i]; if (!l || (l.ps || 1) < 2 || (l.modo || 'pz') === modo) return;
+  if (modo === 'pz') { l.cantidad = (+l.cantidad || 0) * l.ps; l.precio = r2((+l.precio || 0) / l.ps); }
+  else { l.cantidad = Math.max(1, Math.round((+l.cantidad || 0) / l.ps)); l.precio = r2((+l.precio || 0) * l.ps); }
+  l.modo = modo; pintar();
+}
+const pzLinea = l => (l.ps || 1) > 1 && l.modo !== 'pz' ? (+l.cantidad || 0) * l.ps : (+l.cantidad || 0);
 async function subirCot(){
   const C = S.cot, cliente = String(C.cliente || '').trim();
   if (!cliente) { toast('Falta el cliente', true); return; }
   if (!C.lineas.length) { toast('Agrega al menos un producto', true); return; }
   const mal = C.lineas.find(l => !(+l.cantidad > 0) || !(+l.precio > 0)); if (mal) { toast('Revisa cantidad y precio de ' + mal.sku + ' (deben ser mayores a 0)', true); return; }
-  const sinExist = C.lineas.filter(l => +l.cantidad > l.disp);
-  if (sinExist.length && !confirm('No hay suficientes piezas disponibles de: ' + sinExist.map(l => l.sku + ' (' + l.disp + ')').join(', ') + '. ¿Subirla de todos modos?')) return;
+  const sinExist = C.lineas.filter(l => pzLinea(l) > l.disp);
+  if (sinExist.length && !confirm('No hay suficientes piezas disponibles de: ' + sinExist.map(l => l.sku + ' (' + ((l.ps || 1) > 1 ? Math.floor(l.disp / l.ps) + ' sets' : l.disp) + ')').join(', ') + '. ¿Subirla de todos modos?')) return;
   const btn = $('ctBtn'); btn.disabled = true; btn.textContent = 'Subiendo…';
   C.id = C.id || ('app_cot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)); // reintento = mismo id, no se duplica
   try {
@@ -636,14 +648,16 @@ async function subirCot(){
       const jc = await api({ accion: 'erp_crear', tabla: 'clientes', item: { id: 'cli_app_' + C.id, razon_social: cliente.toUpperCase(), telefono: C.tel || '', activo: true, fecha_alta: hoy(), notas: 'Alta desde la app de vendedores' } });
       if (!jc.ok && !jc.ya_existia) throw new Error(jc.error || 'no se dio de alta el cliente');
     }
-    const items = C.lineas.map(l => ({ sku: l.sku, descripcion: l.desc || l.sku, cantidad: +l.cantidad, precio_unitario: +l.precio, descuento_pct: 0, iva_pct: C.conIva ? 16 : 0 }));
+    const items = C.lineas.map(l => { const set = (l.ps || 1) > 1 && l.modo !== 'pz'; // se guarda en piezas (inventario y apartado van en piezas); la descripción dice los sets
+      return { sku: l.sku, descripcion: (l.desc || l.sku) + (set ? ' · ' + (+l.cantidad) + (+l.cantidad === 1 ? ' set' : ' sets') + ' de ' + l.ps + ' pz' : ''), cantidad: pzLinea(l),
+        precio_unitario: set ? Math.round((+l.precio) / l.ps * 10000) / 10000 : +l.precio, descuento_pct: 0, iva_pct: C.conIva ? 16 : 0 }; });
     const t = calcDoc(items, !C.conIva);
     const item = { id: C.id, folio: '', fecha: hoy(), cliente: C.nuevo ? cliente.toUpperCase() : cliente, subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: !C.conIva,
       items_json: JSON.stringify(items), notas: (C.notas ? C.notas + ' · ' : '') + (C.conIva ? '' : 'SIN IVA · ') + 'Cotización desde la app de vendedores' };
     const j = await api({ accion: 'erp_crear', tabla: 'cotizaciones', item });
     if (!j.ok && !j.ya_existia) throw new Error(j.error || 'no se guardó');
     const folio = (j.item && j.item.folio) || '';
-    S.cot = { cliente: '', lineas: [], conIva: true, notas: '', nuevo: false, tel: '' }; S.qCtCli = '';
+    S.cot = { cliente: '', lineas: [], conIva: false, notas: '', nuevo: false, tel: '' }; S.qCtCli = '';
     toast('✓ Cotización ' + folio + ' subida · Rafa o Yazmín la confirman');
     S.tab = 'pedidos'; S.filtroPed = 'pend'; await cargar(true);
     const nueva = (S.d.cotizaciones || []).find(x => String(x.id) === String(item.id)); if (nueva) abrirDoc('cotizaciones', nueva.id);

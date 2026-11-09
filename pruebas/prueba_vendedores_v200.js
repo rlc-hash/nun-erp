@@ -28,7 +28,8 @@ async function abrir(cod, usuario, permisos){
  r.luisSinTodos=!/Todos/.test(r.inicio.slice(0,30));
  if(!/Te deben[ ›]*\$2,320/i.test(r.inicio)||!r.luisSinTodos) r.fallas.push('inicio');
  // cotizar
- await L.w.eval("ir('cotizar')"); await L.w.eval("S.cot.cliente='CLIENTE UNO'; agregarProd('RL001'); S.cot.lineas[0].cantidad=3; S.cot.lineas[0].precio=1234.57; pintar()");
+ await L.w.eval("ir('cotizar')"); r.sinIvaDefault=L.w.eval('S.cot.conIva===false'); if(!r.sinIvaDefault) r.fallas.push('sinIvaDefault'); // v2.1.9 sin IVA predeterminado
+ await L.w.eval("S.cot.conIva=true; S.cot.cliente='CLIENTE UNO'; agregarProd('RL001'); S.cot.lineas[0].cantidad=3; S.cot.lineas[0].precio=1234.57; pintar()");
  r.totCot=txt(L.d.getElementById('ctTot'));
  await L.w.eval('subirCot()'); await sleep(300);
  const cot=L.env.find(b=>b.accion==='erp_crear'&&b.tabla==='cotizaciones');

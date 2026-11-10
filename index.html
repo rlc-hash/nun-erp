@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.71 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.72 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -1951,6 +1951,10 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
   <button class="nav-btn" data-mod="cobranza" onclick="navegar('cobranza')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
     <span class="nav-text">Cobranza</span><span class="nav-count" id="navCobranza"></span>
+  </button>
+  <button class="nav-btn" data-mod="whatsapp" onclick="navegar('whatsapp')">
+    <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 21l2.1-5.5A8.4 8.4 0 1 1 21 11.5z"/></svg></span>
+    <span class="nav-text">WhatsApp cobranza</span>
   </button>
   <button class="nav-btn" data-mod="clientes" onclick="navegar('clientes')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
@@ -2850,6 +2854,7 @@ async function api(payload) {
     if (typeof mostrarLoginGate === 'function') mostrarLoginGate('Tu sesión expiró o el código fue desactivado. Vuelve a entrar.');
     throw new Error(j.error || 'Sesión inválida');
   }
+  try { if (j && j.ok && typeof nunWADespues === 'function') nunWADespues(body, j); } catch(e){} // v4.72 aviso de pago por WhatsApp
   return j;
 }
 
@@ -3095,7 +3100,7 @@ const NUN_MOD_PERMISO = {
   clientes:'ver_catalogos', productos:'ver_catalogos', proveedores:'ver_catalogos',
   cotizaciones:'ver_operacion', pedidos:'ver_operacion', remisiones:'ver_operacion',
   facturas:'ver_operacion', notascredito:'ver_operacion', cobranza:'ver_operacion',
-  cuadre:'ver_operacion', import_cfdi:'ver_operacion', ingresos:'ver_operacion', gastos:'ver_operacion',
+  cuadre:'ver_operacion', whatsapp:'ver_operacion', import_cfdi:'ver_operacion', ingresos:'ver_operacion', gastos:'ver_operacion',
   inventario:'ver_inventario', inv_stock:'ver_inventario', inv_movements:'ver_inventario',
   reservations:'ver_inventario', pick_lists:'ver_inventario', shipments:'ver_inventario', importaciones:'ver_inventario',
   ordenescompra:'ver_compras', recepciones:'ver_compras', ap_invoices:'ver_compras',
@@ -4357,6 +4362,370 @@ function nunECPdf(){
   nunAbrirHTML(nunECHTML(), null);
 }
 window.nunEstadoCuentaAbrir = nunEstadoCuentaAbrir; window.nunECElegir = nunECElegir; window.nunECMarcar = nunECMarcar; window.nunECTotales = nunECTotales; window.nunECPdf = nunECPdf;
+// ============================================================
+// v4.72 — 📲 WHATSAPP COBRANZA (Rafa, 10 nov 2026). Todo se PREPARA en el ERP; los mensajes salen cuando se conecte la línea
+// con Meta (WhatsApp Cloud API). Mientras tanto quedan "esperando conexión" y no se pierden.
+// · Tabla `whatsapp` (servidor v0.9.19): una fila por mensaje; nada se borra (se cancela). Clientes: columnas whatsapp y whatsapp_pausa.
+// · Ajustes (cuentas para depositar, día y hora, aprobar antes de enviar) en kv nun_whatsapp.
+// 1) Aviso de pago: cada capturar_pago_cliente que sale bien → mensaje al cliente; si fue con complemento, lleva el complemento.
+//    Varios pagos del mismo cliente en segundos (ej. factura de varias remisiones) = UN mensaje.
+// 2) Estado de cuenta semanal: solo clientes PRINCIPALES (los "de factura" van dentro del principal), con todo su historial
+//    (el mismo PDF de 📄 Estado de cuenta: todos los pedidos, productos y pagos).
+// El número se manda al principal; si el principal no tiene, al cliente del documento.
+// ============================================================
+const NUN_WA_KEY = 'nun_whatsapp';
+const NUN_WA_DIAS = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+function nunWAConfig(){
+  let o = {}; try { o = JSON.parse(localStorage.getItem(NUN_WA_KEY) || '{}') || {}; } catch(e){}
+  return Object.assign({ cuentas:'', dia:1, hora:'10:00', solo_saldo:true, avisar_pagos:true, aprobar:true, conectado:false, nombre:'NUN Cobranza' }, o);
+}
+async function nunWAGuardarConfig(o){
+  try { localStorage.setItem(NUN_WA_KEY, JSON.stringify(o)); } catch(e){}
+  try { const r = await api({ accion:'kv_guardar', pares:{ [NUN_WA_KEY]: JSON.stringify(o) } }); return !!(r && r.ok); } catch(e){ return false; }
+}
+// Número en formato internacional sin '+': 10 dígitos de México → 52XXXXXXXXXX (el 521… viejo → 52…). '' si no sirve.
+function nunWATel(s){
+  let d = String(s == null ? '' : s).replace(/\D/g, '');
+  if (!d) return '';
+  if (d.length === 10) d = '52' + d;
+  else if (d.length === 13 && d.startsWith('521')) d = '52' + d.slice(3);
+  if (d.startsWith('52')) return /^52\d{10}$/.test(d) ? d : '';
+  return /^[1-9]\d{10,14}$/.test(d) ? d : ''; // otro país: con su lada internacional
+}
+function nunWATelBonito(t){ t = nunWATel(t); return /^52\d{10}$/.test(t) ? '+52 ' + t.slice(2, 4) + ' ' + t.slice(4, 8) + ' ' + t.slice(8) : (t ? '+' + t : ''); }
+const _nunWAPausa = c => /^(1|true|si|sí)$/i.test(String((c && c.whatsapp_pausa) == null ? '' : c.whatsapp_pausa));
+function nunWACliente(nombre){ return (State.data.clientes||[]).find(c => nunCliExacto(c.razon_social, nombre)) || null; }
+// A quién le llega: al cliente principal (el que compra); si no tiene WhatsApp, al del documento
+function nunWADestino(nombre){
+  const prin = nunClientePrincipal(nombre), c1 = nunWACliente(prin), c2 = nunWACliente(nombre);
+  const cands = [c1, c2].filter((c, i, a) => c && a.indexOf(c) === i);
+  if (c1 && _nunWAPausa(c1)) return { cli:c1, tel:'', pausa:true };
+  for (const c of cands) { const t = nunWATel(c.whatsapp); if (t && !_nunWAPausa(c)) return { cli:c, tel:t }; }
+  return { cli: cands[0] || null, tel:'' };
+}
+function nunWASaludo(c, nombre){
+  const s = String((c && (c.contacto || c.nombre_comercial)) || '').trim();
+  return s || String((c && c.razon_social) || nombre || '').trim();
+}
+function nunWAEstatusNuevo(dst){
+  const cfg = nunWAConfig();
+  if (dst.pausa) return 'pausado';
+  if (!dst.tel) return 'sin_whatsapp';
+  if (!cfg.conectado) return 'esperando_conexion';
+  return cfg.aprobar ? 'por_aprobar' : 'por_enviar';
+}
+const NUN_WA_EST = { esperando_conexion:['Esperando conexión','amber'], por_aprobar:['Por aprobar ✅','amber'], por_enviar:['Por enviar',''], enviado:['Enviado','green'],
+  entregado:['Entregado','green'], leido:['Leído','green'], fallo:['Falló','red'], sin_whatsapp:['Falta su WhatsApp','red'], pausado:['No mandar (pausado)',''], cancelado:['Cancelado',''] };
+const NUN_WA_TIPO = { pago:'💵 Pago recibido', complemento:'🧾 Pago + complemento', estado_cuenta:'📄 Estado de cuenta', recordatorio:'⏰ Recordatorio' };
+function nunWADatos(m){ try { return JSON.parse(m.datos_json || '{}') || {}; } catch(e){ return {}; } }
+async function nunWACrear(row){
+  row = Object.assign({ creado: new Date().toISOString(), creado_por: ((State.sesion||{}).usuario||{}).nombre || '' }, row);
+  row.datos_json = JSON.stringify(row.datos || {}); delete row.datos;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await api({ accion:'erp_crear', tabla:'whatsapp', item: row });
+      if (r && r.ok) { State.data.whatsapp = State.data.whatsapp || []; if (!r.ya_existia && !State.data.whatsapp.some(x => x.id === row.id)) State.data.whatsapp.push(r.item || row); return r; }
+    } catch(e){}
+    await new Promise(z => setTimeout(z, 800 * (i + 1)));
+  }
+  return null;
+}
+// Lo que debe el cliente principal, con los mismos números del estado de cuenta (todos sus pedidos + documentos sin pedido)
+function nunWASaldoEC(cli){
+  const prev = { cli:_nunEC.cli, sel:_nunEC.sel, otros:_nunEC.otros };
+  try {
+    _nunEC.cli = cli; _nunEC.sel = {}; _nunEC.otros = {};
+    const D = nunECDatos(cli); D.peds.forEach(x => { _nunEC.sel[x.p.id] = true; }); D.otros.forEach(c => { _nunEC.otros[c.id] = true; });
+    const S2 = nunECSeleccion();
+    return { total:S2.total, pagado:S2.pagado, saldo:S2.falta, vencido: nunWAVencido(cli.razon_social), pedidos:S2.peds.length };
+  } finally { Object.assign(_nunEC, prev); }
+}
+function _nunWAEsDe(principal){ const mi = nunMiembrosDe(principal); return n => nunCliExacto(n, principal) || mi.some(m => nunCliExacto(m, n)); }
+function nunWAVencido(principal){
+  const es = _nunWAEsDe(principal);
+  return nunR2((State.data.cobranza||[]).filter(c => es(c.cliente) && !/cancel|duplic/i.test(String(c.estatus||'')) && (+c.dias_vencido||0) > 0 && (+c.pendiente||0) >= 1)
+    .reduce((a, c) => a + (+c.pendiente||0), 0));
+}
+function nunWASaldoRapido(principal){ // para la lista de contactos (rápido: solo Cobranza)
+  const es = _nunWAEsDe(principal);
+  return nunR2((State.data.cobranza||[]).filter(c => es(c.cliente) && !/cancel|duplic/i.test(String(c.estatus||'')) && (+c.pendiente||0) >= 1).reduce((a, c) => a + (+c.pendiente||0), 0));
+}
+function nunWAPrincipales(){
+  const sec = new Set(); nunRelaciones().forEach(g => (g.facturar_a||[]).forEach(x => sec.add(nunCliNorm(x))));
+  return (State.data.clientes||[]).filter(c => c.razon_social && !_nunEsPublico(c.razon_social) && !sec.has(nunCliNorm(c.razon_social)) && !/^(false|0|no)$/i.test(String(c.activo == null ? '' : c.activo)));
+}
+
+// ---------- 1) aviso de pago (se llama desde api() cuando un pago o un timbrado sale bien) ----------
+const _nunWABuf = new Map();
+function nunWADespues(body, j){
+  if (!body || !j || !j.ok) return;
+  if (body.accion === 'facturama_timbrar' && body.cfdi && body.cfdi.CfdiType === 'P' && j.uuid) {
+    window._nunWAUltRep = { uuid: String(j.uuid), folio: 'CP' + String(body.cfdi.Folio||'').padStart(4, '0'), t: Date.now() }; return;
+  }
+  if (body.accion !== 'capturar_pago_cliente') return;
+  if (nunWAConfig().avisar_pagos === false) return;
+  const cob = (State.data.cobranzaTodos || State.data.cobranza || []).find(c => String(c.id) === String(body.id_doc));
+  const cliente = String((cob && cob.cliente) || '').trim(); if (!cliente) return;
+  const u = window._nunWAUltRep, rep = u && Date.now() - u.t < 10 * 60 * 1000 && /con complemento/.test(String(body.notas||'')) ? u : null;
+  if (rep) window._nunWAUltRep = null;
+  const fecha = String(body.fecha || nunHoy()).slice(0, 10), k = nunCliNorm(nunClientePrincipal(cliente)) + '|' + fecha;
+  let b = _nunWABuf.get(k); if (!b) { b = { cliente, fecha, cuenta: String(body.cuenta||''), pagos:[], reps:[] }; _nunWABuf.set(k, b); }
+  b.pagos.push({ doc: String(cob.numero||''), tipo: String(cob.tipo||''), monto: nunR2(+body.monto||0), saldo_doc: nunR2(Math.max(0, +j.nuevoPendiente||0)), cobro_id: String(cob.id) });
+  if (rep) b.reps.push({ uuid: rep.uuid, folio: rep.folio });
+  clearTimeout(b.timer); b.timer = setTimeout(() => { _nunWABuf.delete(k); nunWAAvisoPago(b); }, window._nunWAEspera != null ? window._nunWAEspera : 4000);
+}
+async function nunWAAvisoPago(b){
+  await Promise.all(['clientes','cobranza','pedidos','remisiones','facturas','ingresos'].map(t => cargarTabla(t).catch(() => {})));
+  const dst = nunWADestino(b.cliente), monto = nunR2(b.pagos.reduce((a, p) => a + p.monto, 0));
+  const cliP = dst.cli || nunWACliente(nunClientePrincipal(b.cliente));
+  const s = cliP ? nunWASaldoEC(cliP) : { saldo: null };
+  const tipo = b.reps.length ? 'complemento' : 'pago';
+  const datos = { saludo: nunWASaludo(dst.cli, b.cliente), monto, fecha: b.fecha, cuenta: b.cuenta, docs: b.pagos.map(p => p.doc).filter(Boolean), pagos: b.pagos.map(p => ({ doc:p.doc, tipo:p.tipo, monto:p.monto, saldo_doc:p.saldo_doc })),
+    saldo_doc: b.pagos.length === 1 ? b.pagos[0].saldo_doc : null, saldo_cliente: s.saldo, reps: b.reps, cliente_doc: b.cliente };
+  const est = nunWAEstatusNuevo(dst);
+  const r = await nunWACrear({ id: 'wa_' + tipo + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), tipo, cliente: (dst.cli && dst.cli.razon_social) || b.cliente,
+    cliente_id: dst.cli ? String(dst.cli.id) : '', telefono: dst.tel, plantilla: tipo === 'complemento' ? 'nun_pago_complemento' : 'nun_pago_recibido', estatus: est, datos });
+  if (!r) { toast('⚠ El pago SÍ quedó, pero no se pudo preparar su aviso de WhatsApp. Prepáralo desde 📲 WhatsApp.', { type:'error', duration:8000 }); return; }
+  const quien = (dst.cli && dst.cli.razon_social) || b.cliente;
+  if (est === 'sin_whatsapp') toast('📲 ' + quien + ' no tiene WhatsApp en el sistema: su aviso de pago quedó guardado y sale cuando le pongas su número (📲 WhatsApp).', { type:'error', duration:9000 });
+  else if (est === 'pausado') toast('📲 ' + quien + ' está en "no mandar WhatsApp": no se le avisa.', { duration:5000 });
+  else toast('📲 Aviso de ' + (tipo === 'complemento' ? 'pago con complemento' : 'pago') + ' para ' + quien + (est === 'esperando_conexion' ? ' guardado (sale cuando se conecte WhatsApp)' : est === 'por_aprobar' ? ' listo para tu ✅' : ' en camino'), { duration:6000 });
+}
+
+// ---------- textos (los mismos de las plantillas que se mandan a aprobar a Meta) ----------
+function nunWACuentasTxt(){ const t = String(nunWAConfig().cuentas||'').trim(); return t || '[faltan las cuentas para depositar: ponlas en 📲 WhatsApp → Ajustes]'; }
+function nunWATexto(m){
+  const d = nunWADatos(m), f = x => fmtFull(+x || 0), hola = 'Hola ' + (d.saludo || m.cliente || '') + ',';
+  const fechaL = x => { try { return fmtFechaLarga(x); } catch(e){ return String(x||''); } };
+  if (m.tipo === 'estado_cuenta') return hola + ' te compartimos tu estado de cuenta de NUN al ' + fechaL(d.fecha) + '.\n\nSaldo pendiente: ' + f(d.saldo) + '\nVencido: ' + f(d.vencido) +
+    '\n\nPuedes depositar o transferir a:\n' + nunWACuentasTxt() + '\n\nSi ya pagaste, mándanos tu comprobante por aquí y lo aplicamos. ¡Gracias!\n\nComercializadora Casraf · NUN';
+  const _art = t => /fact/i.test(t) ? 'a la factura' : /remis/i.test(t) ? 'a la remisión' : /pedido/i.test(t) ? 'al pedido' : 'al documento';
+  const aplicado = (d.docs||[]).length ? (d.docs.length === 1 ? _art(((d.pagos||[])[0] || {}).tipo) + ' ' + d.docs[0] : 'a tus documentos ' + d.docs.join(', ')) : 'a tu cuenta';
+  if (m.tipo === 'complemento') return hola + ' recibimos tu pago de ' + f(d.monto) + ' del ' + fechaL(d.fecha) + ', aplicado ' + aplicado + '. ¡Gracias!\n\nTe adjuntamos tu complemento de pago (CFDI)' +
+    ((d.reps||[]).length ? ' ' + d.reps.map(r => r.folio).join(', ') : '') + '.\nSaldo de esa factura: ' + f(d.saldo_doc != null ? d.saldo_doc : 0) + '\n\nComercializadora Casraf · NUN';
+  if (m.tipo === 'pago') return hola + ' recibimos tu pago de ' + f(d.monto) + ' del ' + fechaL(d.fecha) + ', aplicado ' + aplicado + '. ¡Gracias!\n\nSaldo pendiente con NUN: ' + f(d.saldo_cliente) + '\n\nComercializadora Casraf · NUN';
+  return hola + ' ' + String(d.texto||'');
+}
+// Recibo de pago (para pagos sin complemento: PUE, remisiones, pedidos)
+function nunWAReciboHTML(m){
+  const d = nunWADatos(m), e = escapeHTML, emp = State.data.empresa || {};
+  const logo = (typeof nunLogoPDF === 'function' ? nunLogoPDF() : '').replace('class="logo"', 'class="logo" style="width:78px;height:40px;display:block;margin-bottom:10px"');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Recibo de pago · ${e(m.cliente||'')}</title><style>
+    @page { size: letter; margin: 14mm; } body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#0a0c0f; margin:0; font-size:11px; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .head { display:flex; justify-content:space-between; padding:18px 22px; background:#0a0c0f; color:#fff; border-radius:10px; } .emp { font-size:13px; font-weight:700; } .sub { font-size:9px; color:rgba(255,255,255,.7); }
+    .tit { text-align:right; } .tit .lbl { font-size:9px; color:rgba(255,255,255,.5); text-transform:uppercase; letter-spacing:.16em; } .tit .big { font-size:22px; font-weight:700; margin-top:2px; }
+    .box { margin-top:12px; padding:12px 14px; background:#f5f6f8; border-radius:8px; border:1px solid #e9ecef; } .lbl2 { font-size:8.5px; color:#8a8d94; text-transform:uppercase; letter-spacing:.12em; font-weight:700; margin-bottom:4px; }
+    .monto { margin-top:12px; background:#0a0c0f; color:#fff; border-radius:8px; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; } .monto b { font-family:'Courier New',monospace; font-size:22px; }
+    table { width:100%; border-collapse:collapse; margin-top:12px; } th { background:#0a0c0f; color:#fff; padding:8px; text-align:left; font-size:8px; text-transform:uppercase; letter-spacing:.1em; } td { padding:8px; border-bottom:1px solid #eef0f3; }
+    .r { text-align:right; font-family:'Courier New',monospace; } .nota { margin-top:14px; font-size:10px; color:#555; } .footer { margin-top:22px; font-size:8.5px; color:#8a8d94; text-align:center; }
+  </style></head><body>
+    <div class="head"><div>${logo}<div class="emp">${e(emp.razon_social||'Comercializadora Casraf SA de CV')}</div><div class="sub">${emp.rfc ? 'RFC: ' + e(emp.rfc) : ''}</div></div>
+      <div class="tit"><div class="lbl">Recibo de pago</div><div class="big">${e(fmtFechaLarga(d.fecha))}</div></div></div>
+    <div class="box"><div class="lbl2">Cliente</div><b>${e(m.cliente||'')}</b></div>
+    <div class="monto"><span>PAGO RECIBIDO</span><b>${fmtFull(d.monto)}</b></div>
+    <table><thead><tr><th>Documento</th><th class="r">Pago aplicado</th><th class="r">Saldo del documento</th></tr></thead><tbody>
+      ${(d.pagos||[]).map(p => `<tr><td>${e((p.tipo||'') + ' ' + (p.doc||''))}</td><td class="r">${fmtFull(p.monto)}</td><td class="r">${fmtFull(p.saldo_doc)}</td></tr>`).join('')}
+    </tbody></table>
+    <div class="box"><div class="lbl2">Saldo pendiente con NUN</div><b style="font-family:'Courier New',monospace;font-size:14px">${fmtFull(d.saldo_cliente)}</b></div>
+    <div class="nota">Este recibo no es un comprobante fiscal. ¡Gracias por tu pago!</div>
+    <div class="footer">Generado por <b>NUN</b> · ${new Date().toLocaleString('es-MX', { dateStyle:'long', timeStyle:'short' })}</div>
+  </body></html>`;
+}
+function nunWAECHTML(cli){
+  const prev = { cli:_nunEC.cli, sel:_nunEC.sel, otros:_nunEC.otros, prod:_nunEC.prod, pagos:_nunEC.pagos };
+  try {
+    _nunEC.cli = cli; _nunEC.sel = {}; _nunEC.otros = {}; _nunEC.prod = true; _nunEC.pagos = true;
+    const D = nunECDatos(cli); D.peds.forEach(x => { _nunEC.sel[x.p.id] = true; }); D.otros.forEach(c => { _nunEC.otros[c.id] = true; });
+    return nunECHTML();
+  } finally { Object.assign(_nunEC, prev); }
+}
+
+// ---------- pantalla 📲 WhatsApp ----------
+const _nunWA = { tab:'contactos', q:'', soloDeben:false, est:'', cargado:false };
+function renderWhatsApp(){
+  if (!_nunWA.cargado) { _nunWA.cargado = true; Promise.all(['clientes','cobranza','whatsapp','pedidos','remisiones','facturas','ingresos'].map(t => cargarTabla(t).catch(() => {}))).then(() => { if (State.modulo === 'whatsapp') renderCurrent(); }); }
+  const cfg = nunWAConfig(), esc = v => escapeHTML(String(v == null ? '' : v));
+  const tabs = [['contactos','👥 Contactos'],['estados','📄 Estados de cuenta'],['mensajes','💬 Mensajes'],['ajustes','⚙️ Ajustes']];
+  const msgs = (State.data.whatsapp||[]), pend = msgs.filter(m => /esperando_conexion|por_aprobar|sin_whatsapp/.test(m.estatus||'')).length;
+  let cuerpo = '';
+  if (_nunWA.tab === 'contactos') cuerpo = nunWAContactosHTML();
+  else if (_nunWA.tab === 'estados') cuerpo = nunWAEstadosHTML();
+  else if (_nunWA.tab === 'mensajes') cuerpo = nunWAMensajesHTML();
+  else cuerpo = nunWAAjustesHTML();
+  return `
+    <div class="page-title"><div><h1>📲 WhatsApp cobranza</h1><div class="sub">Estados de cuenta cada semana, aviso de cada pago (con su complemento) y pláticas con los que deben</div></div></div>
+    ${cfg.conectado ? '' : `<div class="card" style="padding:12px 14px;margin-bottom:14px;background:#fff7e6;border:1px solid #f0d9a8;font-size:13px">⏳ <b>Todavía no está conectada la línea de WhatsApp.</b>
+      Todo lo que se prepare aquí (avisos de pago y estados de cuenta) queda guardado como <b>esperando conexión</b> y sale cuando se conecte${cfg.aprobar ? ', después de tu ✅' : ''}. Mientras, captura los WhatsApp de tus clientes y las cuentas para depositar.</div>`}
+    ${String(cfg.cuentas||'').trim() ? '' : `<div class="card" style="padding:10px 14px;margin-bottom:14px;font-size:13px">⚠ Faltan las <b>cuentas para depositar</b> (van en los mensajes). <button class="btn btn-sm btn-secondary" onclick="nunWATab('ajustes')">Ponerlas</button></div>`}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">${tabs.map(([k, l]) => `<button class="btn ${_nunWA.tab === k ? 'btn-primary' : 'btn-secondary'}" onclick="nunWATab('${k}')">${l}${k === 'mensajes' && pend ? ' (' + pend + ')' : ''}</button>`).join('')}</div>
+    ${cuerpo}`;
+}
+function nunWATab(t){ _nunWA.tab = t; renderCurrent(); }
+function nunWAContactosHTML(){
+  const esc = v => escapeHTML(String(v == null ? '' : v)), q = nunCliNorm(_nunWA.q);
+  const inp = 'padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);width:100%;box-sizing:border-box';
+  const L = nunWAPrincipales().map(c => ({ c, saldo: nunWASaldoRapido(c.razon_social), tel: nunWATel(c.whatsapp), mi: nunMiembrosDe(c.razon_social) }))
+    .sort((a, b) => (b.saldo - a.saldo) || String(a.c.razon_social).localeCompare(String(b.c.razon_social)));
+  const conTel = L.filter(x => x.tel).length, faltan = L.filter(x => x.saldo >= 1 && !x.tel && !_nunWAPausa(x.c)).length;
+  const V = L.filter(x => (!q || nunCliNorm(x.c.razon_social + ' ' + (x.c.nombre_comercial||'') + ' ' + x.mi.join(' ')).includes(q)) && (!_nunWA.soloDeben || x.saldo >= 1));
+  const id = x => esc(JSON.stringify(String(x.c.id)));
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px">
+      <div class="kpi"><div class="kpi-label">Clientes principales</div><div class="kpi-value">${L.length}</div></div>
+      <div class="kpi"><div class="kpi-label">Con WhatsApp</div><div class="kpi-value green">${conTel}</div></div>
+      <div class="kpi"><div class="kpi-label">Deben y NO tienen WhatsApp</div><div class="kpi-value ${faltan ? 'red' : ''}">${faltan}</div></div></div>
+    <div style="font-size:12.5px;color:var(--mute);margin-bottom:8px">Solo salen los clientes <b>principales</b>: los que son "cliente de factura" de otro van dentro de su principal (se ve abajo de su nombre). Escribe el WhatsApp con 10 dígitos; se guarda solo al salir del cuadro.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      <input type="search" placeholder="Buscar cliente…" value="${esc(_nunWA.q)}" oninput="_nunWA.q=this.value;clearTimeout(window._nunWAqT);window._nunWAqT=setTimeout(()=>{renderCurrent();const i=document.getElementById('waBuscar');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}},350)" id="waBuscar" style="${inp};max-width:320px">
+      <label style="font-size:13px"><input type="checkbox" ${_nunWA.soloDeben ? 'checked' : ''} onchange="_nunWA.soloDeben=this.checked;renderCurrent()"> Solo los que deben</label></div>
+    <div class="dt-wrap"><div class="dt-scroll"><table class="dt"><thead><tr><th>Cliente</th><th class="right">Debe</th><th>A quién saludamos</th><th>WhatsApp</th><th>No mandar</th></tr></thead><tbody>
+    ${V.map(x => `<tr><td><b>${esc(x.c.razon_social)}</b>${x.mi.length ? `<div style="font-size:11px;color:var(--mute)">también factura a: ${esc(x.mi.join(', '))}</div>` : ''}</td>
+      <td class="right mono">${x.saldo >= 1 ? fmtFull(x.saldo) : '—'}</td>
+      <td><input style="${inp};min-width:140px" value="${esc(x.c.contacto||'')}" placeholder="${esc(String(x.c.razon_social||'').split(' ').slice(0, 2).join(' '))}" onchange="nunWAGuardarCampo(${id(x)},'contacto',this.value)"></td>
+      <td><input style="${inp};min-width:150px" inputmode="tel" value="${esc(x.tel ? nunWATelBonito(x.tel) : (x.c.whatsapp||''))}" placeholder="10 dígitos" onchange="nunWAGuardarTel(${id(x)},this.value)">
+        <div style="font-size:11px;margin-top:2px">${x.tel ? `<span style="color:var(--green)">✓ listo</span>${x.c.telefono && nunWATel(x.c.telefono) !== x.tel ? '' : ''}` : (x.c.whatsapp ? '<span style="color:var(--red)">número no válido</span>' : (x.c.telefono && nunWATel(x.c.telefono) ? `<a href="#" onclick="nunWAGuardarTel(${id(x)},${esc(JSON.stringify(String(x.c.telefono)))});return false">usar su teléfono ${esc(x.c.telefono)}</a>` : '<span style="color:var(--mute)">falta</span>'))}</div></td>
+      <td style="text-align:center"><input type="checkbox" ${_nunWAPausa(x.c) ? 'checked' : ''} onchange="nunWAGuardarCampo(${id(x)},'whatsapp_pausa',this.checked?'1':'')" style="width:18px;height:18px"></td></tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--mute)">Sin clientes</td></tr>'}
+    </tbody></table></div></div>`;
+}
+async function nunWAGuardarCampo(id, campo, v){
+  const c = (State.data.clientes||[]).find(x => String(x.id) === String(id)); if (!c) return false;
+  v = String(v == null ? '' : v).trim();
+  const item = { id: c.id, [campo]: v }; if (!v) item._vaciar = [campo];
+  const ok = await nunGuardarSeguro('clientes', item);
+  if (ok) { c[campo] = v; toast('✓ Guardado · ' + c.razon_social, { duration:2500 }); } else toast('✗ No se guardó. Revisa tu internet y vuelve a intentar.', { type:'error' });
+  return ok;
+}
+async function nunWAGuardarTel(id, v){
+  const t = nunWATel(v);
+  if (String(v||'').trim() && !t) { toast('Ese número no sirve: pon los 10 dígitos (ej. 55 1234 5678) o la lada del país si es de fuera.', { type:'error', duration:6000 }); return; }
+  if (await nunWAGuardarCampo(id, 'whatsapp', t)) {
+    // los avisos que quedaron "falta su WhatsApp" de este cliente ya tienen a dónde ir
+    const c = (State.data.clientes||[]).find(x => String(x.id) === String(id));
+    const pend = (State.data.whatsapp||[]).filter(m => m.estatus === 'sin_whatsapp' && (String(m.cliente_id) === String(id) || (c && nunCliExacto(m.cliente, c.razon_social))));
+    if (t && pend.length) { for (const m of pend) { const est = nunWAEstatusNuevo({ tel:t }); if (await nunGuardarSeguro('whatsapp', { id:m.id, telefono:t, estatus:est, cliente_id:String(id) })) Object.assign(m, { telefono:t, estatus:est }); }
+      toast('📲 ' + pend.length + ' aviso(s) pendiente(s) de este cliente ya tienen su WhatsApp', { duration:5000 }); }
+    if (State.modulo === 'whatsapp') renderCurrent();
+  }
+}
+function _nunWASemana(d){ d = d ? new Date(d) : new Date(); const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return nunHoy(x); }
+function nunWACandidatosEC(){
+  const cfg = nunWAConfig();
+  return nunWAPrincipales().filter(c => !_nunEsPrueba(c.razon_social) || nunWATel(c.whatsapp))
+    .filter(c => !cfg.solo_saldo || nunWASaldoRapido(c.razon_social) >= 1)
+    .map(c => Object.assign({ c, tel: nunWATel(c.whatsapp), pausa: _nunWAPausa(c) }, nunWASaldoEC(c)))
+    .filter(x => !cfg.solo_saldo || x.saldo >= 1)
+    .sort((a, b) => b.saldo - a.saldo);
+}
+function nunWAEstadosHTML(){
+  const cfg = nunWAConfig(), esc = v => escapeHTML(String(v == null ? '' : v)), sem = _nunWASemana();
+  const L = nunWACandidatosEC(), ya = new Set((State.data.whatsapp||[]).filter(m => m.tipo === 'estado_cuenta' && !/cancel/.test(m.estatus||'') && String(m.id).endsWith('_' + sem)).map(m => String(m.cliente_id)));
+  const listos = L.filter(x => x.tel && !x.pausa), sinTel = L.filter(x => !x.tel && !x.pausa);
+  const id = x => esc(JSON.stringify(String(x.c.id)));
+  return `<div class="card" style="padding:12px 14px;margin-bottom:12px;font-size:13px">
+      Se mandan cada <b>${NUN_WA_DIAS[+cfg.dia] || 'lunes'} a las ${esc(cfg.hora)}</b> a los clientes principales ${cfg.solo_saldo ? '<b>que deben</b>' : '(todos)'}, con su estado de cuenta en PDF con todo su historial (pedidos, productos y pagos) y las cuentas para depositar.
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="nunWAPrepararEC()" ${listos.length ? '' : 'disabled'}>📄 Preparar los de esta semana (${listos.filter(x => !ya.has(String(x.c.id))).length})</button>
+      <button class="btn btn-secondary" onclick="nunWATab('ajustes')">Cambiar día / hora</button></div>
+      ${sinTel.length ? `<div style="margin-top:8px;color:var(--red)">⚠ ${sinTel.length} cliente(s) deben y no tienen WhatsApp: no se les puede mandar. <a href="#" onclick="_nunWA.soloDeben=true;nunWATab('contactos');return false">Capturarlos</a></div>` : ''}</div>
+    <div class="dt-wrap"><div class="dt-scroll"><table class="dt"><thead><tr><th>Cliente</th><th class="right">Total compras</th><th class="right">Pagado</th><th class="right">Saldo</th><th class="right">Vencido</th><th>WhatsApp</th><th>Esta semana</th><th></th></tr></thead><tbody>
+    ${L.map(x => `<tr><td><b>${esc(x.c.razon_social)}</b><div style="font-size:11px;color:var(--mute)">${x.pedidos} pedido(s)</div></td><td class="right mono">${fmtFull(x.total)}</td><td class="right mono">${fmtFull(x.pagado)}</td>
+      <td class="right mono"><b>${fmtFull(x.saldo)}</b></td><td class="right mono" style="${x.vencido >= 1 ? 'color:var(--red)' : ''}">${x.vencido >= 1 ? fmtFull(x.vencido) : '—'}</td>
+      <td>${x.pausa ? '<span class="tag">no mandar</span>' : x.tel ? esc(nunWATelBonito(x.tel)) : '<span style="color:var(--red)">falta</span>'}</td>
+      <td>${ya.has(String(x.c.id)) ? '<span class="tag green">preparado ✓</span>' : '—'}</td>
+      <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="nunWAVerEC(${id(x)})">👁 PDF</button> <button class="btn btn-sm btn-secondary" onclick="nunWAVerTextoEC(${id(x)})">💬 Mensaje</button></td></tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--mute)">Nadie debe 🎉</td></tr>'}
+    </tbody></table></div></div>`;
+}
+function _nunWAFilaEC(x, sem){
+  return { id: 'wa_ec_' + x.c.id + '_' + sem, tipo:'estado_cuenta', cliente: x.c.razon_social, cliente_id: String(x.c.id), telefono: x.tel, plantilla:'nun_estado_cuenta',
+    datos: { saludo: nunWASaludo(x.c), fecha: nunHoy(), semana: sem, total: x.total, pagado: x.pagado, saldo: x.saldo, vencido: x.vencido, pedidos: x.pedidos } };
+}
+async function nunWAPrepararEC(){
+  const sem = _nunWASemana(), ya = new Set((State.data.whatsapp||[]).filter(m => m.tipo === 'estado_cuenta' && !/cancel/.test(m.estatus||'') && String(m.id).endsWith('_' + sem)).map(m => String(m.cliente_id)));
+  const L = nunWACandidatosEC().filter(x => x.tel && !x.pausa && !ya.has(String(x.c.id)));
+  if (!L.length) { toast('Ya están preparados los de esta semana', { duration:4000 }); return; }
+  const cfg = nunWAConfig();
+  if (!(await confirmDialog({ title:'¿Preparar ' + L.length + ' estados de cuenta?', message: 'A ' + L.length + ' cliente(s), por ' + fmtFull(L.reduce((a, x) => a + x.saldo, 0)) + ' en total. ' +
+    (cfg.conectado ? (cfg.aprobar ? 'Quedan para tu ✅ en Mensajes antes de salir.' : 'Salen por WhatsApp.') : 'Quedan guardados y salen cuando se conecte WhatsApp.') + ' No se borra nada; se pueden cancelar uno por uno.', ok:'Preparar' }))) return;
+  nunOcupado('Preparando estados de cuenta…'); let ok = 0;
+  try { for (const x of L) { const f = _nunWAFilaEC(x, sem); f.estatus = nunWAEstatusNuevo({ tel:x.tel }); if (await nunWACrear(f)) ok++; } } finally { nunOcupado(''); }
+  toast((ok === L.length ? '✓ ' : '⚠ ') + ok + ' de ' + L.length + ' estados de cuenta preparados', { type: ok === L.length ? 'success' : 'error', duration:6000 });
+  renderCurrent();
+}
+function nunWAVerEC(cliId){ const c = (State.data.clientes||[]).find(x => String(x.id) === String(cliId)); if (c) nunAbrirHTML(nunWAECHTML(c), null); }
+function nunWAVerTextoEC(cliId){
+  const c = (State.data.clientes||[]).find(x => String(x.id) === String(cliId)); if (!c) return;
+  const x = Object.assign({ c, tel: nunWATel(c.whatsapp) }, nunWASaldoEC(c)), f = _nunWAFilaEC(x, _nunWASemana());
+  nunWAMostrarTexto(Object.assign({}, f, { datos_json: JSON.stringify(f.datos) }));
+}
+function nunWAMostrarTexto(m){
+  let el = document.getElementById('modalWA'); if (el) el.remove();
+  el = document.createElement('div'); el.id = 'modalWA';
+  el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px';
+  el.onclick = e => { if (e.target === el) el.remove(); };
+  const adj = m.tipo === 'estado_cuenta' ? '📎 Estado de cuenta (PDF)' : m.tipo === 'complemento' ? '📎 Complemento de pago (PDF) + botón para bajar el XML' : m.tipo === 'pago' ? '📎 Recibo de pago (PDF)' : '';
+  el.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:440px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)"><div><b>${escapeHTML(m.cliente||'')}</b><div style="font-size:12px;color:var(--mute)">${escapeHTML(m.telefono ? nunWATelBonito(m.telefono) : 'sin WhatsApp')}</div></div><button class="icon-btn" onclick="document.getElementById('modalWA').remove()">✕</button></div>
+    <div style="padding:16px;background:#e5ddd5"><div style="background:#fff;border-radius:8px;padding:10px 12px;font-size:13.5px;line-height:1.45;white-space:pre-wrap;box-shadow:0 1px 1px rgba(0,0,0,.1)">${adj ? `<div style="background:#f0f0f0;border-radius:6px;padding:8px;margin-bottom:8px;font-size:12px">${adj}</div>` : ''}${escapeHTML(nunWATexto(m))}</div></div>
+    <div style="padding:10px 18px;font-size:11.5px;color:var(--mute)">Así lo va a ver el cliente (plantilla ${escapeHTML(m.plantilla||'')}).</div></div>`;
+  document.body.appendChild(el);
+}
+function nunWAMensajesHTML(){
+  const esc = v => escapeHTML(String(v == null ? '' : v));
+  const all = (State.data.whatsapp||[]).slice().sort((a, b) => String(b.creado||'').localeCompare(String(a.creado||'')));
+  const cuenta = {}; all.forEach(m => { cuenta[m.estatus] = (cuenta[m.estatus]||0) + 1; });
+  const L = all.filter(m => !_nunWA.est || m.estatus === _nunWA.est);
+  const id = m => esc(JSON.stringify(String(m.id)));
+  const resumen = m => { const d = nunWADatos(m); return m.tipo === 'estado_cuenta' ? 'Saldo ' + fmtFull(d.saldo) + (d.vencido >= 1 ? ' · vencido ' + fmtFull(d.vencido) : '') : (m.tipo === 'pago' || m.tipo === 'complemento') ? fmtFull(d.monto) + ((d.docs||[]).length ? ' · ' + d.docs.join(', ') : '') + ((d.reps||[]).length ? ' · ' + d.reps.map(r => r.folio).join(', ') : '') : ''; };
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"><button class="btn btn-sm ${!_nunWA.est ? 'btn-primary' : 'btn-secondary'}" onclick="_nunWA.est='';renderCurrent()">Todos (${all.length})</button>
+      ${Object.keys(NUN_WA_EST).filter(k => cuenta[k]).map(k => `<button class="btn btn-sm ${_nunWA.est === k ? 'btn-primary' : 'btn-secondary'}" onclick="_nunWA.est='${k}';renderCurrent()">${NUN_WA_EST[k][0]} (${cuenta[k]})</button>`).join('')}</div>
+    <div class="dt-wrap"><div class="dt-scroll"><table class="dt"><thead><tr><th>Fecha</th><th>Mensaje</th><th>Cliente</th><th>WhatsApp</th><th>Detalle</th><th>Estatus</th><th></th></tr></thead><tbody>
+    ${L.map(m => { const e2 = NUN_WA_EST[m.estatus] || [m.estatus || '—', ''];
+      return `<tr><td style="white-space:nowrap">${fmtFecha(m.creado)}</td><td>${esc(NUN_WA_TIPO[m.tipo] || m.tipo)}</td><td>${esc(m.cliente)}</td><td style="white-space:nowrap">${m.telefono ? esc(nunWATelBonito(m.telefono)) : '<span style="color:var(--red)">falta</span>'}</td>
+      <td style="font-size:12px">${esc(resumen(m))}</td><td><span class="tag ${e2[1]}">${esc(e2[0])}</span>${m.error ? `<div style="font-size:11px;color:var(--red)">${esc(m.error)}</div>` : ''}</td>
+      <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="nunWAVerMsg(${id(m)})">💬</button> <button class="btn btn-sm btn-secondary" onclick="nunWAPdfMsg(${id(m)})">📄</button>
+        ${/esperando_conexion|por_aprobar|por_enviar|sin_whatsapp|fallo/.test(m.estatus||'') ? ` <button class="btn btn-sm btn-secondary" title="No mandar este mensaje (no se borra)" onclick="nunWACancelar(${id(m)})">✕</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--mute)">Todavía no hay mensajes. Se crean solos al registrar pagos, o en Estados de cuenta.</td></tr>'}
+    </tbody></table></div></div>`;
+}
+function nunWAVerMsg(id){ const m = (State.data.whatsapp||[]).find(x => String(x.id) === String(id)); if (m) nunWAMostrarTexto(m); }
+async function nunWAPdfMsg(id){
+  const m = (State.data.whatsapp||[]).find(x => String(x.id) === String(id)); if (!m) return;
+  const d = nunWADatos(m);
+  if (m.tipo === 'estado_cuenta') { const c = (State.data.clientes||[]).find(x => String(x.id) === String(m.cliente_id)) || nunWACliente(m.cliente); if (c) nunAbrirHTML(nunWAECHTML(c), null); else toast('No encontré al cliente', { type:'error' }); return; }
+  if (m.tipo === 'complemento' && (d.reps||[]).length) { nunPdfREP(d.reps[0].uuid); return; }
+  nunAbrirHTML(nunWAReciboHTML(m), null);
+}
+async function nunWACancelar(id){
+  const m = (State.data.whatsapp||[]).find(x => String(x.id) === String(id)); if (!m) return;
+  if (!(await confirmDialog({ title:'¿No mandar este mensaje?', message: (NUN_WA_TIPO[m.tipo] || m.tipo) + ' para ' + (m.cliente||'') + '. Se queda en el historial como cancelado (no se borra).', ok:'No mandarlo' }))) return;
+  const notas = (m.notas ? m.notas + ' · ' : '') + 'cancelado por ' + (((State.sesion||{}).usuario||{}).nombre || '') + ' ' + nunHoy();
+  if (await nunGuardarSeguro('whatsapp', { id:m.id, estatus:'cancelado', notas })) { Object.assign(m, { estatus:'cancelado', notas }); renderCurrent(); toast('✓ Cancelado'); }
+  else toast('✗ No se guardó', { type:'error' });
+}
+function nunWAAjustesHTML(){
+  const cfg = nunWAConfig(), esc = v => escapeHTML(String(v == null ? '' : v));
+  const inp = 'padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);width:100%;box-sizing:border-box';
+  const chk = (k, l) => `<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin:6px 0"><input type="checkbox" id="waCfg_${k}" ${cfg[k] ? 'checked' : ''} style="width:18px;height:18px"> ${l}</label>`;
+  return `<div class="card" style="padding:14px;max-width:640px">
+      <div class="field"><label>Cuentas para depositar (así salen en los mensajes)</label>
+        <textarea id="waCfg_cuentas" rows="5" style="${inp};font-family:inherit" placeholder="BBVA · Comercializadora Casraf SA de CV&#10;CLABE: 012 …&#10;Cuenta: …">${esc(cfg.cuentas)}</textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+        <div class="field"><label>Estado de cuenta: día</label><select id="waCfg_dia" style="${inp}">${NUN_WA_DIAS.map((d, i) => `<option value="${i}" ${+cfg.dia === i ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
+        <div class="field"><label>Hora</label><input type="time" id="waCfg_hora" style="${inp}" value="${esc(cfg.hora)}"></div></div>
+      <div style="margin-top:10px">
+        ${chk('solo_saldo', 'Estado de cuenta solo a los que deben')}
+        ${chk('avisar_pagos', 'Avisar al cliente cada pago que se registre (con su complemento si lo lleva)')}
+        ${chk('aprobar', 'Antes de que salga cualquier mensaje, que yo lo apruebe ✅')}</div>
+      <div class="field" style="margin-top:10px"><label>Nombre que ven los clientes en WhatsApp</label><input id="waCfg_nombre" style="${inp}" value="${esc(cfg.nombre)}"></div>
+      <div style="margin-top:10px;font-size:12.5px;color:var(--mute)">Conexión con WhatsApp: ${cfg.conectado ? '<b style="color:var(--green)">✓ conectada</b>' : '<b>falta</b> (se conecta cuando llegue la línea y esté Meta Business)'}</div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn btn-primary" onclick="nunWAGuardarAjustes()">💾 Guardar</button></div></div>`;
+}
+async function nunWAGuardarAjustes(){
+  const g = k => document.getElementById('waCfg_' + k), cfg = nunWAConfig();
+  const o = Object.assign({}, cfg, { cuentas: String(g('cuentas').value||'').trim(), dia: +g('dia').value, hora: g('hora').value || '10:00', nombre: String(g('nombre').value||'').trim() || 'NUN Cobranza',
+    solo_saldo: g('solo_saldo').checked, avisar_pagos: g('avisar_pagos').checked, aprobar: g('aprobar').checked });
+  const ok = await nunWAGuardarConfig(o);
+  toast(ok ? '✓ Ajustes de WhatsApp guardados' : '⚠ Se guardó en esta computadora pero no en el servidor. Vuelve a intentar.', { type: ok ? 'success' : 'error' });
+  renderCurrent();
+}
+Object.assign(window, { nunWATab, nunWAGuardarCampo, nunWAGuardarTel, nunWAPrepararEC, nunWAVerEC, nunWAVerTextoEC, nunWAVerMsg, nunWAPdfMsg, nunWACancelar, nunWAGuardarAjustes, nunWADespues, _nunWA });
 // v4.42 — documento VIGENTE sin cobro vivo en Cobranza (ej. Comarca A7/A24: se pasaron de "cancelada" a "timbrada" y su cobro no se
 // creó / siguió cancelado → no sumaban en lo facturado ni en lo que debe). Se avisa en la ficha con botón para arreglarlo.
 function nunDocsSinCobro(cli){
@@ -7502,6 +7871,7 @@ const MODULOS = {
   resultados_mes: { label:'Resultados por mes', render: () => renderResultadosMes() }, // v4.47
   cotizador:    { label:'Cotizador y márgenes', render: () => renderCotizador() }, // v4.48
   adquisicion:  { label:'Adquisición de mercancía', render: () => renderAdquisicion() }, // v4.53
+  whatsapp:     { label:'WhatsApp cobranza', render: () => renderWhatsApp() }, // v4.72
   clientes:     { label:'Clientes',     render: ()=>renderModuloGenerico('clientes'),     afterRender: ()=>afterRenderGenerico('clientes') },
   productos:    { label:'Productos',    render: ()=>renderModuloGenerico('productos'),    afterRender: ()=>afterRenderGenerico('productos') },
   proveedores:  { label:'Proveedores',  render: ()=>renderModuloGenerico('proveedores'),  afterRender: ()=>afterRenderGenerico('proveedores') },
@@ -13147,7 +13517,8 @@ const KV_KEYS_COMPARTIDAS = [
   'nun_relaciones_clientes', // v4.17 — a nombre de quién se factura cada cliente
   'nun_edr_manual', // v4.47 — naviera, impuestos y mes de arranque del Estado de Resultados
   'nun_costeos', // v4.48 — costeos de importación del Cotizador
-  'nun_adquisicion' // v4.53 — proveedor, precios de referencia e historial de Adquisición de mercancía
+  'nun_adquisicion', // v4.53 — proveedor, precios de referencia e historial de Adquisición de mercancía
+  'nun_whatsapp' // v4.72 — cuentas para depositar, día/hora del estado de cuenta y ajustes de WhatsApp cobranza
 ];
 const _kvSucias = new Set();
 let _kvTimer = null, _kvAplicando = false;

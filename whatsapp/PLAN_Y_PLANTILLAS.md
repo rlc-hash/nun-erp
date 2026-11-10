@@ -1,7 +1,8 @@
 # Cobranza por WhatsApp — plan y plantillas (borrador para que Rafa revise)
 
-Estado: **borrador**. Nada de esto manda mensajes todavía. Falta: línea nueva, Meta Business verificado,
-app de WhatsApp en developers.facebook.com, método de pago en Meta y clave de Claude.
+Estado (10 nov 2026): **la parte del ERP ya está hecha (v4.72, pantalla 📲 WhatsApp cobranza)**: contactos, avisos de pago automáticos,
+estados de cuenta semanales e historial de mensajes. Todavía NO sale nada: falta línea nueva, Meta Business verificado,
+app de WhatsApp en developers.facebook.com, método de pago en Meta y clave de Claude. Hasta entonces los mensajes quedan "esperando conexión".
 
 > Este repo puede ser público: aquí NO van números de clientes, CLABEs ni montos reales.
 > Las cuentas para depositar y los WhatsApp de los clientes se guardan en el sistema (Supabase), no aquí.

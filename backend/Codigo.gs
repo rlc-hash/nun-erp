@@ -35,7 +35,8 @@
 //  Nadie más puede crear códigos de dueño (RAFA-, YADAH-, MASTER-NUN-), porque esos dan permisos de dueño.
 // ============================================================
 
-const VERSION_ERP = 'v0.9.18'; // v0.9.18 pagos que reportan los vendedores (por verificar)
+const VERSION_ERP = 'v0.9.19'; // v0.9.19 WhatsApp cobranza: tabla WhatsApp y clientes.whatsapp/whatsapp_pausa
+// v0.9.18 pagos que reportan los vendedores (por verificar)
 
 // v0.9.2 — Mapeo de tablas que el CRM pide por nombre "corto" a la hoja real del ERP.
 // El CRM usa 'clientes' para su catálogo de vendedores (NO el catálogo fiscal 'clientes' del ERP).
@@ -75,7 +76,7 @@ const TABLAS = {
   vendedores:  { nombre:'Vendedores',  cols:['nombre','activo'] },
 
   // Catálogos
-  clientes:    { nombre:'Clientes',    cols:['id','rfc','razon_social','nombre_comercial','contacto','email','telefono','direccion','ciudad','estado','cp','regimen_fiscal','uso_cfdi','credito_dias','limite_credito','vendedor','activo','fecha_alta','notas'] },
+  clientes:    { nombre:'Clientes',    cols:['id','rfc','razon_social','nombre_comercial','contacto','email','telefono','direccion','ciudad','estado','cp','regimen_fiscal','uso_cfdi','credito_dias','limite_credito','vendedor','activo','fecha_alta','notas','whatsapp','whatsapp_pausa'] }, // v0.9.19 whatsapp de cobranza
   productos:   { nombre:'Productos',   cols:['id','sku','descripcion','descripcion_larga','categoria','unidad','clave_sat','costo','precio','precio_min','stock_actual','stock_comprometido','stock_minimo','activo','fecha_alta','notas','costo_factura','precio_factura'] }, // v0.9.17 dos precios (Rafa)
   proveedores: { nombre:'Proveedores', cols:['id','rfc','razon_social','contacto','email','telefono','direccion','condiciones_pago','dias_credito','activo','fecha_alta','notas'] },
 
@@ -99,6 +100,9 @@ const TABLAS = {
   pagosclientes: { nombre:'PagosClientes', cols:['timestamp','id_doc','cliente','monto','fecha','cuenta','notas','usuario','codigo_usuario','ingreso_id'] },
   // v0.9.18 — el vendedor reporta un pago desde su app; Rafa o Yazmín lo verifican en el sistema (entonces sí se registra en Cobranza)
   pagosverificar: { nombre:'PagosVerificar', cols:['id','fecha','creado','cliente','cobro_id','documento','monto','cuenta','forma','referencia','notas','vendedor','creado_por','estatus','verificado_por','verificado_fecha','ingreso_id','motivo'] },
+
+  // v0.9.19 — WhatsApp cobranza: un renglón por mensaje (aviso de pago, estado de cuenta, recordatorio). Nada se borra: se cancela.
+  whatsapp: { nombre:'WhatsApp', cols:['id','creado','tipo','cliente','cliente_id','telefono','plantilla','datos_json','estatus','creado_por','aprobado_por','enviado','wa_id','error','notas'] },
 
   // v0.2.0 — Configuración y nuevos módulos
   empresa:          { nombre:'EmpresaConfig',     cols:['clave','valor'] },

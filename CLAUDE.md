@@ -208,6 +208,15 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   (cobros vivos que no usa ningún pedido; `nunPedidosExcelCalc` ahora regresa también `cobs`), con o sin detalle de productos y pagos recibidos
   (ingresos cuyo `factura` es el folio del pedido, de sus documentos o de sus cobros). PDF con la marca NUN (`nunECHTML`): Total · Pagado ·
   Saldo pendiente (con letra). Mismos números que la ficha. Prueba `prueba_v471_estado_cuenta.js`.
+- v4.72 / servidor v0.9.19 (10 nov, Rafa) **📲 WhatsApp cobranza** (menú Ventas, ver_operacion). Plan y plantillas para Meta en `whatsapp/PLAN_Y_PLANTILLAS.md`.
+  Se PREPARA en el ERP; todavía NO se manda nada (falta la línea y Meta Business / WhatsApp Cloud API): los mensajes quedan `esperando_conexion`.
+  Tabla nueva `whatsapp` (un renglón por mensaje: tipo pago|complemento|estado_cuenta|recordatorio, cliente, telefono, plantilla, datos_json, estatus;
+  nada se borra: se cancela) y en Clientes `whatsapp` (52 + 10 dígitos, `nunWATel`) y `whatsapp_pausa`. Ajustes en kv `nun_whatsapp` (cuentas para depositar,
+  día/hora, solo_saldo, avisar_pagos, aprobar, conectado). **Aviso de pago**: `api()` llama `nunWADespues` en cada capturar_pago_cliente que sale bien
+  (cualquier pantalla); pagos del mismo cliente y fecha en 4 s = un mensaje; si antes se timbró un complemento (facturama_timbrar CfdiType P) y las notas
+  dicen "con complemento" → tipo complemento con su folio CP/uuid. Va al cliente PRINCIPAL (`nunWADestino`); sin número = `sin_whatsapp` y al capturar el
+  número se libera. **Estado de cuenta semanal**: solo principales que deben, PDF = el de 📄 Estado de cuenta con todo (`nunWAECHTML`), id
+  `wa_ec_<cliId>_<lunes>` (no se repite en la semana). Textos = plantillas de Meta (`nunWATexto`). Prueba `prueba_v472_whatsapp.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.74 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.75 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -6709,9 +6709,10 @@ function nunPanelCuadreIngresos(){
 }
 let _comBase = 'pago'; // v3.61 — 'pago' = por fecha de pago (Ingresos) · 'doc' = por documento (Cobranza)
 function nunFilasComision(){
-  if (_comBase !== 'pago') return (State.data.cobranza||[]).map(c => Object.assign({}, c, { vendedor: nunVendedorDeDoc(c) }));
+  // v4.75 — el cliente de PRUEBA (RAFAEL LANIADO CATTAN, para practicar) no cuenta en comisiones
+  if (_comBase !== 'pago') return (State.data.cobranza||[]).filter(c => !_nunEsPrueba(c.cliente)).map(c => Object.assign({}, c, { vendedor: nunVendedorDeDoc(c) }));
   const idx = _nunIndicesCobranza();
-  return (State.data.ingresos||[]).filter(i => (+i.monto||0) > 0).map(i => {
+  return (State.data.ingresos||[]).filter(i => (+i.monto||0) > 0 && !_nunEsPrueba(i.cliente)).map(i => {
     const r = nunVendedorDeIngreso(i, idx);
     return { numero: i.factura || (r.doc && r.doc.numero) || '', cliente: i.cliente, fecha_emision: i.fecha, fecha: i.fecha,
              cobrado: +i.monto||0, total: 0, vendedor: r.v, _ingreso: true };

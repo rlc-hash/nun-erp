@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.11';
+const VERSION = 'v2.1.12';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -203,14 +203,15 @@ async function cargar(silencio){
 const vivo = d => !/cancel|duplicad/i.test(String(d && d.estatus || ''));
 function ingresosValidos(){
   const a = S.d.ingresos || [];
-  return a.filter(i => !/^(CANCELADO|DUPLICADO)/i.test(String(i.tipo || ''))); // v2.1.11: igual que el ERP v4.73 (cuentan todos los pagos vivos; los repetidos ya están marcados)
+  return a.filter(i => !/^(CANCELADO|DUPLICADO)/i.test(String(i.tipo || '')) && !esPrueba(i.cliente)); // v2.1.11: igual que el ERP v4.73 (cuentan todos los pagos vivos; los repetidos ya están marcados)
 }
 // ¿es de este vendedor? (si ve a todos y escogió "solo míos")
 function clientesDe(v){ return new Set((S.d.clientes || []).filter(c => norm(c.vendedor) === v).map(c => norm(c.razon_social))); }
 function esMio(doc, set){ const v = miVendedor(); if (!v) return true; return norm(doc.vendedor) === v || set.has(norm(doc.cliente)); }
 function filtroMios(arr){ if (!S.soloMios && veTodos()) return arr; const v = miVendedor(); if (!v) return arr; const set = clientesDe(v); return arr.filter(d => esMio(d, set)); }
 function misClientes(){ const v = miVendedor(); const cl = S.d.clientes || []; if (!v || (!S.soloMios && veTodos())) return cl; return cl.filter(c => norm(c.vendedor) === v); }
-const cobrosVivos = () => (S.d.cobranza || []).filter(c => vivo(c));
+const esPrueba = n => /LANIADO/i.test(String(n || '')); // v2.1.12 cliente de PRUEBA (RAFAEL LANIADO CATTAN): no suma en cobrado, te deben ni comisión
+const cobrosVivos = () => (S.d.cobranza || []).filter(c => vivo(c) && !esPrueba(c.cliente));
 const porVerificar = () => (S.d.pagosverificar || []).filter(p => p.estatus === 'por_verificar');
 function verificandoDe(cobroId){ return r2(porVerificar().filter(p => String(p.cobro_id) === String(cobroId)).reduce((a, p) => a + (+p.monto || 0), 0)); }
 function cobroDePedido(p){ const c = S.d.cobranza || []; return c.find(x => String(x.factura_origen) === String(p.id) || x.id === 'cob_' + p.id) || null; }
@@ -257,7 +258,7 @@ function selectorVendedor(){
 
 function vInicio(){
   const v = miVendedor(), mes = mesActual();
-  const pedidos = filtroMios((S.d.pedidos || []).filter(p => vivo(p) && !/borrador/i.test(p.estatus || '')));
+  const pedidos = filtroMios((S.d.pedidos || []).filter(p => vivo(p) && !/borrador/i.test(p.estatus || '') && !esPrueba(p.cliente)));
   const vendidoMes = pedidos.filter(p => fecha10(p.fecha).slice(0, 7) === mes).reduce((a, p) => a + (+p.total || 0), 0);
   const cobros = filtroMios(cobrosVivos());
   const debe = cobros.reduce((a, c) => a + ((+c.pendiente || 0) >= 1 ? +c.pendiente : 0), 0);

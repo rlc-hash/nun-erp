@@ -212,7 +212,10 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   la captura): columna "Subió" en Cotizaciones del ERP y "subió X" en el CRM. Prueba `prueba_v472_quien_subio.js`.
 - Contenedores RL009–RL012: los pedidos de contenedor se cargan como cotizaciones SIN IVA (precio de contenedor; si piden factura el IVA va dentro).
   Cuando un cliente se lleva un contenedor completo se le da entrada a ese contenedor y su cotización lo aparta (lo libre no cambia).
-- Ingresos repetidos: contar los de más POR FOLIO Y CLIENTE (nunCliNorm), no solo por folio: folios de Bind y NUN chocan entre clientes y eso infla la cuenta.
+- Ingresos repetidos (limpiados 10 nov 2026, autorizado por Rafa): el cuadre cliente por cliente dejó Cobranza bien, pero en Ingresos seguían los
+  pagos de Bind ("PAGO", a veces con el nombre del cliente escrito distinto) junto a los capturados en NUN ("cobro"). Regla: en cada documento los pagos
+  vivos = Cobranza.cobrado; el que sobra → tipo DUPLICADO_BIND con comentario (nunca borrar; respetar el que coincide con un complemento timbrado).
+  Ojo: el mismo cliente puede venir escrito distinto (comparar nombres parecidos), y también puede haber folios iguales de clientes distintos.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

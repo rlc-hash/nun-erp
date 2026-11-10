@@ -216,6 +216,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   pagos de Bind ("PAGO", a veces con el nombre del cliente escrito distinto) junto a los capturados en NUN ("cobro"). Regla: en cada documento los pagos
   vivos = Cobranza.cobrado; el que sobra → tipo DUPLICADO_BIND con comentario (nunca borrar; respetar el que coincide con un complemento timbrado).
   Ojo: el mismo cliente puede venir escrito distinto (comparar nombres parecidos), y también puede haber folios iguales de clientes distintos.
+  Los 37 AJUSTE de 2025 "Ajuste histórico cuadre cobranza-bind" (cuenta Banco sin fecha) se pasaron a CANCELADO: cliente por cliente sus documentos
+  ya estaban pagados con pagos reales. Resultado: pagos vivos = Cobranza.cobrado al centavo (ERP y CRM).
+- v4.73 / app v2.1.11 (10 nov): ERP (`nunSepararIngresos`) y CRM (`ingresosValidos`) ya NO esconden por regla los pagos "ING-…" anteriores al corte
+  de Bind (escondía pagos buenos); solo no cuentan los marcados CANCELADO/DUPLICADO. `_nunNumDoc` hace trim (el 2o folio de "F-V01 26, F-V01 2"
+  no se reconocía). Prueba `prueba_v473_pagos_cuentan.js`. Auditoría con datos reales: Cobranza = pagos (ERP `nunCuadreIngresosCobranza` dif 0, CRM igual).
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

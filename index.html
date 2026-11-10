@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.72 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.73 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -6549,12 +6549,14 @@ function nunSepararIngresos(){
   // v3.64 — sin repetir: si se recargó la tabla completa, lo nuevo reemplaza a lo anterior (por id)
   const _m = new Map(); (State.data.ingresosDuplicados||[]).concat(State.data.ingresos||[]).forEach(i => _m.set(i.id, i)); const todos = [..._m.values()];
   const corte = todos.filter(i => String(i.id||'').startsWith('bind_pag_')).map(i => String(i.fecha||'').slice(0,10)).sort().pop() || '';
-  const esDup = i => /^(CANCELADO|DUPLICADO)/i.test(String(i.tipo||'')) || (corte && /^ING-/.test(String(i.id||'')) && /^(PAGO|AJUSTE)$/i.test(String(i.tipo||'')) && String(i.fecha||'').slice(0,10) <= corte);
+  // v4.73 (10 nov 2026, Rafa) — los pagos repetidos ya se marcaron uno por uno (DUPLICADO_BIND / CANCELADO) y Ingresos = Cobranza.cobrado.
+  // Ya NO se esconden por regla los pagos "ING-" del Excel viejo anteriores al corte de Bind: escondía pagos buenos ($585k).
+  const esDup = i => /^(CANCELADO|DUPLICADO)/i.test(String(i.tipo||''));
   State.data.ingresos = todos.filter(i => !esDup(i));
   State.data.ingresosDuplicados = todos.filter(esDup);
   State.data._corteIngresosBind = corte;
 }
-const _nunNumDoc = x => String(x||'').toUpperCase().replace(/^F-/, '').replace(/[^A-Z0-9]/g,'').replace(/^([A-Z]*)0+(\d)/, '$1$2');
+const _nunNumDoc = x => String(x||'').trim().toUpperCase().replace(/^F-/, '') /* v4.73: trim — en "F-V01 26, F-V01 2" el 2o folio traía espacio y no se reconocía */.replace(/[^A-Z0-9]/g,'').replace(/^([A-Z]*)0+(\d)/, '$1$2');
 const _nunNormCli = s => String(s||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
 function nunVendedorDeDoc(c){
   let v = String(c && c.vendedor || '').toUpperCase().trim();

@@ -208,6 +208,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   (cobros vivos que no usa ningún pedido; `nunPedidosExcelCalc` ahora regresa también `cobs`), con o sin detalle de productos y pagos recibidos
   (ingresos cuyo `factura` es el folio del pedido, de sus documentos o de sus cobros). PDF con la marca NUN (`nunECHTML`): Total · Pagado ·
   Saldo pendiente (con letra). Mismos números que la ficha. Prueba `prueba_v471_estado_cuenta.js`.
+- v4.72 / app v2.1.10 (10 nov, Rafa): **quién subió la cotización** (`creado_por`; el servidor lo pone en las del CRM, el ERP pone el nombre de quien
+  la captura): columna "Subió" en Cotizaciones del ERP y "subió X" en el CRM. Prueba `prueba_v472_quien_subio.js`.
+- Contenedores RL009–RL012: los pedidos de contenedor se cargan como cotizaciones SIN IVA (precio de contenedor; si piden factura el IVA va dentro).
+  Cuando un cliente se lleva un contenedor completo se le da entrada a ese contenedor y su cotización lo aparta (lo libre no cambia).
+- Ingresos repetidos: contar los de más POR FOLIO Y CLIENTE (nunCliNorm), no solo por folio: folios de Bind y NUN chocan entre clientes y eso infla la cuenta.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

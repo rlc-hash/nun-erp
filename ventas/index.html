@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.9';
+const VERSION = 'v2.1.10';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -291,7 +291,7 @@ function estadoCot(c){
   if (/cancel/i.test(c.estatus || '')) return '<span class="tag t-mute">cancelada</span>';
   return '<span class="tag t-mute">' + esc(c.estatus || '') + '</span>';
 }
-function filaCot(c){ return `<div class="row" onclick="abrirDoc('cotizaciones','${esc(c.id)}')"><div class="m"><b>${esc(c.cliente)}</b><span>${esc(c.folio)} · ${fmtF(c.fecha)}</span></div><div class="r"><b>${$$(c.total)}</b>${estadoCot(c)}</div></div>`; }
+function filaCot(c){ return `<div class="row" onclick="abrirDoc('cotizaciones','${esc(c.id)}')"><div class="m"><b>${esc(c.cliente)}</b><span>${esc(c.folio)} · ${fmtF(c.fecha)}${c.creado_por ? ' · subió ' + esc(c.creado_por) : ''}</span></div><div class="r"><b>${$$(c.total)}</b>${estadoCot(c)}</div></div>`; }
 function estadoPed(p){
   if (/cancel/i.test(p.estatus || '')) return '<span class="tag t-mute">cancelado</span>';
   const cs = cobrosDePedido(p), debe = cs.reduce((a, c) => a + ((+c.pendiente || 0) >= 1 ? +c.pendiente : 0), 0);
@@ -407,7 +407,7 @@ function abrirDoc(tabla, id){
   const pagado = cs.reduce((a, x) => a + (+x.cobrado || 0), 0), falta = cs.reduce((a, x) => a + Math.max(0, +x.pendiente || 0), 0);
   const verif = cs.reduce((a, x) => a + verificandoDe(x.id), 0);
   const nombre = ({ cotizaciones: 'Cotización ', pedidos: 'Pedido ', facturas: 'Factura ', remisiones: 'Remisión ' }[tabla] || '') + d.folio;
-  hoja(esc(nombre), `<div class="sub">${esc(d.cliente)} · ${fmtF(d.fecha)}${d.vendedor ? ' · ' + esc(d.vendedor) : ''}</div>
+  hoja(esc(nombre), `<div class="sub">${esc(d.cliente)} · ${fmtF(d.fecha)}${d.vendedor ? ' · ' + esc(d.vendedor) : ''}${tabla === 'cotizaciones' && d.creado_por ? ' · subió ' + esc(d.creado_por) : ''}</div>
     <div style="margin:8px 0">${tabla === 'cotizaciones' ? estadoCot(d) : tabla === 'pedidos' ? estadoPed(d) : estadoDoc(tabla, d)}</div>
     <div class="card">${its.length ? its.map(i => `<div class="row" style="cursor:default"><div class="m"><b>${esc(i.sku)}</b><span>${esc(i.descripcion || '')}</span></div><div class="r"><b>${+i.cantidad} × ${$$(i.precio_unitario)}</b><span>${$$(r2((+i.cantidad || 0) * (+i.precio_unitario || 0)))}</span></div></div>`).join('') : '<div class="vacio">Sin detalle de productos</div>'}
       <div class="tot"><span>Subtotal</span><span>${$$(d.subtotal)}</span></div><div class="tot"><span>IVA</span><span>${$$(d.iva)}</span></div><div class="tot g"><span>Total</span><span>${$$(d.total)}</span></div></div>

@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.71 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.72 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7693,6 +7693,7 @@ function afterDocOperativo(tabla) {
         const inicial = v.charAt(0).toUpperCase();
         return `<span style="display:inline-flex;align-items:center;gap:6px;font-weight:500"><span style="width:22px;height:22px;border-radius:50%;background:#0A0A0A;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">${inicial}</span>${escapeHTML(v)}</span>`;
       } },
+      ...(tabla === 'cotizaciones' ? [{ key:'creado_por', label:'Subió', render:r => r.creado_por ? `<span style="font-size:12px">${escapeHTML(String(r.creado_por))}</span>` : '<span style="color:var(--ink-4)">—</span>' }] : []), // v4.72 — quién la subió (Rafa)
       { key:'total', label:'Total', right:true, render:r=>`<span class="mono">${fmt(r.total||0)}</span>` },
       { key:'saldo', label:'Saldo', right:true, render:r=>{
         // v3.10.1 — Cross-ref: si no hay saldo, calcular vía cobranza por folio/serie
@@ -9866,6 +9867,7 @@ async function guardarDoc(tabla, id, opts) {
   else item.proveedor = (document.getElementById('dProveedor').value||'').trim();
   const _nunIdNuevo = id ? null : ((window._nunIdPendiente && window._nunIdPendiente.tabla === tabla && window._nunIdPendiente.folio === folio) ? window._nunIdPendiente.id : (tabla.substring(0,3) + '_' + Date.now() + '_' + Math.random().toString(36).substring(2,6))); // v3.69
   if (_nunIdNuevo) { item.id = _nunIdNuevo; window._nunIdPendiente = { tabla, folio, id:_nunIdNuevo }; }
+  if (_nunIdNuevo && tabla === 'cotizaciones') item.creado_por = String(_nunQuienSoy() || '').toUpperCase(); // v4.72 — quién subió la cotización (Rafa)
   // v3.43/44 — validaciones
   if (usaCli && !item.cliente) { nunOcupado(''); toast('Falta el cliente (escríbelo o créalo con "+ Nuevo cliente")', { type:'error' }); return; }
   const pctEl = document.getElementById('dComisionPct');

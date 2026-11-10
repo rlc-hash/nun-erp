@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.73 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.74 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -12803,10 +12803,30 @@ async function nunCopiaSet(tabla, items){ const db = await nunIdb(); if (!db) re
 function nunAvisoCopia(){
   const malas = Object.keys(State._cargaOk||{}).filter(k => State._cargaOk[k] === false);
   let el = document.getElementById('nunAvisoCopia');
-  if (!malas.length) { if (el) el.remove(); return; }
-  if (!el) { el = document.createElement('div'); el.id = 'nunAvisoCopia'; el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:14px;z-index:300;background:#7a4b00;color:#fff;font-size:12.5px;padding:8px 14px;border-radius:20px;box-shadow:0 6px 18px rgba(0,0,0,.25);cursor:pointer'; el.onclick = () => { malas.forEach(t => cargarTabla(t)); }; document.body.appendChild(el); }
+  if (!malas.length) { if (el) el.remove(); if (_nunReintento.timer) { clearTimeout(_nunReintento.timer); _nunReintento.timer = null; } _nunReintento.n = 0; return; }
+  if (!_nunReintento.timer && !_nunReintento.corriendo && _nunReintento.n < 4) { const espera = [15, 30, 60, 120][_nunReintento.n++] * 1000; _nunReintento.timer = setTimeout(() => { _nunReintento.timer = null; nunReintentarListas(); }, espera); } // v4.74 se reintenta sola
+  if (!el) { el = document.createElement('div'); el.id = 'nunAvisoCopia'; el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:14px;z-index:300;background:#7a4b00;color:#fff;font-size:12.5px;padding:8px 14px;border-radius:20px;box-shadow:0 6px 18px rgba(0,0,0,.25);cursor:pointer'; el.onclick = () => { if (_nunReintento.timer) { clearTimeout(_nunReintento.timer); _nunReintento.timer = null; } nunReintentarListas(true); }; document.body.appendChild(el); }
   const hh = State._copiaHora ? ' de las ' + new Date(State._copiaHora).toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' }) : '';
-  el.textContent = '⚠ El servidor no respondió: estás viendo la última copia' + hh + (malas.length > 3 ? ' (' + malas.length + ' listas)' : ' (' + malas.join(', ') + ')') + '. Toca para reintentar.';
+  if (!_nunReintento.corriendo) el.textContent = '⚠ El servidor no respondió: estás viendo la última copia' + hh + (malas.length > 3 ? ' (' + malas.length + ' listas)' : ' (' + malas.join(', ') + ')') + (_nunReintento.timer ? '. Se reintenta sola en unos segundos (o tócalo).' : '. Toca para reintentar.');
+}
+// v4.74 (Rafa 10 nov) — en el teléfono salía "El servidor no respondió…": se pedían ~15 listas a la vez y con señal regular algunas no llegaban.
+// Ahora se piden de 4 en 4 y, si alguna falla, se reintenta sola (15 s, 30 s, 1 y 2 min) y el aviso se quita cuando ya llegó.
+const _nunTurno = { activos: 0, espera: [] };
+async function nunTurnoLectura(fn){
+  if (_nunTurno.activos >= 4) await new Promise(ok => _nunTurno.espera.push(ok));
+  _nunTurno.activos++;
+  try { return await fn(); } finally { _nunTurno.activos--; const sig = _nunTurno.espera.shift(); if (sig) sig(); }
+}
+const _nunReintento = { n: 0, timer: null, corriendo: false };
+async function nunReintentarListas(manual){
+  if (_nunReintento.corriendo) return; _nunReintento.corriendo = true;
+  const malas = Object.keys(State._cargaOk||{}).filter(k => State._cargaOk[k] === false);
+  const el = document.getElementById('nunAvisoCopia'); if (el) el.textContent = '↻ Volviendo a pedir ' + (malas.length > 3 ? malas.length + ' listas' : malas.join(', ')) + '…';
+  try { for (const t of malas) { try { await cargarTabla(t, { ttl:0 }); } catch(e){} } } finally { _nunReintento.corriendo = false; }
+  const siguen = Object.keys(State._cargaOk||{}).filter(k => State._cargaOk[k] === false);
+  if (siguen.length < malas.length) { try { renderCurrent(); } catch(e){} }
+  if (!siguen.length) { _nunReintento.n = 0; try { toast('✓ Ya se actualizó todo', { type:'success' }); } catch(e){} }
+  nunAvisoCopia();
 }
 async function cargarTabla(tabla, opts) {
   opts = opts || {};
@@ -12844,7 +12864,7 @@ async function cargarTabla(tabla, opts) {
     // v3.64 — solo se acepta una respuesta con lista de items; si el backend contesta sin items, se reintenta
     let data = null;
     for (let intento = 0; intento < 3; intento++) {
-      try { data = await api({ accion:'erp_listar', tabla }); } catch(e) { data = null; }
+      try { data = await nunTurnoLectura(() => api({ accion:'erp_listar', tabla })); } catch(e) { data = null; } // v4.74 de 4 en 4
       if (data && data.ok && Array.isArray(data.items)) break;
       data = null; await new Promise(r => setTimeout(r, 1500 * (intento + 1)));
     }

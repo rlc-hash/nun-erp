@@ -221,6 +221,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - v4.73 / app v2.1.11 (10 nov): ERP (`nunSepararIngresos`) y CRM (`ingresosValidos`) ya NO esconden por regla los pagos "ING-…" anteriores al corte
   de Bind (escondía pagos buenos); solo no cuentan los marcados CANCELADO/DUPLICADO. `_nunNumDoc` hace trim (el 2o folio de "F-V01 26, F-V01 2"
   no se reconocía). Prueba `prueba_v473_pagos_cuentan.js`. Auditoría con datos reales: Cobranza = pagos (ERP `nunCuadreIngresosCobranza` dif 0, CRM igual).
+- v4.74 (10 nov): aviso rojo "El servidor no respondió: estás viendo la última copia…" en el teléfono → las listas se piden de 4 en 4
+  (`nunTurnoLectura` en cargarTabla) y si alguna falla se reintenta sola a los 15 s, 30 s, 1 y 2 min (`nunReintentarListas`); el aviso se quita al llegar.
+  Prueba `prueba_v474_reintento_listas.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

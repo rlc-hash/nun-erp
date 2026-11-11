@@ -245,6 +245,12 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   base64, por `cobro_id`; nunca se borran: `cancelado`). Acciones del servidor `archivo_subir|listar|ver|conteo|cancelar` (solo oficina; cancelar solo admin).
   Pruebas `prueba_v479_comprobantes.js` (servidor) y `prueba_v479_comprobantes_erp.js` (Playwright).
   (11 nov) Yazmín: máx. dispositivos 5. ⚠ El ayudante api.py de Claude PISA `codigo` con su propio código: para acciones de usuarios llamar directo.
+- v4.80 / app v2.1.15 / servidor supabase-1.8 (11 nov, Rafa): **carry on SIEMPRE por caja de 6**. Editor del ERP: Cant. = cajas y Precio = precio de la caja
+  (se guarda en piezas con pz_caja: 6; `_docPz`, `_docCajaTxt`, `nunEsCarryOn`); al poner un SKU de carry on queda en cajas solo. App: dice "cajas" (antes "sets")
+  y ya no se parte en piezas. Se puso pz_caja a C0015. **Foto del comprobante del vendedor**: al reportar un pago (`subirComprobante`, id `cmp_<pvId>`, después
+  del pago; si falla, el pago queda y el botón reintenta sin duplicar); el servidor solo la acepta para SU pago por_verificar y la liga al cobro de ese pago
+  (ref "Reportado por X · pv:<id>"); el aviso dice 📎. En el ERP "Pagos por verificar" trae 📎 Ver comprobante (`nunPVComprobantes`) y la pestaña Comprobantes
+  marca el estatus del pago reportado. Pruebas `prueba_v480_comprobante_vendedor.js`, `prueba_v480_editor_cajas.js`, `prueba_v2115_crm_comprobante.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

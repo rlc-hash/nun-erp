@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-1.7'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-1.8'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -354,7 +354,17 @@ Deno.serve(async (req) => {
     }
     // v4.79 — comprobantes de pago (foto/PDF) de Cobranza: solo la oficina; se guardan aparte (nun_archivos) y nunca se borran (se cancelan)
     if (/^archivo_(subir|listar|ver|cancelar|conteo)$/.test(accion)){
-      if (!se.ok || se.rol === 'vendedor') return json({ ok: false, error: 'Solo la oficina sube comprobantes' });
+      if (!se.ok) return json({ ok: false, error: 'AUTH: vuelve a entrar con tu código', requiere_login: true });
+      if (se.rol === 'vendedor'){
+        // v4.80 — el vendedor solo sube la foto de SU pago reportado (por verificar); se liga al cobro de ese pago
+        if (accion !== 'archivo_subir') return json({ ok: false, error: 'Solo la oficina ve los comprobantes' });
+        const b = { accion: 'erp_listar', tabla: 'pagosverificar', codigo: se.codigo };
+        const rows = JSON.parse(await lectura(() => ejecutar('post', JSON.stringify(b), b, m, false))).items || [];
+        const pv = rows.find((x: any) => String(x.id) === String(body.pv_id || ''));
+        if (!pv || norm(pv.vendedor) !== se.vend) return json({ ok: false, error: 'Solo puedes subir el comprobante de un pago tuyo' });
+        if (pv.estatus !== 'por_verificar') return json({ ok: false, error: 'Ese pago ya se revisó' });
+        body.cobro_id = String(pv.cobro_id || ''); body.ref = 'Reportado por ' + se.vend + ' · ' + (pv.forma || '') + ' ' + pesos(pv.monto) + ' · pv:' + pv.id;
+      }
       if (accion === 'archivo_subir'){
         const id = String(body.id || '').slice(0, 80), cob = String(body.cobro_id || '').slice(0, 120), datos = String(body.datos || '');
         const mime = String(body.mime || '').slice(0, 60);
@@ -398,7 +408,7 @@ Deno.serve(async (req) => {
       if (j.ok && !j.ya_existia && body.accion === 'erp_crear' && body.tabla === 'cotizaciones'){ const it = j.item || body.item;
         enSegundoPlano(avisar({ titulo: '🧾 Cotización nueva ' + (it.folio || '') + ' · ' + se.vend, cuerpo: (it.cliente || '') + ' · ' + pesos(it.total) + ' · tócala para confirmarla', url: './?ir=cotizaciones', tag: 'cot_' + it.id })); }
       if (j.ok && !j.ya_existia && body.accion === 'erp_crear' && body.tabla === 'pagosverificar'){ const it = j.item || body.item;
-        enSegundoPlano(avisar({ titulo: '💵 ' + se.vend + ' reportó un pago', cuerpo: (it.cliente || '') + ' · ' + pesos(it.monto) + ' · por verificar', url: './?ir=cobranza', tag: 'pv_' + it.id })); }
+        enSegundoPlano(avisar({ titulo: '💵 ' + se.vend + ' reportó un pago' + ((body.item || {}).con_comprobante ? ' 📎' : ''), cuerpo: (it.cliente || '') + ' · ' + pesos(it.monto) + ' · por verificar' + ((body.item || {}).con_comprobante ? ' · con foto del comprobante' : ''), url: './?ir=cobranza', tag: 'pv_' + it.id })); }
       return json(j);
     }
     const _f = () => conReintento(() => ejecutar('post', texto, body, m, !A_LECTURA.test(accion)));

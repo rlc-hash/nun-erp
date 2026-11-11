@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.79 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.80 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -5096,8 +5096,19 @@ function nunPVAbrir(){
           <input type="date" id="pvF_${escapeHTML(p.id)}" value="${escapeHTML(String(p.fecha || '').substring(0, 10))}" style="width:auto">
           <select id="pvC_${escapeHTML(p.id)}" style="width:auto"><option value="">— Cuenta —</option>${ctas.map(x => `<option ${x === p.cuenta ? 'selected' : ''}>${escapeHTML(x)}</option>`).join('')}</select>
           <button class="btn btn-primary btn-sm" ${c && (+p.monto || 0) <= saldo + 0.01 ? '' : 'disabled title="El monto es mayor al saldo o no hay cobro"'} onclick="nunPVVerificar(${escapeHTML(JSON.stringify(String(p.id)))})">✅ Verificar y registrar</button>
-          <button class="btn btn-secondary btn-sm" onclick="nunPVRechazar(${escapeHTML(JSON.stringify(String(p.id)))})">✕ Rechazar</button></div></div>`; }).join('') || '<div style="padding:30px;text-align:center;color:var(--mute)">No hay pagos por verificar</div>'}</div></div>`;
+          <button class="btn btn-secondary btn-sm" onclick="nunPVRechazar(${escapeHTML(JSON.stringify(String(p.id)))})">✕ Rechazar</button>
+          <span class="pvComp" data-pv="${escapeHTML(String(p.id))}" data-cobro="${escapeHTML(String(p.cobro_id || ''))}" style="font-size:12px;color:var(--mute)"></span></div></div>`; }).join('') || '<div style="padding:30px;text-align:center;color:var(--mute)">No hay pagos por verificar</div>'}</div></div>`;
   document.body.appendChild(m);
+  nunPVComprobantes(m); // v4.80 foto que mandó el vendedor
+}
+// v4.80 — el comprobante que subió el vendedor con su pago (queda ligado al cobro: también sale en 📎 Comprobantes de Cobranza)
+async function nunPVComprobantes(m){
+  const spans = [...m.querySelectorAll('.pvComp')]; const porCobro = {};
+  for (const sp of spans) { const c = sp.dataset.cobro; if (!c) continue;
+    if (!porCobro[c]) { try { const r = await api({ accion:'archivo_listar', cobro_id: c }); porCobro[c] = (r && r.ok && r.items) || []; } catch(e){ porCobro[c] = []; } }
+    const xs = porCobro[c].filter(x => !x.cancelado && String(x.ref || '').includes('pv:' + sp.dataset.pv));
+    sp.innerHTML = xs.length ? xs.map(x => `<button class="btn btn-sm" style="background:#fff7e0" onclick="nunCompVer('${escapeHTML(x.id)}')">📎 Ver comprobante</button>`).join(' ') : 'sin foto del comprobante';
+  }
 }
 async function nunPVVerificar(id){
   if (window._nunPVok) return;
@@ -5170,7 +5181,7 @@ async function nunCompPintar(cobroId){
       : !its.length ? '<div class="dt-empty"><div class="empty-title">Sin comprobantes</div><div class="empty-sub">Súbelo al capturar el pago o aquí.</div></div>'
       : its.map(x => `<div class="timeline-item" style="${x.cancelado ? 'opacity:.5' : ''}"><div class="timeline-date">${fmtFecha(x.creado)}</div><div class="timeline-body">
           <div class="timeline-title">${/pdf/.test(x.mime || '') ? '📄' : '🖼️'} ${escapeHTML(x.nombre || 'comprobante')}${x.cancelado ? ' <span class="tag red">cancelado</span>' : ''}</div>
-          <div class="timeline-desc">${escapeHTML(x.ref || '')}</div><div class="timeline-meta">${x.quien ? 'subió ' + escapeHTML(x.quien) + ' · ' : ''}${Math.max(1, Math.round((+x.tam || 0) / 1024))} KB</div></div>
+          <div class="timeline-desc">${escapeHTML(String(x.ref || '').replace(/\s*·\s*pv:\S+/, ''))}${(() => { const m = String(x.ref || '').match(/pv:(\S+)/); const pv = m && (State.data.pagosverificar || []).find(p => String(p.id) === m[1]); return pv ? ' · <span class="tag ' + (pv.estatus === 'verificado' ? 'green' : pv.estatus === 'por_verificar' ? 'amber' : 'red') + '">' + (pv.estatus === 'verificado' ? 'pago verificado' : pv.estatus === 'por_verificar' ? 'por verificar' : 'pago ' + escapeHTML(pv.estatus || '')) + '</span>' : ''; })()}</div><div class="timeline-meta">${x.quien ? 'subió ' + escapeHTML(x.quien) + ' · ' : ''}${Math.max(1, Math.round((+x.tam || 0) / 1024))} KB</div></div>
           <div style="display:flex;flex-direction:column;gap:4px"><button class="btn btn-sm btn-secondary" onclick="nunCompVer('${escapeHTML(x.id)}')">Ver</button>
           ${admin && !x.cancelado ? `<button class="btn btn-sm btn-danger" onclick="nunCompCancelar('${escapeHTML(x.id)}','${escapeHTML(cobroId)}')">Cancelar</button>` : ''}</div></div>`).join('')}
     ${vivos.length ? '' : ''}`;
@@ -5595,7 +5606,7 @@ function renderCobranzaHoy(todo) {
 // el PDF lo muestra en cajas: cantidad = cajas, P. unit. = precio de la caja, y la descripción dice "caja de 6 pz · pieza $550".
 function nunLineaCaja(it){
   const pz = +it.pz_caja || 0, cant = +it.cantidad || 0, pu = +it.precio_unitario || 0;
-  const base = String(it.descripcion || '').replace(/\s*·\s*\d+\s*sets? de \d+ pz\s*$/i, '');
+  const base = String(it.descripcion || '').replace(/\s*·\s*\d+\s*(sets?|cajas?) de \d+ pz\s*$/i, ''); // v4.80 también 'cajas de'
   if (pz > 1 && cant > 0 && Math.abs(cant / pz - Math.round(cant / pz)) < 1e-9) {
     const pzu = Math.round(pu * 100) / 100;
     return { cant: Math.round(cant / pz), unidad: Math.round(cant / pz) === 1 ? 'caja' : 'cajas', pu: Math.round(pu * pz * 10000) / 10000, desc: base + ' · caja de ' + pz + ' pz (pieza ' + fmtFull(pzu) + ')' };
@@ -8329,9 +8340,9 @@ function renderDocItems() {
           const _c = nunCalcLinea(it, docSinIva); // v3.72 — mismo cálculo que el SAT
           return `<tr>
             <td><input type="text" data-ac="1" value="${escapeHTML(it.sku||'')}" oninput="docCambiarItem(${i},'sku',this.value);acProducto(this,${i})" onchange="docConsolidarSku(${i})" onfocus="acProducto(this,${i})" onkeydown="acKey(event)" placeholder="buscar SKU..." style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:10px"></td>
-            <td><input type="text" value="${escapeHTML(it.descripcion||'')}" oninput="docCambiarItem(${i},'descripcion',this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-size:11px"></td>
-            <td class="right"><input type="number" step="1" min="0" inputmode="numeric" value="${Math.round(+it.cantidad||0)}" oninput="docCambiarItem(${i},'cantidad',this.value)" style="width:50px;padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right"></td>
-            <td class="right"><input type="number" step="0.01" value="${it.precio_unitario||0}" oninput="docCambiarItem(${i},'precio_unitario',this.value)" style="width:70px;padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right"></td>
+            <td><input type="text" value="${escapeHTML(it.descripcion||'')}" oninput="docCambiarItem(${i},'descripcion',this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-size:11px"><div class="docCajaLbl" style="font-size:10.5px;color:var(--mute);margin-top:2px">${_docCajaTxt(it)}</div></td>
+            <td class="right"><input type="number" step="1" min="0" inputmode="numeric" value="${_docPz(it) ? Math.round((+it.cantidad||0) / _docPz(it)) : Math.round(+it.cantidad||0)}" oninput="docCambiarItem(${i},'cantidad',this.value)" style="width:50px;padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right"></td>
+            <td class="right"><input type="number" step="0.01" value="${_docPz(it) ? nunR4((+it.precio_unitario||0) * _docPz(it)) : (it.precio_unitario||0)}" oninput="docCambiarItem(${i},'precio_unitario',this.value)" style="width:70px;padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right"></td>
             <td class="right"><input type="number" step="0.01" value="${it.descuento_pct||0}" oninput="docCambiarItem(${i},'descuento_pct',this.value)" style="width:45px;padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:right"></td>
             <td class="right"><select onchange="docCambiarItem(${i},'iva_pct',this.value)" style="padding:4px;border:1px solid var(--line);border-radius:4px;background:transparent;color:var(--ink);font-size:11px"><option value="16" ${(+it.iva_pct)===0?'':'selected'}>16%</option><option value="0" ${(+it.iva_pct)===0?'selected':''}>0%</option></select></td>
             <td class="right mono" id="docIva_${i}">${fmtFull(_c.iva)}</td>
@@ -8350,7 +8361,10 @@ function docPintarProductoEnFila(i){
   const tr = mount.querySelectorAll('tbody tr')[i]; if (!tr) return;
   const inp = tr.querySelectorAll('input');
   if (inp[1]) inp[1].value = docItems[i].descripcion || '';
-  if (inp[3]) inp[3].value = docItems[i].precio_unitario || 0;
+  const _pz = _docPz(docItems[i]); // v4.80 carry on en cajas
+  if (inp[2]) inp[2].value = _pz ? Math.round((+docItems[i].cantidad||0) / _pz) : Math.round(+docItems[i].cantidad||0);
+  if (inp[3]) inp[3].value = _pz ? nunR4((+docItems[i].precio_unitario||0) * _pz) : (docItems[i].precio_unitario || 0);
+  const _l = tr.querySelector('.docCajaLbl'); if (_l) _l.textContent = _docCajaTxt(docItems[i]);
 }
 // v3.82 — si el mismo código ya está en otro renglón, se suman las piezas en vez de repetir el renglón
 function docConsolidarSku(i){
@@ -8362,7 +8376,7 @@ function docConsolidarSku(i){
   docItems[a].cantidad = Math.round((+docItems[a].cantidad||0) + (+docItems[b].cantidad||0));
   docItems.splice(b, 1);
   renderDocItems(); recalcularDocDesdeItems();
-  toast(k + ' ya estaba en el documento: se sumaron las piezas (ahora ' + docItems[a].cantidad + ')', { duration:4000 });
+  toast(k + ' ya estaba en el documento: se sumaron ' + (_docPz(docItems[a]) ? 'las cajas (ahora ' + Math.round(docItems[a].cantidad / _docPz(docItems[a])) + ')' : 'las piezas (ahora ' + docItems[a].cantidad + ')'), { duration:4000 });
   return true;
 }
 window.docConsolidarSku = docConsolidarSku;
@@ -8374,12 +8388,20 @@ function docQuitarItem(i) {
   docItems.splice(i, 1);
   renderDocItems(); recalcularDocDesdeItems();
 }
+// v4.80 (Rafa 11 nov) — carry on SIEMPRE por caja de 6 en el editor: Cant. = cajas y Precio = precio de la caja.
+// Se sigue guardando en piezas (cantidad × 6, precio ÷ 6) con pz_caja: 6 (inventario y apartado van en piezas).
+function nunEsCarryOn(sku){ const k = String(sku||'').trim().toUpperCase(); if (/^RL\d{3}CO/.test(k)) return true; const p = (State.data.productos||[]).find(x => String(x.sku||'').trim().toUpperCase() === k); return !!p && /carry\s*on/i.test(String(p.categoria||'')); }
+function nunR4(n){ return Math.round((+n||0) * 10000) / 10000; }
+function _docPz(it){ const pz = +(it && it.pz_caja) || 0, c = +(it && it.cantidad) || 0; return pz > 1 && Math.abs(c / pz - Math.round(c / pz)) < 1e-9 ? pz : 0; }
+function _docCajaTxt(it){ const pz = _docPz(it); return pz ? '📦 por caja de ' + pz + ' pz · pieza ' + fmtFull(+it.precio_unitario||0) : ''; }
 function docCambiarItem(i, campo, valor) {
   if (!docItems[i]) return;
   if (campo === 'sku') {
     docItems[i].sku = valor;
     // Auto-llenar desde catálogo
     const p = (State.data.productos||[]).find(pr => String(pr.sku||'').toLowerCase() === String(valor||'').toLowerCase());
+    if (nunEsCarryOn(valor)) { if (!docItems[i].pz_caja) { docItems[i].pz_caja = 6; docItems[i].cantidad = Math.max(1, Math.round(+docItems[i].cantidad||1)) * 6; } } // v4.80 por caja
+    else if (docItems[i].pz_caja) delete docItems[i].pz_caja;
     if (p) {
       docItems[i].descripcion = p.descripcion || '';
       docItems[i].precio_unitario = parseFloat(p.precio) || 0;
@@ -8389,13 +8411,18 @@ function docCambiarItem(i, campo, valor) {
   } else if (campo === 'descripcion') {
     docItems[i].descripcion = valor;
   } else if (campo === 'cantidad') {
-    docItems[i].cantidad = Math.max(0, Math.round(parseFloat(valor) || 0)); // v3.72 — piezas enteras
+    const _pz = _docPz(docItems[i]); // v4.80 carry on: lo que se escribe son cajas
+    docItems[i].cantidad = Math.max(0, Math.round(parseFloat(valor) || 0)) * (_pz || 1); // v3.72 — piezas enteras
+    if (_pz && !docItems[i].cantidad) docItems[i].cantidad = 0;
+  } else if (campo === 'precio_unitario' && _docPz(docItems[i])) {
+    docItems[i].precio_unitario = nunR4((parseFloat(valor) || 0) / _docPz(docItems[i])); // v4.80 precio de la caja → por pieza
   } else if (campo === 'iva_pct') {
     docItems[i].iva_pct = (+valor === 0) ? 0 : 16; // v3.72 — solo 16% o 0%
   } else {
     docItems[i][campo] = parseFloat(valor) || 0;
   }
   nunPintarLinea(i); // v3.72 — el renglón se actualiza al momento
+  if (campo === 'precio_unitario' || campo === 'cantidad') { const _tr = (document.getElementById('docItemsMount')||{querySelectorAll:()=>[]}).querySelectorAll('tbody tr')[i]; const _l = _tr && _tr.querySelector('.docCajaLbl'); if (_l) _l.textContent = _docCajaTxt(docItems[i]); } // v4.80
   recalcularDocDesdeItems();
 }
 function recalcularDocDesdeItems() {

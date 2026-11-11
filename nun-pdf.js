@@ -43,7 +43,7 @@ function numeroALetras(num) {
 }
 function nunLineaCaja(it){
   const pz = +it.pz_caja || 0, cant = +it.cantidad || 0, pu = +it.precio_unitario || 0;
-  const base = String(it.descripcion || '').replace(/\s*·\s*\d+\s*sets? de \d+ pz\s*$/i, '');
+  const base = String(it.descripcion || '').replace(/\s*·\s*\d+\s*(sets?|cajas?) de \d+ pz\s*$/i, ''); // v4.80 también 'cajas de'
   if (pz > 1 && cant > 0 && Math.abs(cant / pz - Math.round(cant / pz)) < 1e-9) {
     const pzu = Math.round(pu * 100) / 100;
     return { cant: Math.round(cant / pz), unidad: Math.round(cant / pz) === 1 ? 'caja' : 'cajas', pu: Math.round(pu * pz * 10000) / 10000, desc: base + ' · caja de ' + pz + ' pz (pieza ' + fmtFull(pzu) + ')' };

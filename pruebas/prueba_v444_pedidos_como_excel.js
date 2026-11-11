@@ -46,7 +46,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   r.calc.forEach((x,i)=>{ const want=exp[i]; const norm=s=>s.split(' ').map((p,j)=>j===4?p.split(',').sort().join(','):p).join(' '); if(norm(x)!==norm(want)) r.fallas.push('fila-'+i); });
   w.eval("abrirDetalleCliente('ci')"); await sleep(300);
   r.tabla=txt(d.querySelector('.drawer details'));
-  if(!/Pedidos \(como tu Excel\)/.test(r.tabla)||!/comparte factura con 1194/.test(r.tabla)||!/Total\$296,900\.00\$274,605\.00\$22,295\.00/.test(r.tabla.replace(/\s/g,''))) r.fallas.push('tabla');
+  if(!/Pedidos (\(como tu Excel\)|y saldo)/.test(r.tabla)||!/comparte factura con 1194/.test(r.tabla)||!/Total\$296,900\.00\$274,605\.00\$22,295\.00/.test(r.tabla.replace(/\s/g,''))) r.fallas.push('tabla');
   r.version=txt(d.querySelector('.rwd-version'));
   if(!/v4\.(4[4-9]|[5-9]\d)/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}

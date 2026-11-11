@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.82 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.83 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4192,13 +4192,16 @@ function nunPedidosExcelCalc(cli){
     return { p, total, falta, pagado: nunR2(total - falta), cobs: [...cs.values()], docs: mis.map(x => ({ L: x.L, folio: nunFolioStr(x.d), fecha: x.d.fecha, comparte: !x.soloVer && x.peds.length > 1 ? x.peds.filter(k => !ks.includes(k)) : [], bor: !!x.bor })) };
   }).sort((a, b) => String(a.p.fecha||'').localeCompare(String(b.p.fecha||'')));
 }
+// v4.83 (Rafa 11 nov) — registrar el pago desde el PEDIDO: abre el cobro del pedido que tiene saldo (el más viejo) en Capturar pago
+function nunCobroConSaldo(x){ return (x.cobs || []).filter(c => (+c.pendiente||0) >= 1).sort((a, b) => String(a.fecha_emision||a.fecha_entrega||'').localeCompare(String(b.fecha_emision||b.fecha_entrega||'')))[0] || null; }
+function nunPagoDePedido(cobId){ try { cerrarDrawer(); } catch(e){} setTimeout(() => { abrirDrawerCobranza(cobId); setTimeout(() => { try { drawerCambiarTab('pago'); } catch(e){} }, 150); }, 200); }
 function nunPedidosExcelHTML(cli){
   const R = nunPedidosExcelCalc(cli); if (!R.length) return '';
   const T = k => fmtFull(R.reduce((a, x) => a + x[k], 0));
-  return `<details open style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:600;font-size:13px;margin-bottom:6px">📋 Pedidos (como tu Excel) <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="event.preventDefault();nunEstadoCuentaAbrir(${escapeHTML(JSON.stringify(String(cli.id)))})">📄 Estado de cuenta</button></summary>
+  return `<details open style="margin-bottom:14px"><summary style="cursor:pointer;font-weight:600;font-size:13px;margin-bottom:6px">📋 Pedidos y saldo (según el sistema) <button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="event.preventDefault();nunEstadoCuentaAbrir(${escapeHTML(JSON.stringify(String(cli.id)))})">📄 Estado de cuenta</button></summary>
     <div style="border:1px solid var(--line);border-radius:6px;overflow:auto"><table class="dt" style="font-size:12px">
     <thead><tr><th>Fecha</th><th>Pedido</th><th class="right">Total</th><th class="right">Pagado</th><th class="right">Falta</th><th>Documentos</th></tr></thead><tbody>
-    ${R.map(x => `<tr style="cursor:pointer" onclick="abrirDoc('pedidos',${escapeHTML(JSON.stringify(String(x.p.id)))})"><td>${fmtFecha(x.p.fecha)}</td><td class="mono"><b>${escapeHTML(nunFolioStr(x.p))}</b></td><td class="right mono">${fmtFull(x.total)}</td><td class="right mono">${fmtFull(x.pagado)}</td><td class="right mono" style="color:${x.falta > 0.5 ? 'var(--accent)' : 'var(--green)'}">${x.falta > 0.5 ? fmtFull(x.falta) : '$0 ✓'}</td>
+    ${R.map(x => `<tr style="cursor:pointer" onclick="abrirDoc('pedidos',${escapeHTML(JSON.stringify(String(x.p.id)))})"><td>${fmtFecha(x.p.fecha)}</td><td class="mono"><b>${escapeHTML(nunFolioStr(x.p))}</b></td><td class="right mono">${fmtFull(x.total)}</td><td class="right mono">${fmtFull(x.pagado)}</td><td class="right mono" style="color:${x.falta > 0.5 ? 'var(--accent)' : 'var(--green)'}">${x.falta > 0.5 ? fmtFull(x.falta) : '$0 ✓'}${x.falta > 0.5 && nunCobroConSaldo(x) ? ` <button class="btn btn-primary btn-sm" style="margin-left:6px;padding:2px 8px" title="Registrar un pago a este pedido" onclick="event.stopPropagation();nunPagoDePedido(${escapeHTML(JSON.stringify(String(nunCobroConSaldo(x).id)))})">💵 Pago</button>` : ''}</td>
       <td style="font-size:11.5px">${x.docs.map(d => escapeHTML(d.L + ' ' + d.folio) + (d.bor ? ' <span class="tag" style="font-size:10px">borrador</span>' : '') + (d.comparte.length ? ' <span class="tag amber" style="font-size:10px">comparte factura con ' + escapeHTML(d.comparte.join(', ')) + '</span>' : '')).join(', ') || '<span style="color:var(--mute)">sin documentos</span>'}</td></tr>`).join('')}
     <tr style="font-weight:600"><td></td><td>Total</td><td class="right mono">${T('total')}</td><td class="right mono">${T('pagado')}</td><td class="right mono">${T('falta')}</td><td></td></tr>
     </tbody></table></div></details>`;
@@ -4234,13 +4237,32 @@ async function nunEstadoCuentaAbrir(cliId){
     <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><h3 style="margin:0">📄 Estado de cuenta</h3><button class="icon-btn" onclick="document.getElementById('modalEC').remove()">✕</button></div>
     <div style="padding:14px 20px">
       <label style="font-size:12px;color:var(--mute)">Cliente</label>
-      <input id="ecCli" list="ecCliL" placeholder="Escribe el nombre del cliente" value="${escapeHTML(_nunEC.cli ? _nunEC.cli.razon_social : '')}" oninput="nunECElegir(this.value)" autocomplete="off" style="width:100%">
-      <datalist id="ecCliL">${clis.map(n => `<option value="${escapeHTML(n)}">`).join('')}</datalist>
+      <input id="ecCli" type="search" placeholder="🔎 Escribe parte del nombre (ej. bustamante)" value="${escapeHTML(_nunEC.cli ? _nunEC.cli.razon_social : '')}" oninput="nunECBuscar(this.value)" onfocus="if(!_nunEC.cli) nunECBuscar(this.value)" autocomplete="off" style="width:100%">
+      <div id="ecCliRes" style="max-height:260px;overflow:auto"></div>
       <div id="ecCuerpo" style="margin-top:12px"></div>
     </div></div>`;
   document.body.appendChild(m);
   nunECPintar();
 }
+// v4.83 — lista de clientes que coinciden (se toca uno); busca por cualquier parte del nombre, sin acentos
+function nunECBuscar(v){
+  const box = document.getElementById('ecCliRes'); if (!box) return;
+  const q = nunCliNorm(v || '');
+  if (_nunEC.cli && nunCliNorm(_nunEC.cli.razon_social||'') === q) { box.innerHTML = ''; return; }
+  const L = (State.data.clientes||[]).filter(c => c.razon_social && !_nunEsPrueba(c.razon_social) && (!q || nunCliNorm(c.razon_social + ' ' + (c.nombre_comercial||'') + ' ' + (c.rfc||'')).includes(q)))
+    .sort((a, b) => String(a.razon_social).localeCompare(String(b.razon_social))).slice(0, 40);
+  box.innerHTML = L.length ? L.map(c => `<div onclick="nunECTomar(${escapeHTML(JSON.stringify(String(c.id)))})" style="padding:11px 10px;border-bottom:1px solid var(--line);cursor:pointer;font-size:14px">${escapeHTML(c.razon_social)}${c.vendedor ? ' <span style="font-size:11.5px;color:var(--mute)">· ' + escapeHTML(c.vendedor) + '</span>' : ''}</div>`).join('')
+    : '<div style="padding:10px;font-size:13px;color:var(--mute)">Ningún cliente con ese nombre</div>';
+  if (_nunEC.cli) { _nunEC.cli = null; _nunEC.sel = {}; _nunEC.otros = {}; nunECPintar(); }
+}
+function nunECTomar(id){
+  const c = (State.data.clientes||[]).find(x => String(x.id) === String(id)); if (!c) return;
+  _nunEC.cli = c; _nunEC.sel = {}; _nunEC.otros = {};
+  const i = document.getElementById('ecCli'); if (i) { i.value = c.razon_social; i.blur(); }
+  const box = document.getElementById('ecCliRes'); if (box) box.innerHTML = '';
+  nunECPintar();
+}
+window.nunECBuscar = nunECBuscar; window.nunECTomar = nunECTomar;
 function nunECElegir(v){
   const c = (State.data.clientes||[]).find(x => String(x.razon_social||'').trim().toUpperCase() === String(v||'').trim().toUpperCase());
   if ((c && c.id) !== (_nunEC.cli && _nunEC.cli.id)) { _nunEC.cli = c || null; _nunEC.sel = {}; _nunEC.otros = {}; nunECPintar(); }

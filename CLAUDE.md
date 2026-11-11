@@ -264,6 +264,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   hace un PDF de verdad (`nunHtmlAPdf`, html2pdf 0.10.1 de cdnjs) con 📥 Guardar / 📤 Compartir. (5) Regla de Rafa: todo pedido debe estar en Cobranza (ya no
   se remisiona): un pedido parcial con solo parte facturada lleva un cobro `cob_<pedidoId>` (tipo Pedido, numero "PED <folio>") por lo que falta.
   Pruebas `prueba_v482_nombre_y_conexiones.js`, `prueba_v482_rapido.js`, `prueba_v471_estado_cuenta.js` (diseño nuevo).
+- v4.83 (11 nov, Rafa): Estado de cuenta con buscador propio (en Android el datalist no mostraba la lista): se escribe parte del nombre y se toca el
+  cliente (`nunECBuscar`/`nunECTomar`). Ficha: "Pedidos y saldo (según el sistema)" (antes "como tu Excel") con **💵 Pago** en cada pedido con saldo
+  (`nunPagoDePedido`: abre Capturar pago del cobro del pedido con saldo más viejo). Rafa propone cobrar sobre el PEDIDO sin remisiones (pendiente que decida).
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

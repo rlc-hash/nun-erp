@@ -38,7 +38,9 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   await w.eval("navegar('cobranza')"); await sleep(400);
   r.boton=/Estado de cuenta/.test(txt(d.querySelector('.page-title'))); if(!r.boton) r.fallas.push('boton');
   await w.eval("nunEstadoCuentaAbrir()"); await sleep(400);
-  const inp=d.getElementById('ecCli'); inp.value=C; inp.dispatchEvent(new w.Event('input')); await sleep(50);
+  // v4.83: se escribe una parte del nombre (minúsculas, sin acentos) y se toca el cliente en la lista
+  const inp=d.getElementById('ecCli'); inp.value=C.split(' ').slice(-1)[0].toLowerCase(); inp.dispatchEvent(new w.Event('input')); await sleep(50);
+  const op=[...d.querySelectorAll('#ecCliRes > div')].find(x=>x.textContent.includes(C)); r.buscar=!!op; if(!op) r.fallas.push('buscar cliente'); else op.click(); await sleep(50);
   const tot=()=>txt(d.getElementById('ecTot'));
   r.todo=tot(); if(!/Total\$17,500\.00.*Pagado\$12,500\.00.*Saldo pendiente\$5,000\.00.*2 pedido\(s\) \+ 1 documento\(s\) · 3 pago\(s\)/.test(r.todo)) r.fallas.push('todo');
   await w.eval("nunECMarcar('saldo')"); r.saldo=tot(); if(!/Total\$7,500\.00.*Saldo pendiente\$5,000\.00.*1 pedido\(s\) \+ 1 documento\(s\) · 2 pago\(s\)/.test(r.saldo)) r.fallas.push('soloDeben');

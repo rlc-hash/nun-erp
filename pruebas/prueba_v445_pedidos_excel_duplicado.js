@@ -47,7 +47,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   r.calc.forEach((x,i)=>{ const want=exp[i]; const norm=s=>s.split(' ').map((p,j)=>j===4?p.split(',').sort().join(','):p).join(' '); if(norm(x)!==norm(want)) r.fallas.push('fila-'+i); });
   w.eval("abrirDetalleCliente('ci')"); await sleep(300);
   r.tabla=txt(d.querySelector('.drawer details'));
-  if(!/Pedidos \(como tu Excel\)/.test(r.tabla)||!/comparte factura con 1194/.test(r.tabla)||!/Total\$296,900\.00\$274,605\.00\$22,295\.00/.test(r.tabla.replace(/\s/g,''))) r.fallas.push('tabla');
+  if(!/Pedidos (\(como tu Excel\)|y saldo)/.test(r.tabla)||!/comparte factura con 1194/.test(r.tabla)||!/Total\$296,900\.00\$274,605\.00\$22,295\.00/.test(r.tabla.replace(/\s/g,''))) r.fallas.push('tabla');
   await post({accion:'erp_crear',tabla:'pedidos',item:{id:'ped_dup',folio:'P0052',fecha:'2025-09-29',cliente:C,estatus:'duplicado',total:25000,items_json:L([['A',1,25000]])}});
   await w.eval("cargarTabla('pedidos')"); w.eval("_nunSitIdx=null");
   r.dup=w.eval("(()=>{const x=document.createElement('div');x.innerHTML=nunSituacionHTML('pedidos',State.data.pedidos.find(p=>p.id==='ped_dup'));return x.textContent})()");

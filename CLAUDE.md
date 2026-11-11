@@ -290,6 +290,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   juntas: `rafaga`). Ahora `conCupo`: máximo 3 peticiones trabajando con la base a la vez (= max del pool), las demás esperan turno; lo que va a Google
   (A_GOOGLE) no ocupa turno; el registro en nun_log va dentro del turno. Resultado real: 12 y 20 lecturas juntas en ~1 s, sin fallas (antes hasta 41 s).
   Prueba `prueba_v489_turnos.js`. Si vuelve a haber trabas: medir con nun_log (ms>20000) y ráfagas por segundo.
+- v4.89 (11 nov, Rafa: tocó el aviso y quedó en el Inicio): el destino del aviso (?ir=…) se guarda en sessionStorage `nun_ir_pendiente` y boot() lo abre
+  (`nunIrPendiente`; antes se navegaba antes de arrancar y boot ponía #/dashboard). sw.js: con la app abierta manda mensaje y espera respuesta 1.5 s
+  (MessageChannel); si no contesta (dormida) hace navigate(liga) o openWindow. Prueba `prueba_v489_aviso_al_arrancar.js`.
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

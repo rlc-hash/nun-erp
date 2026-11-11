@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.88 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.89 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -12972,15 +12972,30 @@ function nunIrA(m, x){
   };
   const go = (n) => {
     if (!(State.sesion && typeof navegar === 'function')) { if (n < 30) setTimeout(() => go(n + 1), 1000); return; }
-    if (n === 0 || State.modulo !== m) navegar(m);
+    if (n === 0 || State.modulo !== m || rutaActual().modulo !== m) { try { navegar(m); } catch(e){} }
     setTimeout(() => { let ok = false; try { ok = busca(); } catch(e){}
       if (!ok && n < 30) { if (n === 3 && (x.id || x.folio || x.pv)) { try { cargarTabla(m === 'cobranza' && x.pv ? 'pagosverificar' : m, { ttl: 1 }); } catch(e){} } setTimeout(() => go(n + 1), 1000); }
       else if (!ok) toast('No encontré ese documento: búscalo en ' + m, { type:'error' }); }, n === 0 ? 900 : 0);
   };
   go(0);
 }
-try { const _q = new URLSearchParams(location.search), _ir = _q.get('ir'); if (_ir) { nunIrA(_ir, { id: _q.get('id'), folio: _q.get('folio'), pv: _q.get('pv') }); history.replaceState(null, '', location.pathname); } } catch(e){}
-try { navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.nunIr) nunIrA(e.data.nunIr, e.data); }); } catch(e){}
+// v4.89 (Rafa 11 nov: tocó el aviso y quedó en el Inicio) — antes se navegaba ANTES de que arrancara el sistema y se borraba la ruta de la dirección,
+// así que boot() ponía #/dashboard. Ahora el destino se guarda (sessionStorage, sobrevive a la recarga del login) y boot() lo abre al arrancar.
+let _nunIrPend = null;
+try { const _q = new URLSearchParams(location.search), _ir = _q.get('ir');
+  if (_ir) { _nunIrPend = { m: _ir, id: _q.get('id') || '', folio: _q.get('folio') || '', pv: _q.get('pv') || '', t: Date.now() };
+    try { sessionStorage.setItem('nun_ir_pendiente', JSON.stringify(_nunIrPend)); } catch(e){}
+    history.replaceState(null, '', location.pathname + '#/' + _ir); } } catch(e){}
+function nunIrPendiente(){
+  let p = _nunIrPend; try { const g = JSON.parse(sessionStorage.getItem('nun_ir_pendiente') || 'null'); if (g) p = g; sessionStorage.removeItem('nun_ir_pendiente'); } catch(e){}
+  _nunIrPend = null;
+  if (!p || !p.m || Date.now() - (p.t || 0) > 10 * 60000) return false;
+  nunIrA(p.m, p); return true;
+}
+try { navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', e => {
+  if (!(e.data && e.data.nunIr)) return;
+  try { if (e.ports && e.ports[0]) e.ports[0].postMessage({ ok: 1 }); } catch(x){} // v4.89 el aviso sabe que la página lo recibió (si no, la recarga con la liga)
+  nunIrA(e.data.nunIr, e.data); }); } catch(e){}
 // Push: avisos en el teléfono aunque el sistema esté cerrado
 function _nunB64aBytes(b){ const p = '='.repeat((4 - b.length % 4) % 4), s = atob((b + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...s].map(c => c.charCodeAt(0))); }
 async function nunPushEstado(){
@@ -13700,6 +13715,7 @@ async function boot() {
     actualizarUsuarioUI();
     window.addEventListener('hashchange', renderCurrent);
     if (!location.hash) location.hash = '#/dashboard';
+    try { nunIrPendiente(); } catch(e){} // v4.89 abrir lo del aviso que se tocó
     // v3.23 — Restaurar estado del sidenav (collapsed groups + sidebar collapsed)
     try { rwdRestoreSidenavState(); rwdWireSectionToggles(); } catch(e){ console.warn('rwd sidenav init', e); }
     try { aplicarPermisosNav(); } catch(e){ console.warn('permisos nav', e); } // v3.56 — ocultar módulos sin permiso

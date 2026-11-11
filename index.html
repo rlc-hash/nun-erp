@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.76 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.77 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -5771,6 +5771,8 @@ function numeroALetras(num) {
 /* ============================================================
    v3.0 — CONVERSIÓN DE DOCUMENTOS con items
    ============================================================ */
+// v4.77 (Rafa 11 nov) — envío: por dónde se manda la mercancía (fletera / paquetería / recoge). Lo pone el vendedor al cotizar y pasa al pedido y sus documentos.
+function nunEnviosUsados(){ const m = new Map(); ['cotizaciones','pedidos','remisiones','facturas'].forEach(t => (State.data[t]||[]).forEach(d => { const v = String(d.envio||'').trim(); if (v) m.set(v.toUpperCase(), v); })); return [...m.values()].sort().slice(0, 60); }
 async function convertirDocConItems(origen, idOrigen, destino) {
   if (origen === 'remisiones' && destino === 'facturas') return nunFacturarRemision(idOrigen); // v3.71
   const ok = await confirmDialog({ title:'¿Convertir a '+destino.slice(0,-1)+'?', message:'Se genera un documento nuevo con los mismos productos. El folio se asigna automáticamente.', ok:'Convertir' });
@@ -5810,6 +5812,7 @@ async function convertirDocConItems(origen, idOrigen, destino) {
           { let _its = [], _oits = []; try { _its = JSON.parse(_nuevo.items_json||'[]'); } catch(e){} try { _oits = JSON.parse(_orig.items_json||'[]'); } catch(e){} // v3.78
             if (!_its.length && _oits.length) { const _si = nunEsVerdad(_orig.sin_iva); const _t = nunCalcDoc(_oits, _si); _cam.items_json = JSON.stringify(_oits); _cam.subtotal = _t.subtotal; _cam.iva = _t.iva; _cam.total = _t.total; if (_si) _cam.sin_iva = true; } } // v3.80 respeta "sin IVA" del pedido
           if (!_nuevo.vendedor && _orig.vendedor) _cam.vendedor = _orig.vendedor;
+          if (!_nuevo.envio && _orig.envio) _cam.envio = _orig.envio; // v4.77 el envío pasa del pedido a la remisión/factura
           await api({ accion:'erp_upsert_batch', tabla:destino, items:[_cam] });
           _cam.folio = await nunResolverFolioDuplicado(destino, _nuevo.id, _cam.folio); // v3.80
           if (destino === 'remisiones' && origen === 'pedidos') await nunGuardarSeguro('pedidos', { id: idOrigen, estatus: 'entregado' }); // v3.82
@@ -7697,6 +7700,7 @@ function afterDocOperativo(tabla) {
         return `<span style="display:inline-flex;align-items:center;gap:6px;font-weight:500"><span style="width:22px;height:22px;border-radius:50%;background:#0A0A0A;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">${inicial}</span>${escapeHTML(v)}</span>`;
       } },
       ...(tabla === 'cotizaciones' ? [{ key:'creado_por', label:'Subió', render:r => r.creado_por ? `<span style="font-size:12px">${escapeHTML(String(r.creado_por))}</span>` : '<span style="color:var(--ink-4)">—</span>' }] : []), // v4.72 — quién la subió (Rafa)
+      ...(['cotizaciones','pedidos'].includes(tabla) ? [{ key:'envio', label:'Envío', render:r => r.envio ? `<span style="font-size:12px">🚚 ${escapeHTML(String(r.envio))}</span>` : '<span style="color:var(--ink-4)">—</span>' }] : []), // v4.77
       { key:'total', label:'Total', right:true, render:r=>`<span class="mono">${fmt(r.total||0)}</span>` },
       { key:'saldo', label:'Saldo', right:true, render:r=>{
         // v3.10.1 — Cross-ref: si no hay saldo, calcular vía cobranza por folio/serie
@@ -8124,6 +8128,7 @@ function abrirDoc(tabla, id) {
       ${tabla === 'notascredito' ? `<div class="field full"><label>Factura que corrige (folio) <span style="color:var(--ink-4);font-weight:400">— ej. FT0003 o el folio de Bind</span></label>
         <input id="dDocOrigen" list="dDocOrigenLista" value="${escapeHTML(doc.documento_origen||'')}" ${doc.uuid_sat ? 'disabled' : ''}>
         <datalist id="dDocOrigenLista">${(State.data.facturas||[]).filter(f => f.uuid_sat && !/cancel/i.test(f.estatus||'')).slice(-300).map(f => `<option value="${escapeHTML(String(f.folio||''))}">${escapeHTML(String(f.cliente||''))} · ${fmtFull(f.total)}</option>`).join('')}</datalist></div>` : ''}
+      ${['cotizaciones','pedidos','remisiones','facturas'].includes(tabla) ? `<div class="field full"><label>🚚 Envío <span style="color:var(--mute);font-weight:400">(por dónde se manda: fletera, paquetería o recoge)</span></label><input id="dEnvio" list="dEnvioLista" value="${escapeHTML(doc.envio||'')}" placeholder="Ej. fletera, paquetería, recoge en bodega"><datalist id="dEnvioLista">${nunEnviosUsados().map(x => `<option value="${escapeHTML(x)}">`).join('')}</datalist></div>` : ''}
       <div class="field full"><label>Notas</label><textarea id="dNotas">${escapeHTML(doc.notas||'')}</textarea></div>
     </div>
 
@@ -9865,6 +9870,7 @@ async function guardarDoc(tabla, id, opts) {
     comision_pct: parseFloat(document.getElementById('dComisionPct')?.value) || 0, // v3.44
     items_json: JSON.stringify(docItems || [])
   };
+  if (document.getElementById('dEnvio')) item.envio = String(document.getElementById('dEnvio').value||'').trim(); // v4.77 por dónde se manda
   if (tabla === 'notascredito' && document.getElementById('dDocOrigen')) item.documento_origen = String(document.getElementById('dDocOrigen').value||'').trim(); // v3.81
   if (usaCli) item.cliente = (document.getElementById('dCliente').value||'').trim();
   else item.proveedor = (document.getElementById('dProveedor').value||'').trim();

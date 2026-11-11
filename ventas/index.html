@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.12';
+const VERSION = 'v2.1.13';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -397,6 +397,8 @@ function vCatalogo(){
 function hoja(titulo, html){ cerrarHoja(); const h = document.createElement('div'); h.className = 'hoja'; h.id = 'hoja'; h.onclick = e => { if (e.target === h) cerrarHoja(); };
   h.innerHTML = `<div><div class="cab"><b>${titulo}</b><button class="x" onclick="cerrarHoja()">✕</button></div><div id="hojaC">${html}</div></div>`; document.body.appendChild(h); }
 function cerrarHoja(){ const h = $('hoja'); if (h) h.remove(); }
+// v2.1.13 (Rafa 11 nov) — envío: por dónde se manda la mercancía; sugiere las fleteras que ya se han usado
+function enviosUsados(){ const m = new Map(); ['cotizaciones','pedidos','remisiones','facturas'].forEach(t => (S.d[t] || []).forEach(d => { const v = String(d.envio || '').trim(); if (v) m.set(v.toUpperCase(), v); })); return [...m.values()].sort().slice(0, 40); }
 function itemsDe(d){ try { const a = JSON.parse(d.items_json || '[]'); return Array.isArray(a) ? a : []; } catch(e){ return []; } }
 function abrirDoc(tabla, id){
   const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)); if (!d) return;
@@ -412,6 +414,7 @@ function abrirDoc(tabla, id){
     <div class="card">${its.length ? its.map(i => `<div class="row" style="cursor:default"><div class="m"><b>${esc(i.sku)}</b><span>${esc(i.descripcion || '')}</span></div><div class="r"><b>${+i.cantidad} × ${$$(i.precio_unitario)}</b><span>${$$(r2((+i.cantidad || 0) * (+i.precio_unitario || 0)))}</span></div></div>`).join('') : '<div class="vacio">Sin detalle de productos</div>'}
       <div class="tot"><span>Subtotal</span><span>${$$(d.subtotal)}</span></div><div class="tot"><span>IVA</span><span>${$$(d.iva)}</span></div><div class="tot g"><span>Total</span><span>${$$(d.total)}</span></div></div>
     ${cs.length ? `<div class="card"><div class="tot"><span>Pagado</span><span>${$$(pagado)}</span></div><div class="tot g"><span>Falta</span><span>${$$(falta)}</span></div>${verif ? '<div class="sub">' + $$(verif) + ' por verificar</div>' : ''}${cs.length > 1 ? '<div class="sub">Se cobra en: ' + cs.map(x => esc((x.tipo || '') + ' ' + x.numero)).join(', ') + '</div>' : ''}</div>` : ''}
+    ${d.envio ? '<div class="sub" style="margin:6px 2px">🚚 Envío: <b>' + esc(d.envio) + '</b></div>' : ''}
     ${d.notas ? '<div class="sub" style="margin:6px 2px">' + esc(d.notas) + '</div>' : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button class="btn" onclick="pdfDoc('${tabla}','${esc(d.id)}')">📄 PDF</button>
@@ -571,7 +574,7 @@ async function guardarPago(cobroId){
 }
 
 // ---------- cotizar ----------
-S.cot = { cliente: '', lineas: [], conIva: false, notas: '', nuevo: false, tel: '' }; // v2.1.9: sin IVA predeterminado (Rafa)
+S.cot = { cliente: '', lineas: [], conIva: false, notas: '', nuevo: false, tel: '', envio: '' }; // v2.1.9: sin IVA predeterminado (Rafa)
 function vCotizar(){
   if (!puedeCotizar()) return '<h2>Cotizar</h2><div class="card vacio">Tu usuario todavía no puede subir cotizaciones.<br>Pídeselo a Rafa.</div>';
   const C = S.cot, its = C.lineas.map(l => ({ cantidad: l.cantidad, precio_unitario: l.precio })), t = calcDoc(its, !C.conIva);
@@ -593,6 +596,7 @@ function vCotizar(){
     <label class="l">Toca un producto para agregarlo · solo los que hay en inventario</label>
     <input id="ctProd" class="in" placeholder="🔎 Buscar modelo o color" value="${esc(S.qProd || '')}" oninput="S.qProd=this.value;buscarProd()" autocomplete="off"><div id="ctProdRes">${htmlProds()}</div>
     <label class="sw"><input type="checkbox" ${C.conIva ? 'checked' : ''} onchange="S.cot.conIva=this.checked;pintar()"> Con factura (+16% IVA)</label>
+    <label class="l">🚚 Envío: ¿por dónde se manda? (opcional)</label><input class="in" list="ctEnvioLista" placeholder="Fletera, paquetería o recoge en bodega" value="${esc(C.envio || '')}" oninput="S.cot.envio=this.value" autocomplete="off"><datalist id="ctEnvioLista">${enviosUsados().map(x => `<option value="${esc(x)}">`).join('')}</datalist>
     <label class="l">Notas (opcional)</label><input class="in" value="${esc(C.notas)}" oninput="S.cot.notas=this.value">
   </div>
   <div class="card" id="ctTot">${htmlTot(t)}</div>
@@ -653,11 +657,11 @@ async function subirCot(){
         precio_unitario: set ? Math.round((+l.precio) / l.ps * 10000) / 10000 : +l.precio, descuento_pct: 0, iva_pct: C.conIva ? 16 : 0 }; });
     const t = calcDoc(items, !C.conIva);
     const item = { id: C.id, folio: '', fecha: hoy(), cliente: C.nuevo ? cliente.toUpperCase() : cliente, subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: !C.conIva,
-      items_json: JSON.stringify(items), notas: (C.notas ? C.notas + ' · ' : '') + (C.conIva ? '' : 'SIN IVA · ') + 'Cotización desde la app de vendedores' };
+      envio: String(C.envio || '').trim(), items_json: JSON.stringify(items), notas: (C.notas ? C.notas + ' · ' : '') + (C.conIva ? '' : 'SIN IVA · ') + 'Cotización desde la app de vendedores' };
     const j = await api({ accion: 'erp_crear', tabla: 'cotizaciones', item });
     if (!j.ok && !j.ya_existia) throw new Error(j.error || 'no se guardó');
     const folio = (j.item && j.item.folio) || '';
-    S.cot = { cliente: '', lineas: [], conIva: false, notas: '', nuevo: false, tel: '' }; S.qCtCli = '';
+    S.cot = { cliente: '', lineas: [], conIva: false, notas: '', nuevo: false, tel: '', envio: '' }; S.qCtCli = '';
     toast('✓ Cotización ' + folio + ' subida · Rafa o Yazmín la confirman');
     S.tab = 'pedidos'; S.filtroPed = 'pend'; await cargar(true);
     const nueva = (S.d.cotizaciones || []).find(x => String(x.id) === String(item.id)); if (nueva) abrirDoc('cotizaciones', nueva.id);

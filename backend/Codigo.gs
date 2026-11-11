@@ -35,7 +35,7 @@
 //  Nadie más puede crear códigos de dueño (RAFA-, YADAH-, MASTER-NUN-), porque esos dan permisos de dueño.
 // ============================================================
 
-const VERSION_ERP = 'v0.9.18'; // v0.9.18 pagos que reportan los vendedores (por verificar)
+const VERSION_ERP = 'v0.9.19'; // v0.9.19 columna envio (por dónde se manda: fletera/paquetería) en cotizaciones/pedidos/remisiones/facturas // v0.9.18 pagos que reportan los vendedores (por verificar)
 
 // v0.9.2 — Mapeo de tablas que el CRM pide por nombre "corto" a la hoja real del ERP.
 // El CRM usa 'clientes' para su catálogo de vendedores (NO el catálogo fiscal 'clientes' del ERP).
@@ -83,9 +83,9 @@ const TABLAS = {
   movinventario: { nombre:'MovInventario', cols:['id','fecha','sku','tipo','cantidad','costo_unitario','referencia','ref_id','motivo','usuario','notas','almacen'] },
 
   // Operación ventas
-  cotizaciones: { nombre:'Cotizaciones', cols:['id','folio','fecha','cliente','vendedor','comision_pct','vigencia_dias','subtotal','iva','total','sin_iva','estatus','items_json','notas','creado_por'] },
-  pedidos:      { nombre:'Pedidos',      cols:['id','folio','fecha','cliente','vendedor','comision_pct','cotizacion_origen','subtotal','iva','total','sin_iva','estatus','items_json','fecha_entrega','sin_entregar','notas','creado_por'] },
-  facturas:     { nombre:'Facturas',     cols:['id','folio','fecha','cliente','pedido_origen','subtotal','iva','total','sin_iva','estatus','uuid_sat','pdf_url','xml_url','items_json','vendedor','comision_pct','metodo_pago','forma_pago','uso_cfdi','notas','creado_por'] },
+  cotizaciones: { nombre:'Cotizaciones', cols:['id','folio','fecha','cliente','vendedor','comision_pct','vigencia_dias','subtotal','iva','total','sin_iva','estatus','items_json','notas','creado_por','envio'] },
+  pedidos:      { nombre:'Pedidos',      cols:['id','folio','fecha','cliente','vendedor','comision_pct','cotizacion_origen','subtotal','iva','total','sin_iva','estatus','items_json','fecha_entrega','sin_entregar','notas','creado_por','envio'] },
+  facturas:     { nombre:'Facturas',     cols:['id','folio','fecha','cliente','pedido_origen','subtotal','iva','total','sin_iva','estatus','uuid_sat','pdf_url','xml_url','items_json','vendedor','comision_pct','metodo_pago','forma_pago','uso_cfdi','notas','creado_por','envio'] },
 
   // Compras
   ordenescompra:    { nombre:'OrdenesCompra',    cols:['id','folio','fecha','proveedor','subtotal','iva','total','estatus','items_json','fecha_estimada','condiciones','notas','creado_por'] },
@@ -106,7 +106,7 @@ const TABLAS = {
   listasprecios:    { nombre:'ListasPrecios',     cols:['id','nombre','descripcion','tipo','descuento_pct','activa','notas'] },
   seriesfolios:     { nombre:'SeriesFolios',      cols:['id','tipo_documento','serie','folio_actual','prefijo','sufijo','activa','notas'] },
   categorias:       { nombre:'Categorias',        cols:['id','nombre','padre','descripcion','activa','orden'] },
-  remisiones:       { nombre:'Remisiones',        cols:['id','folio','fecha','cliente','vendedor','comision_pct','pedido_origen','sucursal','subtotal','iva','total','sin_iva','estatus','items_json','fecha_entrega','sin_entregar','factura_generada','notas','creado_por'] },
+  remisiones:       { nombre:'Remisiones',        cols:['id','folio','fecha','cliente','vendedor','comision_pct','pedido_origen','sucursal','subtotal','iva','total','sin_iva','estatus','items_json','fecha_entrega','sin_entregar','factura_generada','notas','creado_por','envio'] },
   // v0.9.9 — notas de crédito: cliente, uuid_sat, forma_pago y sin_iva (las timbra el ERP desde v3.81)
   notascredito:     { nombre:'NotasCredito',      cols:['id','folio','fecha','tipo','contraparte','documento_origen','subtotal','iva','total','motivo','estatus','items_json','notas','creado_por','cliente','uuid_sat','forma_pago','sin_iva','vendedor','comision_pct'] },
   bitacora:         { nombre:'Bitacora',          cols:['timestamp','usuario','accion','tabla','registro_id','detalle'] },
@@ -2666,7 +2666,7 @@ function confirmarCotizacion(idCot, usuario){
   if (!its.length) return { ok:false, error:'La cotización no tiene productos' };
   const ped = { id:'ped_' + new Date().getTime() + '_' + Math.random().toString(36).substring(2,6), folio:'', fecha:_hoyISO(), cliente:c.cliente, vendedor:c.vendedor || '',
     comision_pct:c.comision_pct || '', cotizacion_origen:String(c.folio || c.id), subtotal:c.subtotal, iva:c.iva, total:c.total, sin_iva:c.sin_iva || '', estatus:'borrador',
-    items_json:c.items_json, fecha_entrega:'', sin_entregar:'', notas:'De la cotización ' + (c.folio || ''), creado_por:usuario || c.creado_por || '' };
+    items_json:c.items_json, fecha_entrega:'', sin_entregar:'', notas:'De la cotización ' + (c.folio || ''), creado_por:usuario || c.creado_por || '', envio:c.envio || '' };
   const r = erpCrear('pedidos', ped); if (!r.ok) return r;
   _ajustarComprometido(its, -1);               // lo apartado por la cotización se libera…
   const a = activarPedido(ped.id, usuario, false); // …y el pedido descuenta el inventario y crea su cobro

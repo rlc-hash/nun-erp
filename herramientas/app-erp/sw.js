@@ -13,7 +13,7 @@ self.addEventListener('notificationclick', e => {
   const url = new URL((e.notification.data && e.notification.data.url) || './', self.registration.scope).href;
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ws => {
     const w = ws.find(x => x.url.startsWith(self.registration.scope));
-    if (w) { w.postMessage({ nunIr: new URL(url).searchParams.get('ir') || '' }); return w.focus(); }
+    if (w) { const q = new URL(url).searchParams; w.postMessage({ nunIr: q.get('ir') || '', id: q.get('id') || '', folio: q.get('folio') || '', pv: q.get('pv') || '' }); return w.focus(); } // v4.86 abre ESE documento
     return self.clients.openWindow(url);
   }));
 });

@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-1.9'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-2.0'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -172,20 +172,20 @@ const NOMBRE_DOC: Record<string, string> = { cotizaciones: 'la cotización', ped
 function avisoOficina(body: any, j: any, quien: string){
   if (!j || !j.ok || j.ya_existia || esRafa(body.codigo || body.codigo_usuario || '')) return null;
   const q = (quien || 'Alguien de la oficina').split(' ')[0], a = body.accion, t = String(body.tabla || '');
-  const ir = (m: string) => './?ir=' + m;
+  const ir = (m: string, extra?: Record<string, unknown>) => './?ir=' + m + Object.entries(extra || {}).filter(([, v]) => v != null && v !== '').map(([k, v]) => '&' + k + '=' + encodeURIComponent(String(v))).join(''); // v4.86 abre ESE documento
   if (a === 'erp_crear' && NOMBRE_DOC[t]){ const it = j.item || body.item || {};
-    return { titulo: '📄 ' + q + ' creó ' + NOMBRE_DOC[t] + ' ' + (it.folio || ''), cuerpo: (it.cliente || it.proveedor || it.concepto || '') + (it.total || it.monto ? ' · ' + pesos(it.total || it.monto) : ''), url: ir(t === 'cotizaciones' ? 'cotizaciones' : 'cobranza'), tag: 'of_' + (it.id || Date.now()) }; }
+    return { titulo: '📄 ' + q + ' creó ' + NOMBRE_DOC[t] + ' ' + (it.folio || ''), cuerpo: (it.cliente || it.proveedor || it.concepto || '') + (it.total || it.monto ? ' · ' + pesos(it.total || it.monto) : ''), url: ir(t, { id: it.id }), tag: 'of_' + (it.id || Date.now()) }; }
   if (a === 'convertir_documento' && NOMBRE_DOC[String(body.tabla_destino)])
-    return { titulo: '📄 ' + q + ' creó ' + NOMBRE_DOC[String(body.tabla_destino)] + ' ' + (j.folio || ''), cuerpo: 'Desde ' + (NOMBRE_DOC[String(body.tabla_origen)] || 'otro documento'), url: ir('cobranza'), tag: 'of_' + (j.nuevoId || Date.now()) };
+    return { titulo: '📄 ' + q + ' creó ' + NOMBRE_DOC[String(body.tabla_destino)] + ' ' + (j.folio || ''), cuerpo: 'Desde ' + (NOMBRE_DOC[String(body.tabla_origen)] || 'otro documento'), url: ir(String(body.tabla_destino), { id: j.nuevoId }), tag: 'of_' + (j.nuevoId || Date.now()) };
   if (a === 'facturama_timbrar'){ const c = body.cfdi || {}; const tipo = c.CfdiType === 'P' ? 'complemento de pago' : c.CfdiType === 'E' ? 'nota de crédito' : 'factura';
-    return { titulo: '🧾 ' + q + ' timbró ' + tipo + ' ' + (c.Serie || '') + (j.folio || c.Folio || ''), cuerpo: ((c.Receiver && c.Receiver.Name) || '') + (j.total ? ' · ' + pesos(j.total) : ''), url: ir('cobranza'), tag: 'tim_' + (j.uuid || Date.now()) }; }
-  if (a === 'facturama_cancelar') return { titulo: '⚠️ ' + q + ' canceló un CFDI ante el SAT', cuerpo: String(body.uuid || body.id || ''), url: ir('cobranza'), tag: 'can_' + (body.uuid || body.id || Date.now()) };
-  if (a === 'capturar_pago_cliente') return { titulo: '💵 ' + q + ' registró un pago de ' + pesos(body.monto), cuerpo: [body.cuenta, String(body.fecha || '').slice(0, 10), String(body.notas || '').slice(0, 80)].filter(Boolean).join(' · '), url: ir('cobranza'), tag: 'pago_' + body.id_doc + '_' + body.monto };
-  if (a === 'confirmar_cotizacion') return { titulo: '✅ ' + q + ' confirmó la cotización ' + ((j.pedido && j.pedido.cotizacion_origen) || '') + ' → pedido ' + ((j.pedido && j.pedido.folio) || ''), cuerpo: (j.pedido && ((j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('cotizaciones'), tag: 'conf_' + body.id };
-  if (a === 'activar_pedido') return { titulo: '✅ ' + q + ' confirmó un pedido', cuerpo: (j.pedido && (j.pedido.folio + ' · ' + (j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('cobranza'), tag: 'act_' + body.id };
-  if (a === 'cancelar_pedido_venta') return { titulo: '✕ ' + q + ' canceló un pedido', cuerpo: String(body.motivo || ''), url: ir('cobranza'), tag: 'cped_' + body.id };
+    return { titulo: '🧾 ' + q + ' timbró ' + tipo + ' ' + (c.Serie || '') + (j.folio || c.Folio || ''), cuerpo: ((c.Receiver && c.Receiver.Name) || '') + (j.total ? ' · ' + pesos(j.total) : ''), url: c.CfdiType === 'P' ? ir('cobranza') : ir(c.CfdiType === 'E' ? 'notascredito' : 'facturas', { folio: (c.Serie || '') + (j.folio || c.Folio || '') }), tag: 'tim_' + (j.uuid || Date.now()) }; }
+  if (a === 'facturama_cancelar') return { titulo: '⚠️ ' + q + ' canceló un CFDI ante el SAT', cuerpo: String(body.uuid || body.id || ''), url: ir('facturas'), tag: 'can_' + (body.uuid || body.id || Date.now()) };
+  if (a === 'capturar_pago_cliente') return { titulo: '💵 ' + q + ' registró un pago de ' + pesos(body.monto), cuerpo: [body.cuenta, String(body.fecha || '').slice(0, 10), String(body.notas || '').slice(0, 80)].filter(Boolean).join(' · '), url: ir('cobranza', { id: body.id_doc }), tag: 'pago_' + body.id_doc + '_' + body.monto };
+  if (a === 'confirmar_cotizacion') return { titulo: '✅ ' + q + ' confirmó la cotización ' + ((j.pedido && j.pedido.cotizacion_origen) || '') + ' → pedido ' + ((j.pedido && j.pedido.folio) || ''), cuerpo: (j.pedido && ((j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('pedidos', { id: j.pedido && j.pedido.id }), tag: 'conf_' + body.id };
+  if (a === 'activar_pedido') return { titulo: '✅ ' + q + ' confirmó un pedido', cuerpo: (j.pedido && (j.pedido.folio + ' · ' + (j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('pedidos', { id: body.id }), tag: 'act_' + body.id };
+  if (a === 'cancelar_pedido_venta') return { titulo: '✕ ' + q + ' canceló un pedido', cuerpo: String(body.motivo || ''), url: ir('pedidos', { id: body.id }), tag: 'cped_' + body.id };
   if (a === 'erp_upsert_batch' && NOMBRE_DOC[t]){ const n = (body.items || []).filter((i: any) => /cancel/i.test(String(i && i.estatus || ''))).length;
-    if (n) return { titulo: '✕ ' + q + ' canceló ' + (n > 1 ? n + ' documentos (' + t + ')' : NOMBRE_DOC[t]), cuerpo: (body.items || []).slice(0, 3).map((i: any) => i.id).join(', '), url: ir(t === 'cotizaciones' ? 'cotizaciones' : 'cobranza'), tag: 'cdoc_' + Date.now() }; }
+    if (n) return { titulo: '✕ ' + q + ' canceló ' + (n > 1 ? n + ' documentos (' + t + ')' : NOMBRE_DOC[t]), cuerpo: (body.items || []).slice(0, 3).map((i: any) => i.id).join(', '), url: ir(t, { id: n === 1 ? ((body.items || []).find((i: any) => /cancel/i.test(String(i && i.estatus || ''))) || {}).id : '' }), tag: 'cdoc_' + Date.now() }; }
   return null;
 }
 async function avisarRafa(datos: any, quienCodigo: string){
@@ -412,9 +412,9 @@ Deno.serve(async (req) => {
       if (body.accion === 'erp_listar' && j.ok && Array.isArray(j.items)) j.items = await filtrarVend(String(body.tabla), j.items, se, m);
       // v4.65 — aviso a la oficina (sin esperar: el vendedor no se queda esperando)
       if (j.ok && !j.ya_existia && body.accion === 'erp_crear' && body.tabla === 'cotizaciones'){ const it = j.item || body.item;
-        enSegundoPlano(avisar({ titulo: '🧾 Cotización nueva ' + (it.folio || '') + ' · ' + se.vend, cuerpo: (it.cliente || '') + ' · ' + pesos(it.total) + ' · tócala para confirmarla', url: './?ir=cotizaciones', tag: 'cot_' + it.id })); }
+        enSegundoPlano(avisar({ titulo: '🧾 Cotización nueva ' + (it.folio || '') + ' · ' + se.vend, cuerpo: (it.cliente || '') + ' · ' + pesos(it.total) + ' · tócala para confirmarla', url: './?ir=cotizaciones&id=' + encodeURIComponent(String(it.id || '')), tag: 'cot_' + it.id })); }
       if (j.ok && !j.ya_existia && body.accion === 'erp_crear' && body.tabla === 'pagosverificar'){ const it = j.item || body.item;
-        enSegundoPlano(avisar({ titulo: '💵 ' + se.vend + ' reportó un pago' + ((body.item || {}).con_comprobante ? ' 📎' : ''), cuerpo: (it.cliente || '') + ' · ' + pesos(it.monto) + ' · por verificar' + ((body.item || {}).con_comprobante ? ' · con foto del comprobante' : ''), url: './?ir=cobranza', tag: 'pv_' + it.id })); }
+        enSegundoPlano(avisar({ titulo: '💵 ' + se.vend + ' reportó un pago' + ((body.item || {}).con_comprobante ? ' 📎' : ''), cuerpo: (it.cliente || '') + ' · ' + pesos(it.monto) + ' · por verificar' + ((body.item || {}).con_comprobante ? ' · con foto del comprobante' : ''), url: './?ir=cobranza&pv=' + encodeURIComponent(String(it.id || '')), tag: 'pv_' + it.id })); }
       return json(j);
     }
     const _f = () => conReintento(() => ejecutar('post', texto, body, m, !A_LECTURA.test(accion)));

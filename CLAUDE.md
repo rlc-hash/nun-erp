@@ -254,6 +254,16 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - **v4.81 / app v2.1.16 (11 nov, Rafa: "olvídalo, por pieza está mejor")**: el carry on vuelve a ir **POR PIEZA** en editor, PDF y app. Lo de caja (v4.78/v4.80/
   v2.1.15) queda APAGADO con un interruptor: `NUN_CARRY_CAJA = false` (index.html; nunLineaCaja/_docPz/editor) y `CARRY_CAJA = false` (ventas/index.html, pzSet).
   Los renglones que ya traen `pz_caja: 6` se ven en piezas (el dato no estorba). Para volver a cajas: poner los dos en true (y copiar_pdf.py).
+- v4.82 / servidor supabase-1.9 (11 nov, Rafa): (1) **lentitud**: la función se congela entre peticiones y al despertar reusaba conexiones que el pooler
+  ya cerró → lecturas de 20–100 s (LECTURA_TRABADA / CONNECTION_DESTROYED en nun_log). Ahora `poolFresco()`: tras 4 s sin peticiones (y nada en curso) abre
+  pool nuevo. Medir con nun_log (p90 por hora). (2) Los usuarios NO tienen nombre guardado: `nombreDe`/`prefijoNombre` usan nombre → vendedor_asignado →
+  inicio del código en avisos y nun_log ("✅ <Nombre> confirmó la cotización C… → pedido P…"). (3) ERP: confirmar cotización/pedido ya no espera a bajar
+  listas: pone al día lo que se ve con la respuesta (`nunAlDiaLocal`) y refresca en el fondo (`nunRefrescarFondo`); Estado de cuenta y Cuadrar por cliente
+  abren al momento (`nunTablaLista`: solo esperan lo que no está bajado). (4) **Estado de cuenta** con el formato de Rafa (azul marino + franja naranja, Fecha
+  de corte, Periodo, % cubierto, Detalle de pedidos con Días y Liquidado/Parcial/Pendiente, Historial de pagos; sin piezas por defecto) y en el teléfono se
+  hace un PDF de verdad (`nunHtmlAPdf`, html2pdf 0.10.1 de cdnjs) con 📥 Guardar / 📤 Compartir. (5) Regla de Rafa: todo pedido debe estar en Cobranza (ya no
+  se remisiona): un pedido parcial con solo parte facturada lleva un cobro `cob_<pedidoId>` (tipo Pedido, numero "PED <folio>") por lo que falta.
+  Pruebas `prueba_v482_nombre_y_conexiones.js`, `prueba_v482_rapido.js`, `prueba_v471_estado_cuenta.js` (diseño nuevo).
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

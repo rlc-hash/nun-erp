@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-1.8'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-1.9'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -46,6 +46,8 @@ async function lectura<T>(f: () => Promise<T>, ms = 20000): Promise<T> {
     } finally { clearTimeout(t); }
   }
 }
+let _enVuelo = 0, _ultimoUso = 0;
+function poolFresco(){ const ahora = Date.now(); if (_enVuelo === 0 && _ultimoUso && ahora - _ultimoUso > 4000) { const viejo = sql; sql = poolNuevo(); viejo.end({ timeout: 0 }).catch(() => {}); } _ultimoUso = ahora; } // v4.82
 const esErrorConexion = (e: unknown) => /connection slots|too many (clients|connections)|ECONNRESET|CONNECT_TIMEOUT|CONNECTION_(CLOSED|ENDED|DESTROYED)|Max client connections|terminating connection/i.test(String(e));
 // Reintenta lo que falló por falta de conexión (en ese punto no se guardó nada: la transacción no llegó a confirmarse).
 async function conReintento<T>(f: () => Promise<T>): Promise<T> {
@@ -68,6 +70,9 @@ const aprendidas = new Map<string, string[]>();   // qué hojas usó cada acció
 
 async function sha(s: string){ const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2,'0')).join(''); }
 const norm = (c: unknown) => String(c || '').toUpperCase().trim();
+// v4.82 — los usuarios no tienen nombre guardado: se usa el nombre, si no su vendedor asignado, si no el inicio del código (YAZMIN-… → Yazmin). Nunca el código completo.
+const prefijoNombre = (c: unknown) => { const p = String(c || '').trim().split(/[-_\s0-9]/)[0]; return p.length >= 2 ? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase() : ''; };
+const nombreDe = (nombre: unknown, codigo: unknown, extra?: unknown) => String(nombre || extra || prefijoNombre(codigo) || '').slice(0, 60);
 
 async function google(body: Record<string, unknown>, intentos = 3){
   let ultimo = '';
@@ -176,7 +181,7 @@ function avisoOficina(body: any, j: any, quien: string){
     return { titulo: '🧾 ' + q + ' timbró ' + tipo + ' ' + (c.Serie || '') + (j.folio || c.Folio || ''), cuerpo: ((c.Receiver && c.Receiver.Name) || '') + (j.total ? ' · ' + pesos(j.total) : ''), url: ir('cobranza'), tag: 'tim_' + (j.uuid || Date.now()) }; }
   if (a === 'facturama_cancelar') return { titulo: '⚠️ ' + q + ' canceló un CFDI ante el SAT', cuerpo: String(body.uuid || body.id || ''), url: ir('cobranza'), tag: 'can_' + (body.uuid || body.id || Date.now()) };
   if (a === 'capturar_pago_cliente') return { titulo: '💵 ' + q + ' registró un pago de ' + pesos(body.monto), cuerpo: [body.cuenta, String(body.fecha || '').slice(0, 10), String(body.notas || '').slice(0, 80)].filter(Boolean).join(' · '), url: ir('cobranza'), tag: 'pago_' + body.id_doc + '_' + body.monto };
-  if (a === 'confirmar_cotizacion') return { titulo: '✅ ' + q + ' confirmó una cotización → pedido', cuerpo: (j.pedido && (j.pedido.folio + ' · ' + (j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('cotizaciones'), tag: 'conf_' + body.id };
+  if (a === 'confirmar_cotizacion') return { titulo: '✅ ' + q + ' confirmó la cotización ' + ((j.pedido && j.pedido.cotizacion_origen) || '') + ' → pedido ' + ((j.pedido && j.pedido.folio) || ''), cuerpo: (j.pedido && ((j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('cotizaciones'), tag: 'conf_' + body.id };
   if (a === 'activar_pedido') return { titulo: '✅ ' + q + ' confirmó un pedido', cuerpo: (j.pedido && (j.pedido.folio + ' · ' + (j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('cobranza'), tag: 'act_' + body.id };
   if (a === 'cancelar_pedido_venta') return { titulo: '✕ ' + q + ' canceló un pedido', cuerpo: String(body.motivo || ''), url: ir('cobranza'), tag: 'cped_' + body.id };
   if (a === 'erp_upsert_batch' && NOMBRE_DOC[t]){ const n = (body.items || []).filter((i: any) => /cancel/i.test(String(i && i.estatus || ''))).length;
@@ -270,6 +275,7 @@ async function ejecutar(tipo: 'post'|'get', payload: string|Record<string,string
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   await dbLista();
+  poolFresco(); _enVuelo++; // v4.82
   const t0 = Date.now();
   let accion = '', ok = true, err = '', quien = '';
   try {
@@ -279,7 +285,7 @@ Deno.serve(async (req) => {
       accion = 'GET ' + (p.tabla || '');
       if (!p.tabla) return json({ ok: true, mensaje: 'NUN ERP backend ' + VERSION, db: MODO_DB });
       const c = norm(p.codigo), m = new Map(); if (c) m.set(c, await conReintento(() => sesion(c, false)));
-      const se = { ...(m.get(c) || {}), codigo: c }; quien = se.nombre || '';
+      const se = { ...(m.get(c) || {}), codigo: c }; quien = nombreDe(se.nombre, c);
       if (se.relogin) return json({ ok: false, error: 'AUTH: vuelve a entrar con tu código', requiere_login: true });
       if (se.ok && se.rol === 'vendedor'){ // v4.63
         if (!T_VEND.has(String(p.tabla))) return json({ ok: false, error: 'Tabla no disponible' });
@@ -299,7 +305,7 @@ Deno.serve(async (req) => {
       const r = await google(body, /^facturama_(timbrar|cancelar)$/.test(accion) ? 1 : 3);
       if (accion === 'login' && r && r.ok){
         const c = norm(body.codigo), rol = String((r.usuario && r.usuario.rol) || '').toLowerCase();
-        const nom = String((r.usuario && r.usuario.nombre) || '').slice(0, 60);
+        const nom = nombreDe(r.usuario && r.usuario.nombre, c, r.usuario && r.usuario.vendedor_asignado);
         const pm = (r.permisos && typeof r.permisos === 'object') ? r.permisos : {}; // v4.63
         const vend = norm((r.usuario && r.usuario.vendedor_asignado) || nom), todos = !!pm.ver_todos_clientes, cotiza = !!pm.agregar_pedidos && !pm.solo_consulta;
         await sql`insert into nun_sesiones (h, admin, nombre, hasta, rol, vend, todos, cotiza) values (${await sha(c)}, ${rol === 'admin'}, ${nom}, now() + interval '6 hours', ${rol || 'sin_rol'}, ${vend}, ${todos}, ${cotiza})
@@ -307,13 +313,13 @@ Deno.serve(async (req) => {
         quien = nom;
       }
       ok = !!(r && r.ok); if (!ok) err = String(r && r.error || '').substring(0, 200);
-      if (!quien) quien = String(body._quien || '').slice(0, 60);
+      if (!quien) quien = String(body._quien || '').slice(0, 60) || prefijoNombre(body.codigo);
       if (/^facturama_(timbrar|cancelar)$/.test(accion)){ const av = avisoOficina(body, r, quien); if (av) enSegundoPlano(avisarRafa(av, norm(body.codigo))); } // v4.76
       return json(r);
     }
     // v4.16 — quién y cuándo cambió un documento (solo administradores)
     if (accion === 'historial_doc') {
-      const c = norm(body.codigo), se = await sesion(c, true); quien = se.nombre || String(body._quien || '').slice(0, 60);
+      const c = norm(body.codigo), se = await sesion(c, true); quien = se.nombre || String(body._quien || '').slice(0, 60) || prefijoNombre(c);
       if (!se.ok || !se.admin) return json({ ok: false, error: 'Solo administradores' });
       const k = String(body.id || '').slice(0, 26); if (!k) return json({ ok: false, error: 'Falta el documento' });
       const rows = await sql`select to_char(fecha at time zone 'America/Mexico_City', 'YYYY-MM-DD HH24:MI:SS') as fecha, accion, coalesce(quien, '') as quien, ok
@@ -324,7 +330,7 @@ Deno.serve(async (req) => {
     const m = new Map();
     for (const c of new Set([body.codigo, body.codigo_usuario, body.codigo_admin].map(norm).filter(Boolean))) m.set(c, await conReintento(() => sesion(c, necesitaAdmin)));
     const _c = norm(body.codigo || body.codigo_usuario || body.codigo_admin), se = { ...(m.get(_c) || {}), codigo: _c };
-    quien = se.nombre || String(body._quien || '').slice(0, 60);
+    quien = se.nombre || String(body._quien || '').slice(0, 60) || prefijoNombre(_c); se.nombre = se.nombre || quien;
     if ([...m.values()].some((x: any) => x.relogin)) return json({ ok: false, error: 'AUTH: vuelve a entrar con tu código', requiere_login: true }); // v4.63
     // v4.67 — cerrar la sesión de otros (Rafa): su siguiente movimiento le pide volver a entrar con su código
     if (accion === 'cerrar_sesiones'){
@@ -421,6 +427,7 @@ Deno.serve(async (req) => {
     ok = false; err = String(e).substring(0, 300);
     return json({ ok: false, error: 'Error del servidor: ' + err });
   } finally {
+    _enVuelo = Math.max(0, _enVuelo - 1); _ultimoUso = Date.now(); // v4.82
     const ms = Date.now() - t0;
     sql`insert into nun_log (accion, ms, ok, error, quien) values (${accion}, ${ms}, ${ok}, ${err}, ${quien})`.catch(() => {});
   }

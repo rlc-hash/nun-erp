@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.81 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.82 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4189,7 +4189,7 @@ function nunPedidosExcelCalc(cli){
     mis.forEach(x => { if (x.soloVer || (x.peds.length > 1 && !ks.includes(x.peds[0]))) return; let c = null; try { c = nunCobroDeDoc(x.t, x.d); } catch(e){} if (c && es(c.cliente) && !/cancel/i.test(String(c.estatus||''))) cs.set(c.id, c); });
     cobs.forEach(c => { if (!/cancel/i.test(String(c.estatus||'')) && (String(c.factura_origen) === String(p.id) || ks.some(k => String(c.descripcion||'').toUpperCase().includes('[PEDIDO ' + String(k).toUpperCase() + ']')))) cs.set(c.id, c); });
     const total = +p.total || 0, falta = Math.max(0, nunR2([...cs.values()].reduce((a, c) => a + Math.max(0, +c.pendiente||0), 0)));
-    return { p, total, falta, pagado: nunR2(total - falta), cobs: [...cs.values()], docs: mis.map(x => ({ L: x.L, folio: nunFolioStr(x.d), comparte: !x.soloVer && x.peds.length > 1 ? x.peds.filter(k => !ks.includes(k)) : [], bor: !!x.bor })) };
+    return { p, total, falta, pagado: nunR2(total - falta), cobs: [...cs.values()], docs: mis.map(x => ({ L: x.L, folio: nunFolioStr(x.d), fecha: x.d.fecha, comparte: !x.soloVer && x.peds.length > 1 ? x.peds.filter(k => !ks.includes(k)) : [], bor: !!x.bor })) };
   }).sort((a, b) => String(a.p.fecha||'').localeCompare(String(b.p.fecha||'')));
 }
 function nunPedidosExcelHTML(cli){
@@ -4209,7 +4209,7 @@ window.nunPedidosExcelHTML = nunPedidosExcelHTML;
 // elegir cliente y qué pedidos salen; PDF con la marca NUN: lo que pidió, lo que lleva pagado y lo que le falta.
 // Usa los mismos números que "Pedidos (como tu Excel)" de la ficha (nunPedidosExcelCalc) + documentos con saldo que no son de ningún pedido.
 // ============================================================
-const _nunEC = { cli:null, sel:{}, otros:{}, prod:true, pagos:true };
+const _nunEC = { cli:null, sel:{}, otros:{}, prod:false, pagos:true }; // v4.82 (Rafa): sin detalle por pieza; con historial de pagos
 function nunECDatos(cli){
   const peds = nunPedidosExcelCalc(cli);
   const usados = new Set(); peds.forEach(x => (x.cobs||[]).forEach(c => usados.add(String(c.id))));
@@ -4219,7 +4219,11 @@ function nunECDatos(cli){
   return { peds, otros };
 }
 async function nunEstadoCuentaAbrir(cliId){
-  await Promise.all(['clientes','pedidos','remisiones','facturas','cobranza','ingresos'].map(t => cargarTabla(t).catch(() => {})));
+  // v4.82 — abre AL MOMENTO con lo que ya está cargado (antes esperaba 6 listas: en el teléfono parecía que el botón no servía);
+  // las listas se ponen al día en el fondo y la tabla se vuelve a pintar sola.
+  const _ecT = ['clientes','pedidos','remisiones','facturas','cobranza','ingresos'], _ecFaltan = _ecT.filter(t => !nunTablaLista(t));
+  if (_ecFaltan.length) { nunOcupado('Cargando…'); try { await Promise.all(_ecFaltan.map(t => cargarTabla(t).catch(() => {}))); } finally { nunOcupado(''); } }
+  Promise.all(_ecT.filter(t => !_ecFaltan.includes(t)).map(t => cargarTabla(t, { ttl: 1 }).catch(() => {}))).then(() => { if (document.getElementById('modalEC') && _nunEC.cli) { const c2 = (State.data.clientes||[]).find(c => String(c.id) === String(_nunEC.cli.id)); if (c2) _nunEC.cli = c2; nunECPintar(); } });
   _nunEC.cli = cliId ? (State.data.clientes||[]).find(c => String(c.id) === String(cliId)) || null : null; _nunEC.sel = {}; _nunEC.otros = {};
   let m = document.getElementById('modalEC'); if (m) m.remove();
   m = document.createElement('div'); m.id = 'modalEC';
@@ -4264,7 +4268,7 @@ function nunECPintar(){
       <label>${chk(_nunEC.prod, '_nunEC.prod=this.checked')} Con el detalle de productos</label>
       <label>${chk(_nunEC.pagos, '_nunEC.pagos=this.checked')} Con los pagos recibidos</label></div>
     <div id="ecTot" style="margin-top:12px"></div>
-    <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn btn-primary" onclick="nunECPdf()">📄 Descargar estado de cuenta</button></div>`;
+    <div id="ecPdfBox" style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn btn-primary" onclick="nunECPdf()">📄 Descargar estado de cuenta</button></div>`;
   nunECTotales();
 }
 function nunECMarcar(modo){
@@ -4294,68 +4298,121 @@ function nunECTotales(){
     `<div style="flex:1;min-width:150px;border:1px solid var(--line);border-radius:8px;padding:10px 12px"><div style="font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.06em">${l}</div><div style="font-size:18px;font-weight:600;font-family:'JetBrains Mono',monospace;${c ? 'color:' + c : ''}">${fmtFull(v)}</div></div>`).join('')}</div>
     <div style="font-size:12px;color:var(--mute);margin-top:6px">${S2.peds.length} pedido(s)${S2.otros.length ? ' + ' + S2.otros.length + ' documento(s)' : ''} · ${S2.pagos.length} pago(s)</div>`;
 }
+// v4.82 (Rafa 11 nov) — diseño del estado de cuenta como su formato: encabezado azul marino con franja naranja, tarjetas Cliente / Fecha de corte /
+// Periodo, Total facturado · Total pagado (barra "% cubierto") · Saldo pendiente, Detalle de pedidos (#, pedido, entrega, documentos, importe,
+// pagado, saldo, días, estatus LIQUIDADO/PARCIAL/PENDIENTE) y abajo el historial de pagos. Sin detalle por pieza (se puede prender).
 function nunECHTML(){
-  const cli = _nunEC.cli, S2 = nunECSeleccion(), emp = State.data.empresa || {};
-  const e = escapeHTML, hoyL = fmtFechaLarga(new Date());
-  const fechas = S2.peds.map(x => String(x.p.fecha||'').slice(0, 10)).concat(S2.otros.map(c => String(c.fecha_emision||'').slice(0, 10))).filter(Boolean).sort();
+  const cli = _nunEC.cli, S2 = nunECSeleccion();
+  const e = escapeHTML, hoy = new Date(), dmy = f => { const x = String(f||'').slice(0, 10).split('-'); return x.length === 3 ? x[2] + '/' + x[1] + '/' + x[0] : '—'; };
+  const MES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'], my = f => { const x = String(f||'').slice(0, 10).split('-'); return x.length === 3 ? MES[+x[1] - 1] + ' ' + x[0] : ''; };
+  const dias = f => { const x = String(f||'').slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) return ''; return Math.max(0, Math.floor((hoy - new Date(x + 'T12:00:00')) / 86400000)); };
   const items = p => { try { const a = JSON.parse(p.items_json || '[]'); return Array.isArray(a) ? a : []; } catch(err){ return []; } };
-  const estado = f => f > 0.5 ? '<span class="st pend">Pendiente</span>' : '<span class="st ok">Pagado</span>';
-  const filasPed = S2.peds.map(x => `<tr class="ped"><td>${fmtFechaLarga(x.p.fecha)}</td><td class="mono"><b>${e(nunFolioStr(x.p))}</b></td><td>${x.docs.map(d => e((d.L === 'F' ? 'Factura ' : 'Remisión ') + d.folio)).join('<br>') || '—'}</td><td class="r">${fmtFull(x.total)}</td><td class="r">${fmtFull(x.pagado)}</td><td class="r b">${fmtFull(x.falta)}</td><td>${estado(x.falta)}</td></tr>`
-      + (_nunEC.prod && items(x.p).length ? `<tr class="det"><td></td><td colspan="6">${items(x.p).map(it => `<span>${+it.cantidad || 0} × <b>${e(it.sku||'')}</b> ${e(it.descripcion||'')} · ${fmtFull(it.precio_unitario)}</span>`).join('')}</td></tr>` : '')).join('');
-  const filasOtros = S2.otros.map(c => `<tr class="ped"><td>${fmtFechaLarga(c.fecha_emision)}</td><td class="mono"><b>${e(c.numero||'')}</b></td><td>${e(c.tipo||'')}</td><td class="r">${fmtFull(c.total)}</td><td class="r">${fmtFull(c.cobrado)}</td><td class="r b">${fmtFull(Math.max(0, +c.pendiente||0))}</td><td>${estado(+c.pendiente||0)}</td></tr>`).join('');
-  const logo = (typeof nunLogoPDF === 'function' ? nunLogoPDF() : '').replace('class="logo"', 'class="logo" style="width:78px;height:40px;display:block;margin-bottom:10px"');
+  const est = (falta, pagado) => falta <= 0.5 ? '<span class="st ok">Liquidado</span>' : pagado > 0.5 ? '<span class="st par">Parcial</span>' : '<span class="st pen">Pendiente</span>';
+  const filas = S2.peds.map(x => { const ds = (x.docs || []).map(d => String(d.fecha||'').slice(0, 10)).filter(Boolean).sort(); const ent = ds[0] || String(x.p.fecha_entrega||'').slice(0, 10);
+      return { fecha: x.p.fecha, folio: nunFolioStr(x.p), ent, docs: (x.docs || []).map(d => (d.L === 'F' ? 'F ' : 'R ') + d.folio).join(' · '), total: x.total, pagado: x.pagado, falta: x.falta, prods: items(x.p) }; })
+    .concat(S2.otros.map(c => ({ fecha: c.fecha_emision, folio: '', ent: String(c.fecha_entrega || c.fecha_emision || '').slice(0, 10), docs: ((c.tipo || '') + ' ' + (c.numero || '')).trim(), total: +c.total || 0, pagado: +c.cobrado || 0, falta: Math.max(0, +c.pendiente || 0), prods: [] })))
+    .sort((a, b) => String(a.fecha||'').localeCompare(String(b.fecha||'')));
+  const fechas = filas.map(f => String(f.fecha||'').slice(0, 10)).filter(Boolean).sort();
+  const conSaldo = filas.filter(f => f.falta > 0.5).length, pct = S2.total > 0 ? Math.min(100, Math.round(S2.pagado / S2.total * 1000) / 10) : 0;
+  const totPagos = nunR2(S2.pagos.reduce((a, i) => a + (+i.monto||0), 0));
+  const logo = (typeof nunLogoPDF === 'function' ? nunLogoPDF() : '').replace('class="logo"', 'class="logo" style="width:92px;height:48px;display:block"');
+  const AZ = '#0b1d3a', NA = '#f25a1d';
   return `<!doctype html><html><head><meta charset="utf-8"><title>Estado de cuenta · ${e(cli.razon_social)}</title><style>
-    @page { size: letter; margin: 12mm 14mm; }
+    @page { size: letter; margin: 0; }
     * { box-sizing:border-box; }
-    body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#0a0c0f; margin:0; font-size:10.5px; line-height:1.45; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    .head { display:flex; justify-content:space-between; align-items:flex-start; padding:18px 22px; background:#0a0c0f; color:#fff; border-radius:10px; }
-    .emp-name { font-size:13px; font-weight:700; margin-bottom:3px; } .emp-data { font-size:9px; color:rgba(255,255,255,.75); line-height:1.55; }
-    .tit { text-align:right; } .tit .lbl { font-size:9px; color:rgba(255,255,255,.5); text-transform:uppercase; letter-spacing:.16em; }
-    .tit .big { font-size:24px; font-weight:700; letter-spacing:-.01em; line-height:1.1; margin-top:2px; } .tit .meta { font-size:9.5px; color:rgba(255,255,255,.75); margin-top:8px; line-height:1.5; }
-    .grid { display:grid; grid-template-columns:1.3fr 1fr; gap:8px; margin:12px 0; }
-    .box { padding:11px 14px; background:#f5f6f8; border-radius:8px; border:1px solid #e9ecef; }
-    .box .lbl { font-size:8.5px; color:#8a8d94; text-transform:uppercase; letter-spacing:.12em; margin-bottom:4px; font-weight:700; }
-    .box .name { font-size:12.5px; font-weight:700; } .box .info { font-size:9.5px; color:#555; line-height:1.55; margin-top:3px; }
-    .res { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:4px; } .res div { font-size:9px; color:#8a8d94; text-transform:uppercase; letter-spacing:.08em; }
-    .res b { display:block; font-family:'Courier New',monospace; font-size:12.5px; color:#0a0c0f; letter-spacing:0; text-transform:none; }
-    .saldo { margin-top:8px; background:linear-gradient(135deg,#0a0c0f 0%,#1d2025 100%); color:#fff; border-radius:8px; padding:9px 12px; display:flex; justify-content:space-between; align-items:center; }
-    .saldo span { font-size:9px; letter-spacing:.12em; text-transform:uppercase; color:rgba(255,255,255,.7); } .saldo b { font-family:'Courier New',monospace; font-size:17px; }
-    h2 { font-size:10px; text-transform:uppercase; letter-spacing:.14em; color:#8a8d94; margin:16px 0 6px; }
-    table { width:100%; border-collapse:collapse; font-size:9.8px; }
-    th { background:#0a0c0f; color:#fff; padding:8px 9px; text-align:left; text-transform:uppercase; font-size:8px; letter-spacing:.1em; } th.r { text-align:right; }
-    td { padding:7px 9px; border-bottom:1px solid #eef0f3; vertical-align:top; } tr.ped:nth-of-type(4n+1) td { background:#fafbfc; }
-    td.r { text-align:right; font-family:'Courier New',monospace; white-space:nowrap; } td.b { font-weight:700; } .mono { font-family:'Courier New',monospace; }
-    tr.det td { padding:0 9px 8px; border-bottom:1px solid #eef0f3; font-size:8.8px; color:#555; } tr.det span { display:inline-block; margin:0 14px 2px 0; }
-    tr.tot td { font-weight:700; background:#f5f6f8; border-top:2px solid #0a0c0f; }
-    .st { display:inline-block; padding:2px 8px; border-radius:100px; font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
-    .st.ok { background:#e6f6ee; color:#137a43; } .st.pend { background:#fff1e6; color:#b45309; }
-    .nota { margin-top:14px; padding:10px 14px; background:#f5f6f8; border-left:3px solid #0a0c0f; border-radius:0 8px 8px 0; font-size:9.3px; color:#444; line-height:1.55; }
-    .footer { margin-top:22px; padding-top:12px; border-top:1px solid #e9ecef; font-size:8.5px; color:#8a8d94; text-align:center; } .footer b { color:#0a0c0f; }
+    body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#14181f; margin:0; font-size:10px; line-height:1.4; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .head { background:${AZ}; color:#fff; padding:26px 34px 24px; display:flex; justify-content:space-between; align-items:center; border-bottom:5px solid ${NA}; }
+    .head h1 { margin:0; font-size:25px; font-weight:700; text-align:right; letter-spacing:-.01em; } .head .emp { font-size:8.5px; letter-spacing:.2em; color:rgba(255,255,255,.65); text-transform:uppercase; text-align:right; margin-top:4px; }
+    .cuerpo { padding:22px 34px 26px; }
+    .tres { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:12px; }
+    .card { background:#f1f2f4; border-radius:6px; padding:10px 12px; } .lbl { font-size:7.5px; letter-spacing:.14em; text-transform:uppercase; color:#6b7280; margin-bottom:3px; }
+    .card b { font-size:12px; } .card .sub { font-size:8.5px; color:#6b7280; margin-top:1px; }
+    .kpi { border:1px solid #d6d9de; border-radius:6px; padding:11px 13px; } .kpi .v { font-size:17px; font-weight:700; letter-spacing:-.01em; }
+    .barra { height:5px; background:#e3e5e8; border-radius:4px; margin-top:7px; overflow:hidden; } .barra i { display:block; height:100%; background:#1f7a4d; }
+    .kpi .sub { font-size:8px; color:#6b7280; margin-top:4px; }
+    .kpi.osc { background:${AZ}; color:#fff; border-color:${AZ}; } .kpi.osc .lbl, .kpi.osc .sub { color:rgba(255,255,255,.7); }
+    h2 { font-size:8.5px; letter-spacing:.18em; text-transform:uppercase; color:#374151; margin:20px 0 6px; }
+    table { width:100%; border-collapse:collapse; font-size:9px; }
+    th { background:${AZ}; color:#fff; padding:6px 6px; text-align:left; font-size:7.2px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; } th.r { text-align:right; } th.c { text-align:center; }
+    td { padding:6px 6px; border-bottom:1px solid #e6e8eb; vertical-align:top; } tbody tr:nth-child(even) td { background:#f6f7f8; }
+    td.r { text-align:right; white-space:nowrap; } td.c { text-align:center; } td.b { font-weight:700; } td.n { color:#9aa0a8; } td.doc { color:#6b7280; font-size:8.3px; }
+    .fol { display:block; color:#6b7280; font-size:7.8px; }
+    tr.det td { background:#fff !important; color:#555; font-size:8px; padding:0 6px 6px; } tr.det span { display:inline-block; margin-right:12px; }
+    tr.tot td { font-weight:700; background:#e9ebee !important; border-top:2px solid ${AZ}; } tr.tot td.na { background:${NA} !important; color:#fff; }
+    .st { display:inline-block; padding:2px 7px; border-radius:100px; font-size:7px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+    .st.ok { background:#e2f4ea; color:#1f7a4d; } .st.par { background:#fde8de; color:#c2410c; } .st.pen { background:#fde2e2; color:#b91c1c; }
+    .nota { margin-top:16px; border-left:3px solid ${NA}; padding:6px 12px; font-size:8.3px; color:#4b5563; line-height:1.55; }
+    .pie { margin-top:18px; font-size:7.5px; color:#9aa0a8; text-align:center; }
     tr { page-break-inside:avoid; }
   </style></head><body>
-    <div class="head"><div>${logo}<div class="emp-name">${e(emp.razon_social||'Comercializadora Casraf SA de CV')}</div>
-      <div class="emp-data">${emp.rfc ? 'RFC: ' + e(emp.rfc) : ''}${emp.direccion ? '<br>' + e(emp.direccion) : ''}${emp.ciudad ? ', ' + e(emp.ciudad) : ''}${emp.estado ? ', ' + e(emp.estado) : ''}${emp.cp ? ' CP ' + e(String(emp.cp).padStart(5, '0')) : ''}${emp.email || emp.telefono ? '<br>' + [emp.email ? '✉ ' + e(emp.email) : '', emp.telefono ? '☎ ' + e(emp.telefono) : ''].filter(Boolean).join(' · ') : ''}</div></div>
-      <div class="tit"><div class="lbl">Estado de cuenta</div><div class="big">Al ${hoyL}</div>
-        <div class="meta">${fechas.length ? 'Periodo: ' + fmtFechaLarga(fechas[0]) + ' – ' + fmtFechaLarga(fechas[fechas.length - 1]) + '<br>' : ''}${S2.peds.length} pedido(s)${S2.otros.length ? ' · ' + S2.otros.length + ' documento(s)' : ''}</div></div></div>
-    <div class="grid">
-      <div class="box"><div class="lbl">Cliente</div><div class="name">${e(cli.razon_social)}</div>
-        <div class="info">${[cli.rfc ? '<b>RFC:</b> ' + e(cli.rfc) : '', [cli.direccion, cli.ciudad, cli.estado].filter(Boolean).map(e).join(', '), [cli.telefono ? '☎ ' + e(cli.telefono) : '', cli.email ? '✉ ' + e(cli.email) : ''].filter(Boolean).join(' · '), cli.vendedor ? '<b>Vendedor:</b> ' + e(cli.vendedor) : ''].filter(Boolean).join('<br>')}</div></div>
-      <div class="box"><div class="lbl">Resumen</div><div class="res"><div>Total de compras<b>${fmtFull(S2.total)}</b></div><div>Pagado<b>${fmtFull(S2.pagado)}</b></div></div>
-        <div class="saldo"><span>Saldo pendiente</span><b>${fmtFull(S2.falta)}</b></div></div></div>
-    ${S2.peds.length || S2.otros.length ? `<h2>Pedidos</h2><table><thead><tr><th>Fecha</th><th>Pedido</th><th>Documentos</th><th class="r">Total</th><th class="r">Pagado</th><th class="r">Saldo</th><th>Estado</th></tr></thead><tbody>
-      ${filasPed}${filasOtros}<tr class="tot"><td colspan="3">Total</td><td class="r">${fmtFull(S2.total)}</td><td class="r">${fmtFull(S2.pagado)}</td><td class="r">${fmtFull(S2.falta)}</td><td></td></tr></tbody></table>` : ''}
-    ${_nunEC.pagos && S2.pagos.length ? `<h2>Pagos recibidos</h2><table><thead><tr><th>Fecha</th><th>Referencia</th><th class="r">Monto</th></tr></thead><tbody>
-      ${S2.pagos.map(i => `<tr class="ped"><td>${fmtFechaLarga(i.fecha)}</td><td class="mono">${e(String(i.factura||''))}</td><td class="r">${fmtFull(i.monto)}</td></tr>`).join('')}
-      <tr class="tot"><td colspan="2">Total pagos</td><td class="r">${fmtFull(S2.pagos.reduce((a, i) => a + (+i.monto||0), 0))}</td></tr></tbody></table>` : ''}
-    <div class="nota">${S2.falta > 0.5 ? 'Saldo pendiente al ' + hoyL + ': <b>' + fmtFull(S2.falta) + '</b> (' + e(numeroALetras(S2.falta)) + ' M.N.).' : '¡Gracias! Al ' + hoyL + ' no hay saldo pendiente en los pedidos de este estado de cuenta.'} Si tienes alguna duda sobre este estado de cuenta, comunícate con tu vendedor.</div>
-    <div class="footer">Generado por <b>NUN</b> · ${new Date().toLocaleString('es-MX', { dateStyle:'long', timeStyle:'short' })}</div>
+    <div class="head"><div>${logo}</div><div><h1>Estado de cuenta</h1><div class="emp">Comercializadora Casraf S.A. de C.V.</div></div></div>
+    <div class="cuerpo">
+    <div class="tres">
+      <div class="card"><div class="lbl">Cliente</div><b>${e(cli.razon_social)}</b>${cli.vendedor ? '<div class="sub">Vendedor: ' + e(cli.vendedor) + '</div>' : ''}</div>
+      <div class="card"><div class="lbl">Fecha de corte</div><b>${dmy(nunHoy())}</b></div>
+      <div class="card"><div class="lbl">Periodo</div><b>${fechas.length ? (my(fechas[0]) === my(fechas[fechas.length - 1]) ? my(fechas[0]) : my(fechas[0]) + ' – ' + my(fechas[fechas.length - 1])) : '—'}</b><div class="sub">${filas.length} ${filas.length === 1 ? 'pedido' : 'pedidos'}</div></div>
+    </div>
+    <div class="tres">
+      <div class="kpi"><div class="lbl">Total facturado</div><div class="v">${fmtFull(S2.total)}</div></div>
+      <div class="kpi"><div class="lbl">Total pagado</div><div class="v">${fmtFull(S2.pagado)}</div><div class="barra"><i style="width:${pct}%"></i></div><div class="sub">${pct}% cubierto</div></div>
+      <div class="kpi osc"><div class="lbl">Saldo pendiente</div><div class="v">${fmtFull(S2.falta)}</div><div class="sub">MXN · ${conSaldo} ${conSaldo === 1 ? 'pedido' : 'pedidos'} con saldo</div></div>
+    </div>
+    <h2>Detalle de pedidos</h2>
+    <table><thead><tr><th>#</th><th>Pedido</th><th>Entrega</th><th>Remisión / Factura</th><th class="r">Importe</th><th class="r">Pagado</th><th class="r">Saldo</th><th class="c">Días</th><th>Estatus</th></tr></thead><tbody>
+      ${filas.map((f, k) => `<tr><td class="n">${String(k + 1).padStart(2, '0')}</td><td>${dmy(f.fecha)}${f.folio ? '<span class="fol">' + e(f.folio) + '</span>' : ''}</td><td>${f.ent ? dmy(f.ent) : '—'}</td><td class="doc">${e(f.docs) || '—'}</td>
+        <td class="r">${fmtFull(f.total)}</td><td class="r">${f.pagado > 0.5 ? fmtFull(f.pagado) : '—'}</td><td class="r ${f.falta > 0.5 ? 'b' : ''}">${fmtFull(f.falta > 0.5 ? f.falta : 0)}</td>
+        <td class="c">${f.falta > 0.5 && f.ent ? dias(f.ent) : '—'}</td><td>${est(f.falta, f.pagado)}</td></tr>`
+        + (_nunEC.prod && f.prods.length ? `<tr class="det"><td></td><td colspan="8">${f.prods.map(it => `<span>${+it.cantidad || 0} × <b>${e(it.sku||'')}</b> ${e(it.descripcion||'')} · ${fmtFull(it.precio_unitario)}</span>`).join('')}</td></tr>` : '')).join('')}
+      <tr class="tot"><td colspan="4">Totales</td><td class="r">${fmtFull(S2.total)}</td><td class="r">${fmtFull(S2.pagado)}</td><td class="r na">${fmtFull(S2.falta)}</td><td colspan="2"></td></tr>
+    </tbody></table>
+    <div class="nota">Importes en pesos mexicanos (MXN). Días = días transcurridos desde la fecha de entrega hasta la fecha de corte, solo para pedidos con saldo.${S2.falta > 0.5 ? ' Saldo pendiente: ' + fmtFull(S2.falta) + ' (' + e(numeroALetras(S2.falta)) + ' M.N.).' : ''} Si detecta alguna diferencia con sus registros, favor de comunicarlo para conciliarla.</div>
+    ${_nunEC.pagos && S2.pagos.length ? `<h2>Historial de pagos</h2><table><thead><tr><th>#</th><th>Fecha</th><th>Documento</th><th>Forma / cuenta</th><th class="r">Monto</th></tr></thead><tbody>
+      ${S2.pagos.map((i, k) => `<tr><td class="n">${String(k + 1).padStart(2, '0')}</td><td>${dmy(i.fecha)}</td><td class="doc">${e(String(i.factura||''))}</td><td class="doc">${e(String(i.cuenta||''))}</td><td class="r">${fmtFull(i.monto)}</td></tr>`).join('')}
+      <tr class="tot"><td colspan="4">Total pagos (${S2.pagos.length})</td><td class="r">${fmtFull(totPagos)}</td></tr></tbody></table>` : ''}
+    <div class="pie">Generado por NUN · ${new Date().toLocaleString('es-MX', { dateStyle:'long', timeStyle:'short' })}</div>
+    </div>
   </body></html>`;
 }
-function nunECPdf(){
+async function nunECPdf(){
   if (!_nunEC.cli) { toast('Elige un cliente', { type:'error' }); return; }
   const S2 = nunECSeleccion(); if (!S2.peds.length && !S2.otros.length) { toast('Palomea al menos un pedido', { type:'error' }); return; }
-  nunAbrirHTML(nunECHTML(), null);
+  if (!nunEsTelefono()) { nunAbrirHTML(nunECHTML(), null); return; }
+  // v4.82 — en el teléfono (y en la app instalada) abrir otra ventana para imprimir no siempre funciona: se hace el PDF aquí y se guarda / comparte
+  const box = document.getElementById('ecPdfBox'); if (box) box.innerHTML = '<span style="font-size:12.5px;color:var(--mute)">⏳ Haciendo el PDF…</span>';
+  try {
+    const nombre = 'Estado_de_cuenta_' + String(_nunEC.cli.razon_social || 'cliente').replace(/[^\wÁÉÍÓÚÑáéíóúñ]+/g, '_').slice(0, 40) + '_' + nunHoy() + '.pdf';
+    const f = await nunHtmlAPdf(nunECHTML(), nombre, [6, 6, 8, 6]); window._nunECArchivo = f;
+    const puede = !!(navigator.canShare && navigator.canShare({ files: [f] }));
+    if (box) box.innerHTML = `<button class="btn btn-primary" onclick="nunBajarArchivo(window._nunECArchivo)">📥 Guardar PDF</button>${puede ? ' <button class="btn btn-secondary" onclick="nunCompartirArchivo(window._nunECArchivo)">📤 Compartir (WhatsApp…)</button>' : ''}`;
+  } catch(e){ if (box) box.innerHTML = `<button class="btn btn-primary" onclick="nunECPdf()">📄 Descargar estado de cuenta</button>`; toast('✗ No se pudo hacer el PDF: ' + e.message + '. Se abre para imprimir.', { type:'error', duration:8000 }); nunAbrirHTML(nunECHTML(), null); }
 }
+// v4.82 — PDF de verdad desde el HTML de impresión (igual que la app de vendedores: html2pdf dentro de un iframe oculto)
+function nunEsTelefono(){ try { return (typeof nunModoActual === 'function' && nunModoActual() === 'cel') || window.matchMedia('(max-width: 880px)').matches || /Android|iPhone|iPad/i.test(navigator.userAgent); } catch(e){ return false; } }
+function _nunScriptEn(doc, src){ return new Promise((ok, mal) => { const s = doc.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => mal(new Error('no cargó el generador de PDF (revisa la señal)')); doc.head.appendChild(s); }); }
+async function nunHtmlAPdf(html, nombre, margen){
+  const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true');
+  f.style.cssText = 'position:fixed;left:-10000px;top:0;width:760px;height:1000px;border:0;background:#fff';
+  document.body.appendChild(f);
+  try {
+    await new Promise(ok => { f.onload = ok; f.srcdoc = html; });
+    const w = f.contentWindow, doc = f.contentDocument;
+    await _nunScriptEn(doc, 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
+    doc.querySelectorAll('svg').forEach(sv => { // el logo como imagen (dibujado directo pierde los huecos)
+      if (!sv.getAttribute('xmlns')) sv.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      const r = sv.getBoundingClientRect(), im = doc.createElement('img');
+      sv.setAttribute('width', Math.round(r.width)); sv.setAttribute('height', Math.round(r.height));
+      im.className = sv.getAttribute('class') || ''; im.style.cssText = (sv.getAttribute('style') || '') + ';width:' + r.width + 'px;height:' + r.height + 'px';
+      im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(sv)); sv.replaceWith(im);
+    });
+    await Promise.all(Array.from(doc.images).map(i => i.complete ? 0 : new Promise(z => { i.onload = i.onerror = z; })));
+    const op = w.JSON.parse(JSON.stringify({ margin: margen || [12, 14, 12, 14], image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'] } }));
+    const blob = await w.html2pdf().set(op).from(doc.body).outputPdf('blob');
+    return new File([blob], nombre, { type: 'application/pdf' });
+  } finally { f.remove(); }
+}
+function nunBajarArchivo(f){ if (!f) return; const u = URL.createObjectURL(f), a = document.createElement('a'); a.href = u; a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000); toast('📥 ' + f.name + ' · revisa Descargas'); }
+async function nunCompartirArchivo(f){ if (!f) return; try { await navigator.share({ files: [f], title: f.name }); } catch(e){ if (!/abort/i.test(String(e && e.name))) { toast('No se pudo compartir: se guarda en Descargas', { type:'error' }); nunBajarArchivo(f); } } }
 window.nunEstadoCuentaAbrir = nunEstadoCuentaAbrir; window.nunECElegir = nunECElegir; window.nunECMarcar = nunECMarcar; window.nunECTotales = nunECTotales; window.nunECPdf = nunECPdf;
 // v4.42 — documento VIGENTE sin cobro vivo en Cobranza (ej. Comarca A7/A24: se pasaron de "cancelada" a "timbrada" y su cobro no se
 // creó / siguió cancelado → no sumaban en lo facturado ni en lo que debe). Se avisa en la ficha con botón para arreglarlo.
@@ -9155,32 +9212,43 @@ function nunPedidoPorConfirmar(p){
   const k = nunPedClaves(p);
   return !(State.data.remisiones||[]).concat(State.data.facturas||[]).some(d => !/cancel/i.test(d.estatus||'') && k.includes(String(d.pedido_origen||'').trim()));
 }
+// v4.82 (Rafa 11 nov: "se tarda en confirmar" y la lista seguía diciendo "por confirmar") — con la respuesta del servidor se pone al día
+// lo que se ve AL MOMENTO (estatus, pedido nuevo, su cobro) y las listas se vuelven a bajar en el fondo, sin hacer esperar.
+function nunAlDiaLocal(tabla, id, cambios, nuevoPedido, nuevoCobro){
+  const d = (State.data[tabla]||[]).find(x => String(x.id) === String(id)); if (d) Object.assign(d, cambios || {});
+  if (nuevoPedido && nuevoPedido.id) { State.data.pedidos = State.data.pedidos || []; const k = State.data.pedidos.findIndex(x => String(x.id) === String(nuevoPedido.id)); if (k >= 0) State.data.pedidos[k] = Object.assign({}, State.data.pedidos[k], nuevoPedido, { estatus:'confirmado' }); else State.data.pedidos.push(Object.assign({}, nuevoPedido, { estatus:'confirmado' })); }
+  if (nuevoCobro && nuevoCobro.id) { State.data.cobranza = State.data.cobranza || []; if (!State.data.cobranza.some(x => String(x.id) === String(nuevoCobro.id))) State.data.cobranza.push(nuevoCobro); }
+}
+// lista ya bajada (aunque esté vacía) o con datos guardados en este equipo
+function nunTablaLista(t){ return Array.isArray(State.data[t]) && (State.data[t].length > 0 || (State._cargaOk || {})[t] === true); }
+function nunRefrescarFondo(tablas){ Promise.all(tablas.map(t => cargarTabla(t, { ttl: 1 }).catch(() => {}))).then(() => { try { renderCurrent(); } catch(e){} }); }
 const _nunQuienSoy = () => ((State.sesion||{}).usuario||{}).nombre || '';
 async function nunConfirmarCotizacion(id){
   if (!nunPuedeLigar()) { toast('Tu usuario no puede confirmar ventas', { type:'error' }); return; }
-  await Promise.all(['cotizaciones','cobranza'].map(t => cargarTabla(t)));
+  // v4.82 — ya no espera a bajar las listas (con el servidor lento eran 20 s o más); el servidor revisa si ya estaba confirmada
   const c = (State.data.cotizaciones||[]).find(x => String(x.id) === String(id)); if (!c) return;
   const ok = await confirmDialog({ title:'¿Confirmar la cotización ' + nunFolioStr(c) + '?', message:(c.cliente||'') + ' · ' + fmtFull(c.total) + '\nSe vuelve PEDIDO: descuenta del inventario y entra a Cobranza como venta del mes. Si piden factura, se hace desde el pedido.', ok:'Confirmar' });
   if (!ok) return;
   nunOcupado('Confirmando…');
   let r; try { r = await api({ accion:'confirmar_cotizacion', id, usuario: _nunQuienSoy() }); } catch(e){ r = { ok:false, error:e.message }; } finally { nunOcupado(''); }
   if (!(r && r.ok)) { toast('✗ No se confirmó: ' + ((r && r.error) || 'sin respuesta') + '. Revisa en Pedidos si sí quedó antes de repetir.', { type:'error', duration:10000 }); return; }
-  await Promise.all(['cotizaciones','pedidos','cobranza','productos'].map(t => cargarTabla(t).catch(()=>{})));
+  nunAlDiaLocal('cotizaciones', c.id, { estatus:'convertida' }, r.pedido, r.cobro); // v4.82 al momento: deja de decir "por confirmar"
   try { cerrarDrawer(); } catch(e){} renderCurrent();
+  nunRefrescarFondo(['cotizaciones','pedidos','cobranza','productos']);
   toast('✓ Pedido ' + ((r.pedido||{}).folio||'') + ' confirmado · ' + fmtFull((r.pedido||{}).total) + ' ya está en Cobranza', { type:'success', duration:8000 });
 }
 async function nunActivarPedido(id){
   if (!nunPuedeLigar()) { toast('Tu usuario no puede confirmar ventas', { type:'error' }); return; }
-  await Promise.all(['pedidos','cobranza','remisiones','facturas'].map(t => cargarTabla(t)));
-  const p = (State.data.pedidos||[]).find(x => String(x.id) === String(id)); if (!p) return;
+  const p = (State.data.pedidos||[]).find(x => String(x.id) === String(id)); if (!p) return; // v4.82 sin esperar descargas
   if (!nunPedidoPorConfirmar(p)) { toast('Este pedido ya está confirmado o ya tiene factura', { type:'error' }); return; }
   const ok = await confirmDialog({ title:'¿Confirmar el pedido ' + nunFolioStr(p) + '?', message:(p.cliente||'') + ' · ' + fmtFull(p.total) + '\nDescuenta del inventario y entra a Cobranza como venta del mes.', ok:'Confirmar' });
   if (!ok) return;
   nunOcupado('Confirmando…');
   let r; try { r = await api({ accion:'activar_pedido', id, usuario: _nunQuienSoy() }); } catch(e){ r = { ok:false, error:e.message }; } finally { nunOcupado(''); }
   if (!(r && r.ok)) { toast('✗ No se confirmó: ' + ((r && r.error) || 'sin respuesta'), { type:'error', duration:10000 }); return; }
-  await Promise.all(['pedidos','cobranza','productos'].map(t => cargarTabla(t).catch(()=>{})));
+  nunAlDiaLocal('pedidos', p.id, { estatus:'confirmado' }, null, r.cobro); // v4.82
   try { cerrarDrawer(); } catch(e){} renderCurrent();
+  nunRefrescarFondo(['pedidos','cobranza','productos']);
   toast('✓ Pedido ' + nunFolioStr(p) + ' confirmado · ya está en Cobranza', { type:'success', duration:7000 });
 }
 // Antes de cancelar un pedido: si ya es venta, lo cancela el servidor (no si tiene pagos o factura viva). true = se puede seguir.
@@ -9327,8 +9395,10 @@ function nunCuadreCalc(){
   return [...clientes.values()].sort((a, b) => b.monto - a.monto);
 }
 async function nunCuadrarClientes(sel){
-  nunOcupado('Revisando pedidos…');
-  try { await Promise.all(['pedidos','remisiones','facturas','cobranza'].map(t => cargarTabla(t))); } finally { nunOcupado(''); }
+  // v4.82 — solo espera las listas que no están en pantalla; las demás se ponen al día en el fondo (antes la lunita esperaba las 4)
+  const _faltan = ['pedidos','remisiones','facturas','cobranza'].filter(t => !nunTablaLista(t));
+  if (_faltan.length) { nunOcupado('Revisando pedidos…'); try { await Promise.all(_faltan.map(t => cargarTabla(t))); } finally { nunOcupado(''); } }
+  if (!window._nunCQFondo) { window._nunCQFondo = true; Promise.all(['pedidos','remisiones','facturas','cobranza'].filter(t => !_faltan.includes(t)).map(t => cargarTabla(t, { ttl: 1 }).catch(() => {}))).finally(() => { window._nunCQFondo = false; }); }
   const L = nunCuadreCalc(); window._nunCQ = { L, sel: sel != null ? sel : (window._nunCQ && window._nunCQ.selNombre ? L.findIndex(c => c.nombre === window._nunCQ.selNombre) : 0) };
   if (window._nunCQ.sel < 0) window._nunCQ.sel = 0;
   let m = document.getElementById('modalCQ'); if (m) m.remove();

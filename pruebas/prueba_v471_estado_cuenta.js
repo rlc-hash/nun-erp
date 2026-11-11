@@ -1,3 +1,4 @@
+// v4.82: diseño nuevo (formato de Rafa): sin RFC ni piezas por defecto; 'Historial de pagos', estatus Liquidado/Parcial y % cubierto.
 // v4.71 — ESTADO DE CUENTA del cliente (Cobranza → 📄 Estado de cuenta y en la ficha): elegir cliente y pedidos (todos / solo los que deben / a mano),
 // documentos con saldo que no son de ningún pedido, pagos recibidos ligados por folio; PDF con la marca NUN (Total · Pagado · Saldo).
 // Servidor de verdad (Codigo.gs en el emulador de Supabase), datos inventados, sin red.
@@ -47,8 +48,8 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   await w.eval("nunECMarcar('todo')"); await w.eval("nunECPdf()"); await sleep(100);
   const h=w.__blob?await w.__blob.text():''; if(process.env.NUN_GUARDAR_HTML) fs.writeFileSync(process.env.NUN_GUARDAR_HTML,h); // para verlo
   const t=h.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
-  r.pdf={titulo:/Estado de cuenta/i.test(t), cliente:t.includes(C)&&t.includes('XAXX010101000'), pedidos:t.includes('P0101')&&t.includes('P0102')&&!t.includes('P0103'), otro:t.includes('V01300'),
-   productos:t.includes('MOCHILA YH008 NEGRO'), saldo:/Saldo pendiente \$5,000\.00/.test(t), letras:/CINCO MIL PESOS/.test(t), pagos:/Pagos recibidos/.test(t)&&/Total pagos \$12,500\.00/.test(t), logo:/<svg/.test(h)};
+  r.pdf={titulo:/Estado de cuenta/i.test(t), cliente:t.includes(C), pedidos:t.includes('P0101')&&t.includes('P0102')&&!t.includes('P0103'), otro:t.includes('V01300'),
+   sinPiezas:!t.includes('MOCHILA YH008 NEGRO'), saldo:/Saldo pendiente \$5,000\.00/.test(t), letras:/CINCO MIL PESOS/.test(t), pagos:/Historial de pagos/.test(t)&&/Total pagos \(3\) \$12,500\.00/.test(t), estatus:/Liquidado/.test(t)&&/Parcial/.test(t), cubierto:/71\.4% cubierto/.test(t), logo:/<svg/.test(h)};
   if(Object.values(r.pdf).some(v=>!v)) r.fallas.push('pdf');
   // ficha del cliente también tiene el botón
   w.eval("document.getElementById('modalEC').remove(); abrirDetalleCliente('ce')"); await sleep(300);

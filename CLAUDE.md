@@ -278,6 +278,8 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   facturas timbradas, `&pv=…` para pagos reportados): cotización nueva → la cotización; pago reportado → Pagos por verificar; confirmada → el pedido; pago
   registrado → el cobro; documento creado/cancelado → ese documento. `sw.js` pasa id/folio/pv en el mensaje; `nunIrA(m, {id, folio, pv})` lo abre y si la
   lista aún no llega espera/reintenta (30 s). Pruebas `prueba_v486_aviso_directo.js` (servidor) y `prueba_v486_abrir_aviso.js` (ERP).
+- v4.87 / app v2.1.18 (11 nov, Rafa): listas de documentos del ERP y "Cotizaciones por confirmar"/Pedidos de la app: lo más reciente arriba = fecha (sin hora,
+  `nunFecha10`) y el mismo día el número de folio más alto (`nunOrdenReciente` / `masReciente`). Prueba `prueba_v487_mas_reciente_arriba.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

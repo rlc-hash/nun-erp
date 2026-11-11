@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.86 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.87 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7870,8 +7870,8 @@ function afterDocOperativo(tabla) {
   if (f.mes && f.mes !== 'todos') rows = rows.filter(r => (r.fecha||'').startsWith(f.mes));
   if (f.vendedor && f.vendedor !== 'todos') rows = rows.filter(r => String(r.vendedor||'').toUpperCase().trim() === f.vendedor); // v3.73
 
-  // Ordenar por fecha desc default
-  rows.sort((a,b) => String(b.fecha||'').localeCompare(String(a.fecha||'')));
+  // Ordenar por fecha desc default · v4.87 (Rafa): el mismo día, el folio más alto (el más nuevo) arriba — antes C0015 salía arriba de C0016
+  rows = rows.map((r, i) => [r, i]).sort((x, y) => nunOrdenReciente(x[0], y[0]) || (y[1] - x[1])).map(x => x[0]);
 
   const html = renderDataTable({
     id:'dt_'+tabla, pageSize:50,
@@ -9263,6 +9263,10 @@ function nunAlDiaLocal(tabla, id, cambios, nuevoPedido, nuevoCobro){
   if (nuevoCobro && nuevoCobro.id) { State.data.cobranza = State.data.cobranza || []; if (!State.data.cobranza.some(x => String(x.id) === String(nuevoCobro.id))) State.data.cobranza.push(nuevoCobro); }
 }
 // lista ya bajada (aunque esté vacía) o con datos guardados en este equipo
+// v4.87 — lo más reciente arriba: fecha (sin hora) y, el mismo día, el número de folio más alto
+function nunFecha10(f){ const s = String(f||''); if (/^\d{4}-\d{2}-\d{2}T/.test(s)) { const d = new Date(s); if (!isNaN(d)) return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); } return s.slice(0, 10); }
+function nunFolioNum(f){ const m = String(f||'').match(/(\d+)\D*$/); return m ? +m[1] : -1; }
+function nunOrdenReciente(a, b){ return nunFecha10(b.fecha).localeCompare(nunFecha10(a.fecha)) || (nunFolioNum(b.folio) - nunFolioNum(a.folio)); }
 function nunTablaLista(t){ return Array.isArray(State.data[t]) && (State.data[t].length > 0 || (State._cargaOk || {})[t] === true); }
 function nunRefrescarFondo(tablas){ Promise.all(tablas.map(t => cargarTabla(t, { ttl: 1 }).catch(() => {}))).then(() => { try { renderCurrent(); } catch(e){} }); }
 const _nunQuienSoy = () => ((State.sesion||{}).usuario||{}).nombre || '';

@@ -280,6 +280,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   lista aún no llega espera/reintenta (30 s). Pruebas `prueba_v486_aviso_directo.js` (servidor) y `prueba_v486_abrir_aviso.js` (ERP).
 - v4.87 / app v2.1.18 (11 nov, Rafa): listas de documentos del ERP y "Cotizaciones por confirmar"/Pedidos de la app: lo más reciente arriba = fecha (sin hora,
   `nunFecha10`) y el mismo día el número de folio más alto (`nunOrdenReciente` / `masReciente`). Prueba `prueba_v487_mas_reciente_arriba.js`.
+- v4.88 / servidor v0.9.20 (11 nov, Rafa): (1) % de comisión sale solo según el vendedor (`vendedoresParaSelect`: EDGAR 6, LUIS 5, ESTEBAN 5, YADAH 5)
+  aunque la cotización de la app venga con comision_pct '' (antes '' contaba como puesto y guardarDoc pedía el %). (2) "✅ Confirmar → Pedido" del editor
+  hace `guardarDoc(…,{luegoConfirmar:true})`: guarda lo corregido y luego confirma. (3) Codigo.gs: erp_upsert_batch/erp_actualizar de una cotización
+  'enviada' que cambia items_json libera lo apartado viejo y aparta lo nuevo (antes al corregir 36→6 y confirmar quedaban 30 apartadas). Se corrigió un
+  apartado que había quedado de más por eso (comprometido = suma de cotizaciones enviadas). Pruebas `prueba_v488_corregir_apartado.js`, `prueba_v488_comision_y_confirmar.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

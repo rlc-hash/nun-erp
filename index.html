@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.87 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.88 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -8330,7 +8330,7 @@ function abrirDoc(tabla, id) {
         <input type="text" id="dCliente" data-ac="1" value="${escapeHTML(doc.cliente||'')}" placeholder="Escribe para buscar cliente por nombre o RFC..." autocomplete="off" oninput="acCliente(this)" onfocus="acCliente(this)" onkeydown="acKey(event)"></div>` :
       `<div class="field full"><label>Proveedor</label><input type="text" id="dProveedor" value="${escapeHTML(doc.proveedor||'')}" placeholder="Escribe el proveedor..." autocomplete="off"></div>`}
       <div class="field"><label>Vendedor</label><select id="dVendedor" onchange="docVendedorCambio(this.value)"><option value="">— Sin vendedor —</option>${vendedoresParaSelect().map(v=>`<option value="${escapeHTML(v.nombre)}" ${String(doc.vendedor||'').toUpperCase()===v.nombre?'selected':''}>${escapeHTML(v.nombre)}${v.pct?' · '+v.pct+'%':''}</option>`).join('')}</select></div>
-      <div class="field"><label>Comisión % ${'<span style="color:var(--ink-4);font-weight:400">(auto según vendedor, editable)</span>'}</label><input type="number" step="0.1" id="dComisionPct" value="${doc.comision_pct!=null?doc.comision_pct:(doc.vendedor?comisionPctDe(doc.vendedor):'')}" placeholder="%" oninput="this.dataset.tocado=1"></div>
+      <div class="field"><label>Comisión % ${'<span style="color:var(--ink-4);font-weight:400">(auto según vendedor, editable)</span>'}</label><input type="number" step="0.1" id="dComisionPct" value="${(doc.comision_pct!=null && doc.comision_pct!=='') ? doc.comision_pct : (doc.vendedor ? comisionPctDe(doc.vendedor) : '')}" placeholder="%" oninput="this.dataset.tocado=1"></div>
       <div class="field"><label>Estatus</label><select id="dEstatus">${(doc.estatus && !def.estatus.includes(doc.estatus) ? [doc.estatus].concat(def.estatus) : def.estatus).map(e=>`<option value="${e}" ${doc.estatus===e?'selected':''}>${e}</option>`).join('')}</select></div>
       ${tabla === 'notascredito' ? `<div class="field full"><label>Factura que corrige (folio) <span style="color:var(--ink-4);font-weight:400">— ej. FT0003 o el folio de Bind</span></label>
         <input id="dDocOrigen" list="dDocOrigenLista" value="${escapeHTML(doc.documento_origen||'')}" ${doc.uuid_sat ? 'disabled' : ''}>
@@ -8363,7 +8363,7 @@ function abrirDoc(tabla, id) {
   let acciones = '';
   if (id) {
     // v4.14 — flujo nuevo: la cotización se CONFIRMA y se vuelve pedido (venta); del pedido sale la factura (ya no hay remisión)
-    if (tabla === 'cotizaciones' && nunPuedeLigar() && !/convertida|rechaz|cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-primary" onclick="nunConfirmarCotizacion('${id}')" title="Se vuelve pedido: descuenta inventario y entra a Cobranza como venta">✅ Confirmar → Pedido</button>`;
+    if (tabla === 'cotizaciones' && nunPuedeLigar() && !/convertida|rechaz|cancel/i.test(doc.estatus||'')) acciones += `<button class="btn btn-primary" onclick="guardarDoc('cotizaciones','${id}',{luegoConfirmar:true})" title="Se vuelve pedido: descuenta inventario y entra a Cobranza como venta">✅ Confirmar → Pedido</button>`;
     if (nunEsAdmin() && /^(pedidos|cotizaciones|remisiones|facturas|notascredito)$/.test(tabla)) acciones += `<button class="btn btn-secondary" onclick="nunHistorialDoc('${id}')" title="Quién lo cambió y cuándo">🕘 Cambios</button>`; // v4.16
     if (tabla === 'pedidos' && nunPuedeLigar() && nunPedidoPorConfirmar(doc)) acciones += `<button class="btn btn-primary" onclick="nunActivarPedido('${id}')" title="Descuenta inventario y entra a Cobranza como venta">✅ Confirmar pedido</button>`;
     if (tabla === 'pedidos' && !/cancel/i.test(doc.estatus||'')) acciones += `<button class="btn ${nunPedidoPorConfirmar(doc) ? 'btn-secondary' : 'btn-primary'}" onclick="nunDesdePedidos('${id}','facturas')">🧾 Hacer factura</button>`; // v3.88 · v4.14 sin remisión
@@ -10122,6 +10122,8 @@ async function guardarDoc(tabla, id, opts) {
   // v3.43/44 — validaciones
   if (usaCli && !item.cliente) { nunOcupado(''); toast('Falta el cliente (escríbelo o créalo con "+ Nuevo cliente")', { type:'error' }); return; }
   const pctEl = document.getElementById('dComisionPct');
+  // v4.88 (Rafa) — si no se puso el %, se toma el del vendedor solo (EDGAR 6%, LUIS 5%, ESTEBAN 5%…); solo se pide si es un vendedor sin % conocido
+  if (item.vendedor && pctEl && (pctEl.value === '' || isNaN(parseFloat(pctEl.value))) && vendedoresParaSelect().some(v => v.nombre === item.vendedor && v.pct > 0)) { pctEl.value = comisionPctDe(item.vendedor); item.comision_pct = parseFloat(pctEl.value) || 0; }
   if (item.vendedor && (!pctEl || pctEl.value === '' || isNaN(parseFloat(pctEl.value)))) {
     nunOcupado(''); toast('Pusiste vendedor: ingresa su % de comisión', { type:'error' }); if (pctEl) pctEl.focus(); return;
   }
@@ -10231,6 +10233,7 @@ async function guardarDoc(tabla, id, opts) {
   }
   renderCurrent(); cerrarDrawer();
   toast(id?'✓ Actualizado':'✓ Creado · '+folio);
+  if (opts.luegoConfirmar && tabla === 'cotizaciones') { const _idc = id || idGuardado; setTimeout(() => nunConfirmarCotizacion(_idc), 250); } // v4.88 guarda lo corregido y luego confirma
   } finally { window._nunGuardandoDoc = false; nunOcupado(''); } // v3.69
 }
 // v3.80 — dos personas guardando al mismo tiempo podían sacar el mismo folio (P0031 dos veces)

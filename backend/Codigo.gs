@@ -35,7 +35,7 @@
 //  Nadie más puede crear códigos de dueño (RAFA-, YADAH-, MASTER-NUN-), porque esos dan permisos de dueño.
 // ============================================================
 
-const VERSION_ERP = 'v0.9.19'; // v0.9.19 columna envio (por dónde se manda: fletera/paquetería) en cotizaciones/pedidos/remisiones/facturas // v0.9.18 pagos que reportan los vendedores (por verificar)
+const VERSION_ERP = 'v0.9.20'; // v0.9.20 al corregir una cotización por confirmar, lo apartado se ajusta a los productos nuevos // v0.9.19 columna envio (por dónde se manda: fletera/paquetería) en cotizaciones/pedidos/remisiones/facturas // v0.9.18 pagos que reportan los vendedores (por verificar)
 
 // v0.9.2 — Mapeo de tablas que el CRM pide por nombre "corto" a la hoja real del ERP.
 // El CRM usa 'clientes' para su catálogo de vendedores (NO el catálogo fiscal 'clientes' del ERP).
@@ -2871,6 +2871,21 @@ function doPost(e) {
     if (accion === 'erp_crear' && body.tabla === 'cotizaciones') {
       const r = erpCrear('cotizaciones', body.item || {});
       if (r.ok && r.item && !r.ya_existia) { try { cotizacionApartar(r.item.id, body.codigo); } catch(e){} }
+      return resp(r);
+    }
+    // v0.9.20 (Rafa 11 nov: Edgar subió 36 pz por error y se corrigió a 6) — corregir los productos de una cotización POR CONFIRMAR:
+    // se libera lo que apartaba y se aparta lo nuevo (antes quedaban apartadas las 36 para siempre y el inventario se descuadraba)
+    if ((accion === 'erp_upsert_batch' || accion === 'erp_actualizar') && body.tabla === 'cotizaciones') {
+      const lista = accion === 'erp_actualizar' ? [body.item || {}] : (body.items || []);
+      const antes = {};
+      lista.forEach(it => { if (!it || !it.id || it.items_json === undefined) return; const f = _filaPorId('cotizaciones', it.id);
+        if (f && String(f.obj.estatus || '') === 'enviada') antes[String(f.obj.id)] = { items: _itemsDeDoc('cotizaciones', f.obj.id), json: String(f.obj.items_json || '') }; });
+      const r = accion === 'erp_actualizar' ? erpActualizar('cotizaciones', body.item || {}) : _crmUpsertBatch('cotizaciones', body.items || [], body.clave || 'id');
+      Object.keys(antes).forEach(id => { try {
+        const f = _filaPorId('cotizaciones', id); if (!f || String(f.obj.estatus || '') !== 'enviada' || String(f.obj.items_json || '') === antes[id].json) return;
+        _ajustarComprometido(antes[id].items, -1); _ajustarComprometido(_itemsDeDoc('cotizaciones', id), +1);
+        registrarBitacora(body.codigo || '', 'reapartar', 'cotizaciones', id, 'productos corregidos: se ajustó lo apartado');
+      } catch(e){} });
       return resp(r);
     }
     if (accion === 'cotizacion_liberar')    return resp(cotizacionLiberar(body.id, body.codigo));

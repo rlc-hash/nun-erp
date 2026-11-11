@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-1.6'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-1.7'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -351,6 +351,37 @@ Deno.serve(async (req) => {
       if (accion === 'push_probar'){ let n = 0; for (const r of propios) n += await avisar({ titulo: '🔔 Avisos de NUN activados', cuerpo: 'Así te va a llegar cuando un vendedor suba una cotización o reporte un pago' + (esRafa(se.codigo) ? ', y cuando la oficina haga facturas, pagos, timbres o cancelaciones.' : '.'), url: './?ir=cotizaciones', tag: 'prueba' }, r.k); return json({ ok: true, enviados: n }); }
       for (const r of propios){ const x = JSON.parse(r.v); x.activo = false; await sql`update nun_props set v = ${JSON.stringify(x)} where k = ${r.k}`; }
       return json({ ok: true });
+    }
+    // v4.79 — comprobantes de pago (foto/PDF) de Cobranza: solo la oficina; se guardan aparte (nun_archivos) y nunca se borran (se cancelan)
+    if (/^archivo_(subir|listar|ver|cancelar|conteo)$/.test(accion)){
+      if (!se.ok || se.rol === 'vendedor') return json({ ok: false, error: 'Solo la oficina sube comprobantes' });
+      if (accion === 'archivo_subir'){
+        const id = String(body.id || '').slice(0, 80), cob = String(body.cobro_id || '').slice(0, 120), datos = String(body.datos || '');
+        const mime = String(body.mime || '').slice(0, 60);
+        if (!id || !cob || !datos) return json({ ok: false, error: 'Falta el archivo o el cobro' });
+        if (!/^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/.test(mime)) return json({ ok: false, error: 'Solo fotos o PDF' });
+        if (datos.length > 8_000_000) return json({ ok: false, error: 'El archivo es muy grande (máx. ~6 MB)' });
+        if (!/^[A-Za-z0-9+/=]+$/.test(datos)) return json({ ok: false, error: 'Archivo inválido' });
+        const r = await sql`insert into nun_archivos (id, cobro_id, ref, nombre, mime, tam, datos, quien) values (${id}, ${cob}, ${String(body.ref || '').slice(0, 300)}, ${String(body.nombre || '').slice(0, 120)}, ${mime}, ${Math.round(datos.length * 3 / 4)}, ${datos}, ${quien})
+                            on conflict (id) do nothing`;
+        accion += ' ' + cob.slice(0, 26);
+        return json({ ok: true, id, ya_existia: !(r && r.count) });
+      }
+      if (accion === 'archivo_listar'){
+        const rows = await sql`select id, cobro_id, ref, nombre, mime, tam, quien, creado, cancelado from nun_archivos where cobro_id = ${String(body.cobro_id || '')} order by creado`;
+        return json({ ok: true, items: rows });
+      }
+      if (accion === 'archivo_conteo'){
+        const rows = await sql`select cobro_id, count(*)::int as n from nun_archivos where not cancelado group by cobro_id`;
+        return json({ ok: true, conteo: Object.fromEntries(rows.map((x: any) => [x.cobro_id, x.n])) });
+      }
+      if (accion === 'archivo_ver'){
+        const [x] = await sql`select id, nombre, mime, datos, cancelado from nun_archivos where id = ${String(body.id || '')}`;
+        return json(x ? { ok: true, ...x } : { ok: false, error: 'No encontré el comprobante' });
+      }
+      if (se.admin !== true) return json({ ok: false, error: 'Solo un administrador cancela comprobantes' });
+      const r = await sql`update nun_archivos set cancelado = true where id = ${String(body.id || '')}`; accion += ' ' + String(body.id || '').slice(0, 26);
+      return json({ ok: true, cancelados: (r && r.count) || 0 });
     }
     if (se.ok && se.rol === 'vendedor'){ // v4.63
       const e = await revisarVend(body, se, m);

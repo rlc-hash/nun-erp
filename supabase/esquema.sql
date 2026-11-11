@@ -32,3 +32,20 @@ alter table nun_sesiones add column if not exists rol text;
 alter table nun_sesiones add column if not exists vend text;
 alter table nun_sesiones add column if not exists todos boolean;
 alter table nun_sesiones add column if not exists cotiza boolean;
+
+-- v4.79 (11 nov 2026) — comprobantes de pago (foto o PDF) en Cobranza. Fuera de nun_hojas para no hacer pesadas las hojas. Nunca se borran: se cancelan.
+create table if not exists nun_archivos (
+  id        text primary key,
+  cobro_id  text not null,
+  ref       text,
+  nombre    text,
+  mime      text,
+  tam       int,
+  datos     text not null,              -- base64
+  quien     text,
+  creado    timestamptz not null default now(),
+  cancelado boolean not null default false
+);
+create index if not exists nun_archivos_cobro on nun_archivos (cobro_id);
+alter table nun_archivos enable row level security;
+revoke all on nun_archivos from anon, authenticated;

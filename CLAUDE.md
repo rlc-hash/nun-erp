@@ -239,6 +239,12 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   `pz_caja: 6`; el PDF (imprimirDocumento → `nunLineaCaja`, copiado a nun-pdf.js) y la app lo muestran como N cajas × precio de la caja con
   "caja de 6 pz (pieza $550.00)", mismo total. Si las piezas no completan cajas se ve en piezas. La app pone pz_caja al cotizar en sets. Se aplicó a
   C0004–C0008 y C0013 (totales iguales). Prueba `prueba_v478_carry_on_caja.js`.
+- v4.79 / servidor supabase-1.7 (11 nov, Rafa): **📎 comprobantes de pago** (foto o PDF) en Cobranza: campo en Capturar pago (se sube después de registrar
+  el pago; si falla, el pago queda y avisa), pestaña "📎 Comprobantes" del cobro (ver / subir más / cancelar solo admin) y 📎N junto al número en la lista
+  (`nunCompSubir`, `nunCompPintar`, `nunCompMarcarLista`). Fotos se achican a JPEG ≤1600 px. Se guardan en la tabla `nun_archivos` (fuera de nun_hojas;
+  base64, por `cobro_id`; nunca se borran: `cancelado`). Acciones del servidor `archivo_subir|listar|ver|conteo|cancelar` (solo oficina; cancelar solo admin).
+  Pruebas `prueba_v479_comprobantes.js` (servidor) y `prueba_v479_comprobantes_erp.js` (Playwright).
+  (11 nov) Yazmín: máx. dispositivos 5. ⚠ El ayudante api.py de Claude PISA `codigo` con su propio código: para acciones de usuarios llamar directo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

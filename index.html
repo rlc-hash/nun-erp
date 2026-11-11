@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.78 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.79 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -5037,7 +5037,7 @@ function afterRenderCobranza(params) {
         return `<span style="display:inline-flex;align-items:center;gap:6px;font-weight:500"><span style="width:22px;height:22px;border-radius:50%;background:#0A0A0A;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">${inicial}</span>${escapeHTML(v)}</span>`;
       } },
       { key:'tipo', label:'Tipo', render:r=>`<span class="tag">${escapeHTML(r.tipo||'')}</span>` },
-      { key:'numero', label:'Núm.', render:r=>`<span class="mono">${escapeHTML(r.numero||'')}</span>` },
+      { key:'numero', label:'Núm.', render:r=>`<span class="mono" data-cobro-id="${escapeHTML(String(r.id))}">${escapeHTML(r.numero||'')}</span>` }, // v4.79 📎 si tiene comprobante
       { key:'total', label:'Total', right:true, render:r=>`<span class="mono">${fmt(r.total||0)}</span>` },
       { key:'cobrado', label:'Cobrado', right:true, render:r=>`<span class="col-amount paid">${fmt(r.cobrado||0)}</span>` },
       { key:'pendiente', label:'Saldo', right:true, render:r=>`<span class="col-amount pending">${fmt(r.pendiente||0)}</span>` },
@@ -5060,6 +5060,7 @@ function afterRenderCobranza(params) {
   const m = document.getElementById('cobranzaMount');
   if (m) m.innerHTML = html;
   nunPVPintarBanner(); // v4.63
+  nunCompMarcarLista(); // v4.79
 }
 
 // ============================================================
@@ -5128,9 +5129,88 @@ async function nunPVRechazar(id){
   await cargarTabla('pagosverificar', { ttl: 1 }); toast('Pago rechazado'); renderCurrent(); if (nunPVPendientes().length) nunPVAbrir(); else { const mm = document.getElementById('modalPV'); if (mm) mm.remove(); }
 }
 
+// v4.79 (Rafa 11 nov) — comprobantes de pago (foto o PDF) en Cobranza. Se guardan en el servidor (nun_archivos), por cobro.
+// Las fotos se achican antes de subir (máx. 1600 px, JPEG). Nunca se borran: un administrador los cancela.
+const _nunComp = { conteo: null };
+function nunCompElegido(inp, infoId){ const f = inp.files && inp.files[0], el = document.getElementById(infoId); if (el) el.textContent = f ? '✓ ' + f.name + ' (' + Math.max(1, Math.round(f.size / 1024)) + ' KB) · se sube al registrar' : ''; }
+function _nunLeer(blob){ return new Promise((ok, mal) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => mal(r.error); r.readAsDataURL(blob); }); }
+async function nunCompPreparar(f){
+  const esImg = /^image\//.test(f.type || '') && !/heic|heif/i.test(f.type || '');
+  if (esImg) {
+    try {
+      const url = URL.createObjectURL(f); const img = await new Promise((ok, mal) => { const i = new Image(); i.onload = () => ok(i); i.onerror = mal; i.src = url; });
+      const k = Math.min(1, 1600 / Math.max(img.naturalWidth || 1, img.naturalHeight || 1)), c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      const d = c.toDataURL('image/jpeg', 0.82); if (/^data:image\/jpeg;base64,/.test(d) && d.length > 100) return { mime:'image/jpeg', datos: d.split(',')[1], nombre: String(f.name || 'comprobante').replace(/\.[^.]+$/, '') + '.jpg' };
+    } catch(e){}
+  }
+  const d = await _nunLeer(f); const mime = /pdf/i.test(f.type || f.name || '') ? 'application/pdf' : (f.type || 'image/jpeg');
+  return { mime, datos: d.split(',')[1] || '', nombre: f.name || 'comprobante' };
+}
+async function nunCompSubir(cobroId, f, ref){
+  try {
+    if (f.size > 12 * 1024 * 1024) { toast('El archivo es muy grande (máx. 12 MB)', { type:'error' }); return false; }
+    const x = await nunCompPreparar(f);
+    const r = await api({ accion:'archivo_subir', id:'cmp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), cobro_id: cobroId, ref: ref || '', nombre: x.nombre, mime: x.mime, datos: x.datos });
+    if (!r || !r.ok) { toast('✗ Comprobante: ' + ((r && r.error) || 'no se subió'), { type:'error' }); return false; }
+    if (_nunComp.conteo) _nunComp.conteo[cobroId] = (_nunComp.conteo[cobroId] || 0) + 1;
+    return true;
+  } catch(e){ toast('✗ Comprobante: ' + e.message, { type:'error' }); return false; }
+}
+async function nunCompPintar(cobroId){
+  const box = document.getElementById('compLista'); if (!box || box.dataset.cobro !== cobroId) return;
+  let r = null; try { r = await api({ accion:'archivo_listar', cobro_id: cobroId }); } catch(e){}
+  if (!box.isConnected) return;
+  const its = (r && r.ok && r.items) || [], vivos = its.filter(x => !x.cancelado), admin = nunEsAdmin() || esSesionDueno();
+  box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <label class="btn btn-primary btn-sm" style="cursor:pointer">＋ Subir comprobante<input type="file" accept="image/*,application/pdf" style="display:none" onchange="nunCompSubirAqui(this,'${escapeHTML(cobroId)}')"></label>
+      <span style="font-size:12px;color:var(--mute)">Foto o PDF del depósito / transferencia (también de pagos ya registrados).</span></div>
+    ${!r || !r.ok ? '<div style="color:var(--red);font-size:12.5px">No se pudo leer la lista: ' + escapeHTML((r && r.error) || 'sin respuesta') + '</div>'
+      : !its.length ? '<div class="dt-empty"><div class="empty-title">Sin comprobantes</div><div class="empty-sub">Súbelo al capturar el pago o aquí.</div></div>'
+      : its.map(x => `<div class="timeline-item" style="${x.cancelado ? 'opacity:.5' : ''}"><div class="timeline-date">${fmtFecha(x.creado)}</div><div class="timeline-body">
+          <div class="timeline-title">${/pdf/.test(x.mime || '') ? '📄' : '🖼️'} ${escapeHTML(x.nombre || 'comprobante')}${x.cancelado ? ' <span class="tag red">cancelado</span>' : ''}</div>
+          <div class="timeline-desc">${escapeHTML(x.ref || '')}</div><div class="timeline-meta">${x.quien ? 'subió ' + escapeHTML(x.quien) + ' · ' : ''}${Math.max(1, Math.round((+x.tam || 0) / 1024))} KB</div></div>
+          <div style="display:flex;flex-direction:column;gap:4px"><button class="btn btn-sm btn-secondary" onclick="nunCompVer('${escapeHTML(x.id)}')">Ver</button>
+          ${admin && !x.cancelado ? `<button class="btn btn-sm btn-danger" onclick="nunCompCancelar('${escapeHTML(x.id)}','${escapeHTML(cobroId)}')">Cancelar</button>` : ''}</div></div>`).join('')}
+    ${vivos.length ? '' : ''}`;
+}
+async function nunCompSubirAqui(inp, cobroId){
+  const f = inp.files && inp.files[0]; if (!f) return;
+  const box = document.getElementById('compLista'); if (box) box.insertAdjacentHTML('afterbegin', '<div style="font-size:12.5px;margin-bottom:8px">⏳ Subiendo ' + escapeHTML(f.name) + '…</div>');
+  const ok = await nunCompSubir(cobroId, f, 'Subido aparte');
+  if (ok) toast('📎 Comprobante guardado');
+  nunCompPintar(cobroId); nunCompMarcarLista();
+}
+async function nunCompVer(id){
+  const w = window.open('', '_blank'); if (w) try { w.document.write('<p style="font-family:sans-serif;padding:24px">Abriendo comprobante…</p>'); } catch(e){}
+  const r = await api({ accion:'archivo_ver', id });
+  if (!r || !r.ok) { if (w) w.close(); toast('✗ ' + ((r && r.error) || 'No se pudo abrir'), { type:'error' }); return; }
+  const bin = atob(r.datos), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([u8], { type: r.mime || 'application/octet-stream' }));
+  if (w) w.location.href = url; else { const a = document.createElement('a'); a.href = url; a.download = r.nombre || 'comprobante'; document.body.appendChild(a); a.click(); a.remove(); }
+}
+async function nunCompCancelar(id, cobroId){
+  const ok = await confirmDialog({ title:'¿Cancelar comprobante?', message:'Queda marcado como cancelado (no se borra).', ok:'Cancelar comprobante', danger:true }); if (!ok) return;
+  const r = await api({ accion:'archivo_cancelar', id }); if (!r || !r.ok) { toast('✗ ' + ((r && r.error) || ''), { type:'error' }); return; }
+  if (_nunComp.conteo && _nunComp.conteo[cobroId]) _nunComp.conteo[cobroId]--;
+  nunCompPintar(cobroId); nunCompMarcarLista();
+}
+// 📎 junto al número en la lista de Cobranza (cuántos comprobantes tiene)
+async function nunCompConteo(forzar){
+  if (_nunComp.conteo && !forzar) return _nunComp.conteo;
+  try { const r = await api({ accion:'archivo_conteo' }); if (r && r.ok) _nunComp.conteo = r.conteo || {}; } catch(e){}
+  return _nunComp.conteo || {};
+}
+async function nunCompMarcarLista(){
+  const c = await nunCompConteo(); if (!c) return;
+  document.querySelectorAll('[data-cobro-id]').forEach(el => { const n = c[el.getAttribute('data-cobro-id')] || 0; let m = el.querySelector('.comp-n');
+    if (!n) { if (m) m.remove(); return; } if (!m) { m = document.createElement('span'); m.className = 'comp-n'; m.style.cssText = 'margin-left:6px;font-size:11px'; el.appendChild(m); } m.textContent = '📎' + (n > 1 ? n : ''); m.title = n + ' comprobante(s)'; });
+}
 function abrirDrawerCobranza(idDoc) {
   const doc = (State.data.cobranza||[]).find(c => c.id === idDoc);
   if (!doc) return;
+  setTimeout(() => nunCompPintar(idDoc), 50); // v4.79
   const saldo = +doc.pendiente || 0;
   const cuentas = State.data.cuentas || []; nunCuentasSiFaltan(); // v4.69
   const pagos = (State.data.pagosclientes || []).filter(p => p.id_doc === idDoc);
@@ -5147,6 +5227,7 @@ function abrirDrawerCobranza(idDoc) {
         <select id="pcCuenta"><option value="">— Selecciona —</option>${cuentas.map(c=>`<option value="${escapeHTML(c.nombre)}">${escapeHTML(c.nombre)}</option>`).join('')}</select>
       </div>
       <div class="field full"><label>Notas (opcional)</label><textarea id="pcNotas"></textarea></div>
+      <div class="field full"><label>📎 Comprobante (foto o PDF, opcional)</label><input type="file" id="pcComp" accept="image/*,application/pdf" onchange="nunCompElegido(this,'pcCompInfo')"><div id="pcCompInfo" style="font-size:11.5px;color:var(--mute);margin-top:4px"></div></div>
     </div>
     <div class="mini-confirm" id="pcConfirm">
       <div><strong>¿Confirmar pago?</strong></div>
@@ -5198,6 +5279,7 @@ function abrirDrawerCobranza(idDoc) {
     sub: `${doc.tipo||''} ${doc.numero||''} · Total ${fmtFull(doc.total||0)} · ${doc.vendedor||'sin vendedor'}`,
     tabs: [
       { key:'pago', label:'Capturar pago', body: tabPago },
+      { key:'comprobantes', label:'📎 Comprobantes', body: `<div id="compLista" data-cobro="${escapeHTML(idDoc)}"><div style="color:var(--mute);font-size:12.5px">Cargando…</div></div>` }, // v4.79
       { key:'editar', label:'Editar', body: tabEditar },
       { key:'historial', label:`Pagos (${_vivos.length})`, body: tabHistorial } // v3.90
     ],
@@ -5273,10 +5355,13 @@ async function ejecutarPagoCliente(idDoc) {
       codigo_usuario: State.sesion.codigo
     });
     if (!data.ok) { toast('Error: '+(data.error||'?'), { type:'error' }); return; }
+    const _compF = (document.getElementById('pcComp') || {}).files; let _compOk = null; // v4.79 comprobante del pago
+    if (_compF && _compF[0]) _compOk = await nunCompSubir(idDoc, _compF[0], 'Pago ' + fmtFull(monto) + ' · ' + fecha + ' · ' + cuenta);
     await Promise.all([cargarTabla('cobranza'), cargarTabla('ingresos'), cargarTabla('pagosclientes')]);
     renderCurrent();
     cerrarDrawer();
-    toast('✓ Pago registrado · ' + fmtFull(monto));
+    toast('✓ Pago registrado · ' + fmtFull(monto) + (_compOk === true ? ' · 📎 comprobante guardado' : ''));
+    if (_compOk === false) toast('⚠ El pago SÍ quedó, pero el comprobante no se subió: ábrelo otra vez → 📎 Comprobantes → Subir', { type:'error', duration:10000 });
   } catch(e) { toast('Error: ' + e.message, { type:'error' }); }
   finally { setTimeout(() => { window._nunPagando = false; }, 1500); } // v3.80
 }

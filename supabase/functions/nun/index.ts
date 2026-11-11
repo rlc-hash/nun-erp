@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-2.0'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-2.1'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -272,7 +272,22 @@ async function ejecutar(tipo: 'post'|'get', payload: string|Record<string,string
   });
 }
 
+// v4.89 (11 nov) — LAS TRABAS: con 4 o más peticiones al mismo tiempo, postgres.js metía consultas en una conexión ocupada (pipelining) y el pooler
+// de Supabase (modo transacción) se congelaba: 3 respondían en 1 s y las demás tardaban 20–40 s o fallaban (reproducido con 12 lecturas juntas).
+// Ahora cada petición espera su TURNO: como máximo 3 a la vez (= las conexiones del pool); las demás esperan milisegundos en fila.
+const CUPO = 3; const _cupo = { n: 0, fila: [] as Array<() => void> };
+async function conCupo<T>(f: () => Promise<T>): Promise<T> {
+  if (_cupo.n >= CUPO) await new Promise<void>(ok => _cupo.fila.push(ok));
+  _cupo.n++;
+  try { return await f(); } finally { _cupo.n--; const sig = _cupo.fila.shift(); if (sig) sig(); }
+}
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  // lo que va a Google (entrar, usuarios, Facturama) tarda segundos sin usar la base: no ocupa turno
+  let vaAGoogle = false; if (req.method === 'POST') { try { const m = (await req.clone().text()).match(/"accion"\s*:\s*"([a-z_]+)"/); vaAGoogle = !!(m && A_GOOGLE.test(m[1])); } catch(e){} }
+  return vaAGoogle ? atenderPeticion(req) : conCupo(() => atenderPeticion(req));
+});
+async function atenderPeticion(req: Request) {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   await dbLista();
   poolFresco(); _enVuelo++; // v4.82
@@ -429,6 +444,6 @@ Deno.serve(async (req) => {
   } finally {
     _enVuelo = Math.max(0, _enVuelo - 1); _ultimoUso = Date.now(); // v4.82
     const ms = Date.now() - t0;
-    sql`insert into nun_log (accion, ms, ok, error, quien) values (${accion}, ${ms}, ${ok}, ${err}, ${quien})`.catch(() => {});
+    try { await sql`insert into nun_log (accion, ms, ok, error, quien) values (${accion}, ${ms}, ${ok}, ${err}, ${quien})`; } catch(e){} // v4.89 dentro de su turno
   }
-});
+}

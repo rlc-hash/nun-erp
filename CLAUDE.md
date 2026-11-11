@@ -285,6 +285,12 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   hace `guardarDoc(…,{luegoConfirmar:true})`: guarda lo corregido y luego confirma. (3) Codigo.gs: erp_upsert_batch/erp_actualizar de una cotización
   'enviada' que cambia items_json libera lo apartado viejo y aparta lo nuevo (antes al corregir 36→6 y confirmar quedaban 30 apartadas). Se corrigió un
   apartado que había quedado de más por eso (comprometido = suma de cotizaciones enviadas). Pruebas `prueba_v488_corregir_apartado.js`, `prueba_v488_comision_y_confirmar.js`.
+- **servidor supabase-2.1 (11 nov) — LAS TRABAS, causa real**: con 4+ peticiones a la vez postgres.js metía consultas en una conexión ocupada
+  (pipelining) y el pooler de Supabase (modo transacción) se congelaba: 3 respondían en 1 s y las demás 20–40 s o fallaban (reproducido con 12 lecturas
+  juntas: `rafaga`). Ahora `conCupo`: máximo 3 peticiones trabajando con la base a la vez (= max del pool), las demás esperan turno; lo que va a Google
+  (A_GOOGLE) no ocupa turno; el registro en nun_log va dentro del turno. Resultado real: 12 y 20 lecturas juntas en ~1 s, sin fallas (antes hasta 41 s).
+  Prueba `prueba_v489_turnos.js`. Si vuelve a haber trabas: medir con nun_log (ms>20000) y ráfagas por segundo.
+  (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

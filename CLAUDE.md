@@ -251,6 +251,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   del pago; si falla, el pago queda y el botón reintenta sin duplicar); el servidor solo la acepta para SU pago por_verificar y la liga al cobro de ese pago
   (ref "Reportado por X · pv:<id>"); el aviso dice 📎. En el ERP "Pagos por verificar" trae 📎 Ver comprobante (`nunPVComprobantes`) y la pestaña Comprobantes
   marca el estatus del pago reportado. Pruebas `prueba_v480_comprobante_vendedor.js`, `prueba_v480_editor_cajas.js`, `prueba_v2115_crm_comprobante.js`.
+- **v4.81 / app v2.1.16 (11 nov, Rafa: "olvídalo, por pieza está mejor")**: el carry on vuelve a ir **POR PIEZA** en editor, PDF y app. Lo de caja (v4.78/v4.80/
+  v2.1.15) queda APAGADO con un interruptor: `NUN_CARRY_CAJA = false` (index.html; nunLineaCaja/_docPz/editor) y `CARRY_CAJA = false` (ventas/index.html, pzSet).
+  Los renglones que ya traen `pz_caja: 6` se ven en piezas (el dato no estorba). Para volver a cajas: poner los dos en true (y copiar_pdf.py).
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

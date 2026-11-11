@@ -1,3 +1,4 @@
+// v4.81 (Rafa 11 nov: "olvídalo, por pieza está mejor"): con NUN_CARRY_CAJA = false el PDF muestra el carry on POR PIEZA aunque el renglón traiga pz_caja.
 // v4.78 / app v2.1.14 (Rafa 11 nov) — carry on por CAJA en el documento: el renglón se guarda en piezas (inventario y apartado en piezas)
 // con pz_caja: 6; el PDF (ERP y app) lo muestra como N cajas × precio de la caja, "caja de 6 pz (pieza $550.00)", con el mismo total.
 // Sin red; datos inventados.
@@ -17,8 +18,8 @@ const sleep=t=>new Promise(z=>setTimeout(z,t));
    w.HTMLCanvasElement.prototype.getContext=()=>new Proxy({}, {get:()=>()=>({})}); }});
  const w=dom.window,d=w.document; await sleep(1500);
  const L=w.eval('(x)=>nunLineaCaja(x)');
- r.caja=L(its[0]); if(!(r.caja.cant===3&&r.caja.unidad==='cajas'&&r.caja.pu===3300&&/caja de 6 pz \(pieza \$550\.00\)/.test(r.caja.desc))) r.fallas.push('caja');
- r.sinSets=L(its[1]).desc; if(r.sinSets!=='CARRY ON PP RL009CO ROSA · caja de 6 pz (pieza $510.00)'||L(its[1]).unidad!=='caja') r.fallas.push('quita "sets"');
+ r.caja=L(its[0]); if(!(r.caja.cant===18&&r.caja.unidad==='pieza'&&r.caja.pu===550&&r.caja.desc==='CARRY ON PP RL010CO NEGRO')) r.fallas.push('por pieza');
+ r.sinSets=L(its[1]).desc; if(L(its[1]).cant!==6||L(its[1]).pu!==510) r.fallas.push('pieza a 510');
  r.noCompleta=L(its[2]); if(!(r.noCompleta.cant===4&&r.noCompleta.pu===550&&r.noCompleta.unidad==='pieza')) r.fallas.push('incompleta queda en piezas');
  r.set3=L(its[3]); if(!(r.set3.cant===2&&r.set3.unidad==='juego')) r.fallas.push('set de 3 igual');
  // PDF completo
@@ -26,7 +27,7 @@ const sleep=t=>new Promise(z=>setTimeout(z,t));
  w.URL.createObjectURL=b=>{ html=b; return 'blob:x'; }; w.open=()=>({print(){}});
  w.eval("imprimirDocumento('cotizaciones','q1')"); html=await html.text();
  const td=new JSDOM(html).window.document; const filas=[...td.querySelectorAll('tbody tr')].map(tr=>[...tr.children].map(x=>x.textContent.trim()));
- r.fila=filas[0]; if(!(filas[0][2]==='3'&&filas[0][3]==='cajas'&&filas[0][4]==='$3,300.00'&&filas[0][6]==='$9,900.00')) r.fallas.push('pdf renglón');
+ r.fila=filas[0]; if(!(filas[0][2]==='18'&&filas[0][3]==='pieza'&&filas[0][4]==='$550.00'&&filas[0][6]==='$9,900.00')) r.fallas.push('pdf renglón');
  r.total=/\$17,670\.00/.test(html); if(!r.total) r.fallas.push('total');
  // nun-pdf.js (app de vendedores) trae la misma función
  r.app=/function nunLineaCaja\(it\)/.test(fs.readFileSync(path.join(__dirname,'..','nun-pdf.js'),'utf8')); if(!r.app) r.fallas.push('nun-pdf.js');

@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.15';
+const VERSION = 'v2.1.16';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -377,7 +377,8 @@ function vClientes(){
 
 function disponible(p){ return Math.max(0, (+p.stock_actual || 0) - (+p.stock_comprometido || 0)); }
 // v2.1.9 — los carry on (RL0xxCO…, categoría CARRY ON) se venden por SET de 6 piezas: el inventario sigue en piezas, la app lo muestra en sets
-function pzSet(p){ return p && (String(p.categoria || '').toUpperCase() === 'CARRY ON' || /^RL\d{3}CO/i.test(String(p.sku || ''))) ? 6 : 1; }
+const CARRY_CAJA = false; // v2.1.16 (Rafa 11 nov: por pieza está mejor) — true = carry on por caja de 6
+function pzSet(p){ return CARRY_CAJA && p && (String(p.categoria || '').toUpperCase() === 'CARRY ON' || /^RL\d{3}CO/i.test(String(p.sku || ''))) ? 6 : 1; }
 function esSet3(p){ return String(p && p.unidad || '').toLowerCase() === 'juego' || /^SET /i.test(String(p && p.categoria || '')); } // maletas que ya se manejan por set de 3
 function dispTxt(p){ const d = disponible(p), k = pzSet(p); return k > 1 ? Math.floor(d / k) + ' cajas (' + d + ' pz)' : d + (esSet3(p) ? ' sets de 3 pz' : ' disponibles'); }
 function vCatalogo(){

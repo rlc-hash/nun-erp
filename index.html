@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.80 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.81 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -5607,7 +5607,7 @@ function renderCobranzaHoy(todo) {
 function nunLineaCaja(it){
   const pz = +it.pz_caja || 0, cant = +it.cantidad || 0, pu = +it.precio_unitario || 0;
   const base = String(it.descripcion || '').replace(/\s*·\s*\d+\s*(sets?|cajas?) de \d+ pz\s*$/i, ''); // v4.80 también 'cajas de'
-  if (pz > 1 && cant > 0 && Math.abs(cant / pz - Math.round(cant / pz)) < 1e-9) {
+  if (typeof NUN_CARRY_CAJA !== 'undefined' && NUN_CARRY_CAJA && pz > 1 && cant > 0 && Math.abs(cant / pz - Math.round(cant / pz)) < 1e-9) { // v4.81 apagado: por PIEZA
     const pzu = Math.round(pu * 100) / 100;
     return { cant: Math.round(cant / pz), unidad: Math.round(cant / pz) === 1 ? 'caja' : 'cajas', pu: Math.round(pu * pz * 10000) / 10000, desc: base + ' · caja de ' + pz + ' pz (pieza ' + fmtFull(pzu) + ')' };
   }
@@ -8392,7 +8392,9 @@ function docQuitarItem(i) {
 // Se sigue guardando en piezas (cantidad × 6, precio ÷ 6) con pz_caja: 6 (inventario y apartado van en piezas).
 function nunEsCarryOn(sku){ const k = String(sku||'').trim().toUpperCase(); if (/^RL\d{3}CO/.test(k)) return true; const p = (State.data.productos||[]).find(x => String(x.sku||'').trim().toUpperCase() === k); return !!p && /carry\s*on/i.test(String(p.categoria||'')); }
 function nunR4(n){ return Math.round((+n||0) * 10000) / 10000; }
-function _docPz(it){ const pz = +(it && it.pz_caja) || 0, c = +(it && it.cantidad) || 0; return pz > 1 && Math.abs(c / pz - Math.round(c / pz)) < 1e-9 ? pz : 0; }
+// v4.81 (Rafa 11 nov: "olvídalo, por pieza está mejor") — interruptor: false = carry on por PIEZA en editor, PDF y app; true = por caja de 6
+const NUN_CARRY_CAJA = false;
+function _docPz(it){ if (!NUN_CARRY_CAJA) return 0; const pz = +(it && it.pz_caja) || 0, c = +(it && it.cantidad) || 0; return pz > 1 && Math.abs(c / pz - Math.round(c / pz)) < 1e-9 ? pz : 0; }
 function _docCajaTxt(it){ const pz = _docPz(it); return pz ? '📦 por caja de ' + pz + ' pz · pieza ' + fmtFull(+it.precio_unitario||0) : ''; }
 function docCambiarItem(i, campo, valor) {
   if (!docItems[i]) return;
@@ -8400,8 +8402,8 @@ function docCambiarItem(i, campo, valor) {
     docItems[i].sku = valor;
     // Auto-llenar desde catálogo
     const p = (State.data.productos||[]).find(pr => String(pr.sku||'').toLowerCase() === String(valor||'').toLowerCase());
-    if (nunEsCarryOn(valor)) { if (!docItems[i].pz_caja) { docItems[i].pz_caja = 6; docItems[i].cantidad = Math.max(1, Math.round(+docItems[i].cantidad||1)) * 6; } } // v4.80 por caja
-    else if (docItems[i].pz_caja) delete docItems[i].pz_caja;
+    if (NUN_CARRY_CAJA && nunEsCarryOn(valor)) { if (!docItems[i].pz_caja) { docItems[i].pz_caja = 6; docItems[i].cantidad = Math.max(1, Math.round(+docItems[i].cantidad||1)) * 6; } } // v4.80 por caja
+    else if (NUN_CARRY_CAJA && docItems[i].pz_caja) delete docItems[i].pz_caja;
     if (p) {
       docItems[i].descripcion = p.descripcion || '';
       docItems[i].precio_unitario = parseFloat(p.precio) || 0;

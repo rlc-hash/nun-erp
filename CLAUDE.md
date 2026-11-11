@@ -226,6 +226,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   Prueba `prueba_v474_reintento_listas.js`.
 - v4.75 / app v2.1.12 (10 nov): el cliente de PRUEBA (RAFAEL LANIADO CATTAN, `_nunEsPrueba` / `esPrueba`) no cuenta en comisiones del ERP
   (`nunFilasComision`) ni en vendido / cobrado / te deben / comisión del CRM. Sus pagos de práctica se quedan como están. Prueba `prueba_v475_prueba_fuera.js`.
+- v4.76 / servidor supabase-1.6 (11 nov, Rafa): **avisos a Rafa de lo que hace la oficina** (Yazmín u otro cuyo código no empieza con RAFA-/MASTER-NUN-):
+  documento nuevo (erp_crear/convertir_documento de cotizaciones, pedidos, remisiones, facturas, notas de crédito, gastos), timbrar y cancelar ante el SAT, capturar_pago_cliente,
+  confirmar cotización/pedido, cancelar pedido o documento (`avisoOficina` / `avisarRafa` en index.ts). Solo a suscripciones con `dueno:true` (se marca al activar
+  con código de Rafa; el ERP vuelve a registrar solo una vez los equipos ya activados: `nunPushReRegistrar`, localStorage `nun_push_v476`) y nunca a quien lo hizo.
+  Modo teléfono: las casillas (cantidad, precio) ya no se esconden como vacías en las tarjetas (`nunCelEtiquetar`). Pruebas `prueba_v476_avisos_oficina.js`, `prueba_v476_cel_casillas.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

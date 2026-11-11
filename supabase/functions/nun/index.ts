@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-1.5'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-1.6'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -159,6 +159,35 @@ async function avisar(datos: any, soloK?: string){
   }));
   return ok;
 }
+// v4.76 (Rafa 11 nov) — lo que hace la oficina (Yazmín u otro que no sea Rafa) le llega a Rafa al teléfono:
+// documentos nuevos, timbrar/cancelar ante el SAT, pagos registrados, confirmar cotizaciones, cancelar pedidos.
+// Solo a los equipos de Rafa (suscripción con dueno:true = código RAFA-/MASTER-NUN-) y nunca a quien lo hizo.
+const esRafa = (c: string) => /^(RAFA-|MASTER-NUN-)/.test(norm(c));
+const NOMBRE_DOC: Record<string, string> = { cotizaciones: 'la cotización', pedidos: 'el pedido', remisiones: 'la remisión', facturas: 'la factura', notascredito: 'la nota de crédito', gastos: 'el gasto' };
+function avisoOficina(body: any, j: any, quien: string){
+  if (!j || !j.ok || j.ya_existia || esRafa(body.codigo || body.codigo_usuario || '')) return null;
+  const q = (quien || 'Alguien de la oficina').split(' ')[0], a = body.accion, t = String(body.tabla || '');
+  const ir = (m: string) => './?ir=' + m;
+  if (a === 'erp_crear' && NOMBRE_DOC[t]){ const it = j.item || body.item || {};
+    return { titulo: '📄 ' + q + ' creó ' + NOMBRE_DOC[t] + ' ' + (it.folio || ''), cuerpo: (it.cliente || it.proveedor || it.concepto || '') + (it.total || it.monto ? ' · ' + pesos(it.total || it.monto) : ''), url: ir(t === 'cotizaciones' ? 'cotizaciones' : 'cobranza'), tag: 'of_' + (it.id || Date.now()) }; }
+  if (a === 'convertir_documento' && NOMBRE_DOC[String(body.tabla_destino)])
+    return { titulo: '📄 ' + q + ' creó ' + NOMBRE_DOC[String(body.tabla_destino)] + ' ' + (j.folio || ''), cuerpo: 'Desde ' + (NOMBRE_DOC[String(body.tabla_origen)] || 'otro documento'), url: ir('cobranza'), tag: 'of_' + (j.nuevoId || Date.now()) };
+  if (a === 'facturama_timbrar'){ const c = body.cfdi || {}; const tipo = c.CfdiType === 'P' ? 'complemento de pago' : c.CfdiType === 'E' ? 'nota de crédito' : 'factura';
+    return { titulo: '🧾 ' + q + ' timbró ' + tipo + ' ' + (c.Serie || '') + (j.folio || c.Folio || ''), cuerpo: ((c.Receiver && c.Receiver.Name) || '') + (j.total ? ' · ' + pesos(j.total) : ''), url: ir('cobranza'), tag: 'tim_' + (j.uuid || Date.now()) }; }
+  if (a === 'facturama_cancelar') return { titulo: '⚠️ ' + q + ' canceló un CFDI ante el SAT', cuerpo: String(body.uuid || body.id || ''), url: ir('cobranza'), tag: 'can_' + (body.uuid || body.id || Date.now()) };
+  if (a === 'capturar_pago_cliente') return { titulo: '💵 ' + q + ' registró un pago de ' + pesos(body.monto), cuerpo: [body.cuenta, String(body.fecha || '').slice(0, 10), String(body.notas || '').slice(0, 80)].filter(Boolean).join(' · '), url: ir('cobranza'), tag: 'pago_' + body.id_doc + '_' + body.monto };
+  if (a === 'confirmar_cotizacion') return { titulo: '✅ ' + q + ' confirmó una cotización → pedido', cuerpo: (j.pedido && (j.pedido.folio + ' · ' + (j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('cotizaciones'), tag: 'conf_' + body.id };
+  if (a === 'activar_pedido') return { titulo: '✅ ' + q + ' confirmó un pedido', cuerpo: (j.pedido && (j.pedido.folio + ' · ' + (j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('cobranza'), tag: 'act_' + body.id };
+  if (a === 'cancelar_pedido_venta') return { titulo: '✕ ' + q + ' canceló un pedido', cuerpo: String(body.motivo || ''), url: ir('cobranza'), tag: 'cped_' + body.id };
+  if (a === 'erp_upsert_batch' && NOMBRE_DOC[t]){ const n = (body.items || []).filter((i: any) => /cancel/i.test(String(i && i.estatus || ''))).length;
+    if (n) return { titulo: '✕ ' + q + ' canceló ' + (n > 1 ? n + ' documentos (' + t + ')' : NOMBRE_DOC[t]), cuerpo: (body.items || []).slice(0, 3).map((i: any) => i.id).join(', '), url: ir(t === 'cotizaciones' ? 'cotizaciones' : 'cobranza'), tag: 'cdoc_' + Date.now() }; }
+  return null;
+}
+async function avisarRafa(datos: any, quienCodigo: string){
+  const h = quienCodigo ? (await sha(norm(quienCodigo))).slice(0, 12) : '';
+  const rows = (await sql`select k, v from nun_props where k like 'push:%'`).filter((r: any) => { try { const x = JSON.parse(r.v); return x.dueno === true && x.codigo_h !== h; } catch(e){ return false; } });
+  let n = 0; for (const r of rows) n += await avisar(datos, r.k); return n;
+}
 function enSegundoPlano(p: Promise<unknown>){ try { (globalThis as any).EdgeRuntime.waitUntil(p.catch(() => {})); } catch(e){ p.catch(() => {}); } }
 const pesos = (n: unknown) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -279,6 +308,7 @@ Deno.serve(async (req) => {
       }
       ok = !!(r && r.ok); if (!ok) err = String(r && r.error || '').substring(0, 200);
       if (!quien) quien = String(body._quien || '').slice(0, 60);
+      if (/^facturama_(timbrar|cancelar)$/.test(accion)){ const av = avisoOficina(body, r, quien); if (av) enSegundoPlano(avisarRafa(av, norm(body.codigo))); } // v4.76
       return json(r);
     }
     // v4.16 — quién y cuándo cambió un documento (solo administradores)
@@ -312,13 +342,13 @@ Deno.serve(async (req) => {
       if (accion === 'push_suscribir'){
         if (!sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) return json({ ok: false, error: 'Suscripción incompleta' });
         const k = 'push:' + (await sha(String(sub.endpoint))).slice(0, 32);
-        await sql`insert into nun_props (k, v) values (${k}, ${JSON.stringify({ sub, nombre: se.nombre || '', equipo: String(body.equipo || '').slice(0, 60), activo: true, alta: new Date().toISOString(), codigo_h: (await sha(se.codigo)).slice(0, 12) })})
+        await sql`insert into nun_props (k, v) values (${k}, ${JSON.stringify({ sub, nombre: se.nombre || '', equipo: String(body.equipo || '').slice(0, 60), activo: true, alta: new Date().toISOString(), codigo_h: (await sha(se.codigo)).slice(0, 12), dueno: esRafa(se.codigo) })})
                   on conflict (k) do update set v = excluded.v`;
         return json({ ok: true, k });
       }
       const h = (await sha(se.codigo)).slice(0, 12); // solo las de este código
       const propios = (await sql`select k, v from nun_props where k like 'push:%'`).filter((r: any) => { try { return JSON.parse(r.v).codigo_h === h; } catch(e){ return false; } });
-      if (accion === 'push_probar'){ let n = 0; for (const r of propios) n += await avisar({ titulo: '🔔 Avisos de NUN activados', cuerpo: 'Así te va a llegar cuando un vendedor suba una cotización o reporte un pago.', url: './?ir=cotizaciones', tag: 'prueba' }, r.k); return json({ ok: true, enviados: n }); }
+      if (accion === 'push_probar'){ let n = 0; for (const r of propios) n += await avisar({ titulo: '🔔 Avisos de NUN activados', cuerpo: 'Así te va a llegar cuando un vendedor suba una cotización o reporte un pago' + (esRafa(se.codigo) ? ', y cuando la oficina haga facturas, pagos, timbres o cancelaciones.' : '.'), url: './?ir=cotizaciones', tag: 'prueba' }, r.k); return json({ ok: true, enviados: n }); }
       for (const r of propios){ const x = JSON.parse(r.v); x.activo = false; await sql`update nun_props set v = ${JSON.stringify(x)} where k = ${r.k}`; }
       return json({ ok: true });
     }
@@ -343,7 +373,8 @@ Deno.serve(async (req) => {
     const _f = () => conReintento(() => ejecutar('post', texto, body, m, !A_LECTURA.test(accion)));
     const out = A_LECTURA.test(accion) ? await lectura(_f) : await _f(); // v4.64
     if (!A_LECTURA.test(accion)) accion += _det;
-    try { const j = JSON.parse(out); ok = !!j.ok; if (!ok) err = String(j.error || '').substring(0, 200); } catch(e){}
+    try { const j = JSON.parse(out); ok = !!j.ok; if (!ok) err = String(j.error || '').substring(0, 200);
+      const av = avisoOficina(body, j, quien); if (av) enSegundoPlano(avisarRafa(av, _c)); } catch(e){} // v4.76 aviso a Rafa de lo que hace la oficina
     return json(out);
   } catch(e){
     ok = false; err = String(e).substring(0, 300);

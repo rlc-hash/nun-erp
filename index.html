@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.75 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.76 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -12557,7 +12557,7 @@ function nunCelEtiquetar(raiz){
           if (c === iTit) td.classList.add('cel-tit'); else if (c === iSub) td.classList.add('cel-sub');
           const v = td.textContent.replace(/\s+/g, ' ').trim();
           const tit = iTit >= 0 && tr.children[iTit] ? tr.children[iTit].textContent.replace(/\s+/g, ' ').trim() : '';
-          if (c !== iTit && (v === '' || v === '—' || v === '-' || v === '–' || (v && v === tit))) td.classList.add('cel-vacio'); // vacío o repite el nombre (contacto = razón social)
+          if (c !== iTit && !td.querySelector('input:not([type=hidden]),select,textarea') && (v === '' || v === '—' || v === '-' || v === '–' || (v && v === tit))) td.classList.add('cel-vacio'); // vacío o repite el nombre (contacto = razón social) · v4.76: una casilla para escribir (cantidad, precio) nunca cuenta como vacía
           if (td.querySelector('button') && !v.replace(/[^\wÁÉÍÓÚÑáéíóúñ$]/g, '').length) td.classList.add('cel-acc');
         }
         c += +(td.getAttribute('colspan') || 1); }); });
@@ -12714,6 +12714,17 @@ async function nunPushEstado(){
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return 'no';
   try { const reg = await navigator.serviceWorker.ready; const s = await reg.pushManager.getSubscription(); return s ? 'si' : (Notification.permission === 'denied' ? 'bloqueado' : 'falta'); } catch(e){ return 'no'; }
 }
+// v4.76 — los equipos ya activados se vuelven a registrar solos una vez (el servidor marca cuáles son de Rafa para mandarle lo que hace la oficina)
+async function nunPushReRegistrar(n){
+  try {
+    if (!State.sesion || !State.sesion.codigo || State.sesion.codigo === 'DEMO') { if ((n||0) < 30) setTimeout(() => nunPushReRegistrar((n||0) + 1), 10000); return; }
+    if (localStorage.getItem('nun_push_v476') === '1' || await nunPushEstado() !== 'si') return;
+    const reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription(); if (!sub) return;
+    const r = await api({ accion:'push_suscribir', sub: sub.toJSON(), equipo: (navigator.userAgent.match(/\(([^;)]+)/) || [,''])[1] });
+    if (r && r.ok) localStorage.setItem('nun_push_v476', '1');
+  } catch(e){}
+}
+setTimeout(() => nunPushReRegistrar(0), 15000);
 async function nunPushActivar(){
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
     toast(/iPhone|iPad/i.test(navigator.userAgent) ? 'En iPhone primero instala el sistema: Safari → Compartir → Agregar a pantalla de inicio, y ábrelo desde ese ícono' : 'Este navegador no recibe avisos; usa Chrome', { type:'error', duration:9000 }); return;
@@ -12754,7 +12765,7 @@ async function abrirNotificaciones() {
   const notifs = generarNotificaciones();
   const est = await nunPushEstado(); // v4.65
   const push = `<div style="padding:12px 14px;border:1px solid var(--line);border-radius:10px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <div style="flex:1;min-width:180px"><b>📱 Avisos en este equipo</b><div style="font-size:12px;color:var(--mute)">${est === 'si' ? '✓ Activados: te llega un aviso cuando un vendedor sube una cotización o reporta un pago.' : est === 'bloqueado' ? 'Bloqueados en este navegador: actívalos en sus ajustes.' : 'Recibe un aviso cuando un vendedor sube una cotización o reporta un pago, aunque el sistema esté cerrado.'}</div></div>
+      <div style="flex:1;min-width:180px"><b>📱 Avisos en este equipo</b><div style="font-size:12px;color:var(--mute)">${est === 'si' ? '✓ Activados: te llega un aviso cuando un vendedor sube una cotización o reporta un pago' + (/^(RAFA-|MASTER-NUN-)/i.test(String((State.sesion||{}).codigo||'')) ? ', y cuando la oficina hace facturas, remisiones, pagos, timbres o cancelaciones.' : '.') : est === 'bloqueado' ? 'Bloqueados en este navegador: actívalos en sus ajustes.' : 'Recibe un aviso cuando un vendedor sube una cotización o reporta un pago, aunque el sistema esté cerrado.'}</div></div>
       ${est === 'si' ? '<button class="btn btn-secondary btn-sm" onclick="nunPushActivar()">Probar</button>' : '<button class="btn btn-primary btn-sm" onclick="nunPushActivar()">🔔 Activar</button>'}</div>`;
   if (notifs.length === 0) {
     abrirDrawer({ title:'Centro de notificaciones', sub:'Sin alertas pendientes', tabs:[{ key:'notifs', label:'Notificaciones', body: push + '<div style="color:var(--mute);padding:10px">✓ Todo en orden.</div>' }] });

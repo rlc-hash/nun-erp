@@ -47,8 +47,8 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   // a mano: solo P0102
   const cks=[...d.querySelectorAll('#ecCuerpo input[type=checkbox]')]; cks[2].checked=false; cks[2].dispatchEvent(new w.Event('change')); // el de V01300
   r.mano=tot(); if(!/Total\$6,000\.00.*Pagado\$2,000\.00.*Saldo pendiente\$4,000\.00.*1 pedido\(s\) · 1 pago\(s\)/.test(r.mano)) r.fallas.push('aMano');
-  await w.eval("nunECMarcar('todo')"); await w.eval("nunECPdf()"); await sleep(100);
-  const h=w.__blob?await w.__blob.text():''; if(process.env.NUN_GUARDAR_HTML) fs.writeFileSync(process.env.NUN_GUARDAR_HTML,h); // para verlo
+  await w.eval("nunECMarcar('todo')"); // v4.85: el PDF se arma en el navegador (prueba_v485…); aquí se revisa su contenido
+  const h=w.eval('nunECHTML()'); if(process.env.NUN_GUARDAR_HTML) fs.writeFileSync(process.env.NUN_GUARDAR_HTML,h); // para verlo
   const t=h.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
   r.pdf={titulo:/Estado de cuenta/i.test(t), cliente:t.includes(C), pedidos:t.includes('P0101')&&t.includes('P0102')&&!t.includes('P0103'), otro:t.includes('V01300'),
    sinPiezas:!t.includes('MOCHILA YH008 NEGRO'), saldo:/Saldo pendiente \$5,000\.00/.test(t), letras:/CINCO MIL PESOS/.test(t), pagos:/Historial de pagos/.test(t)&&/Total pagos \(3\) \$12,500\.00/.test(t), estatus:/Liquidado/.test(t)&&/Parcial/.test(t), cubierto:/71\.4% cubierto/.test(t), logo:/<svg/.test(h)};

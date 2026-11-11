@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.84 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.85 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4406,20 +4406,20 @@ function nunECHTMLDe(D){
 async function nunECPdf(){
   if (!_nunEC.cli) { toast('Elige un cliente', { type:'error' }); return; }
   const S2 = nunECSeleccion(); if (!S2.peds.length && !S2.otros.length) { toast('Palomea al menos un pedido', { type:'error' }); return; }
-  if (!nunEsTelefono()) { nunAbrirHTML(nunECHTML(), null); return; }
-  // v4.82 — en el teléfono (y en la app instalada) abrir otra ventana para imprimir no siempre funciona: se hace el PDF aquí y se guarda / comparte
+  // v4.85 (Rafa: "en Cobranza no hay WhatsApp") — en teléfono Y compu se hace el PDF aquí: 💬 Enviar por WhatsApp · 📥 Guardar · 🖨 Imprimir
   const box = document.getElementById('ecPdfBox'); if (box) box.innerHTML = '<span style="font-size:12.5px;color:var(--mute)">⏳ Haciendo el PDF…</span>';
   try {
     const nombre = 'Estado_de_cuenta_' + String(_nunEC.cli.razon_social || 'cliente').replace(/[^\wÁÉÍÓÚÑáéíóúñ]+/g, '_').slice(0, 40) + '_' + nunHoy() + '.pdf';
     const f = await nunHtmlAPdf(nunECHTML(), nombre, [6, 6, 8, 6]); window._nunECArchivo = f;
-    const puede = !!(navigator.canShare && navigator.canShare({ files: [f] }));
-    if (box) box.innerHTML = `<button class="btn btn-primary" onclick="nunBajarArchivo(window._nunECArchivo)">📥 Guardar PDF</button>${puede ? ' <button class="btn btn-secondary" onclick="nunCompartirArchivo(window._nunECArchivo)">📤 Compartir (WhatsApp…)</button>' : ''}`;
+    if (box) box.innerHTML = `<button class="btn btn-primary" onclick="nunECWhatsApp()">💬 Enviar por WhatsApp</button> <button class="btn btn-secondary" onclick="nunBajarArchivo(window._nunECArchivo)">📥 Guardar PDF</button>${nunEsTelefono() ? '' : ' <button class="btn btn-secondary" onclick="nunAbrirHTML(nunECHTML(), null)">🖨 Imprimir</button>'}`;
   } catch(e){ if (box) box.innerHTML = `<button class="btn btn-primary" onclick="nunECPdf()">📄 Descargar estado de cuenta</button>`; toast('✗ No se pudo hacer el PDF: ' + e.message + '. Se abre para imprimir.', { type:'error', duration:8000 }); nunAbrirHTML(nunECHTML(), null); }
 }
 // v4.82 — PDF de verdad desde el HTML de impresión (igual que la app de vendedores: html2pdf dentro de un iframe oculto)
 function nunEsTelefono(){ try { return (typeof nunModoActual === 'function' && nunModoActual() === 'cel') || window.matchMedia('(max-width: 880px)').matches || /Android|iPhone|iPad/i.test(navigator.userAgent); } catch(e){ return false; } }
 function _nunScriptEn(doc, src){ return new Promise((ok, mal) => { const s = doc.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => mal(new Error('no cargó el generador de PDF (revisa la señal)')); doc.head.appendChild(s); }); }
-async function nunHtmlAPdf(html, nombre, margen){
+// v4.85 — con límite de tiempo: si en 25 s no sale (sin señal, el generador no cargó) se avisa y se usa Imprimir
+function nunHtmlAPdf(html, nombre, margen){ return Promise.race([_nunHtmlAPdf(html, nombre, margen), new Promise((_, mal) => setTimeout(() => mal(new Error('tardó demasiado (revisa la señal)')), 25000))]); }
+async function _nunHtmlAPdf(html, nombre, margen){
   const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true');
   f.style.cssText = 'position:fixed;left:-10000px;top:0;width:760px;height:1000px;border:0;background:#fff';
   document.body.appendChild(f);
@@ -4442,6 +4442,19 @@ async function nunHtmlAPdf(html, nombre, margen){
   } finally { f.remove(); }
 }
 function nunBajarArchivo(f){ if (!f) return; const u = URL.createObjectURL(f), a = document.createElement('a'); a.href = u; a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000); toast('📥 ' + f.name + ' · revisa Descargas'); }
+// v4.85 — WhatsApp: en el teléfono se comparte el PDF (eliges WhatsApp y el chat); en la compu se baja el PDF y se abre WhatsApp con el mensaje
+async function nunECWhatsApp(){
+  const f = window._nunECArchivo, cli = _nunEC.cli || {}; if (!f) return;
+  const S2 = nunECSeleccion(), txt = 'Estado de cuenta de ' + (cli.razon_social || '') + ' al ' + fmtFecha(nunHoy()) + ': saldo pendiente ' + fmtFull(S2.falta) + '.';
+  if (navigator.canShare && navigator.canShare({ files: [f] })) {
+    try { await navigator.share({ files: [f], text: txt }); } catch(e){ if (!/abort/i.test(String(e && e.name))) toast('No se pudo compartir: ' + (e && e.message || e), { type:'error' }); }
+    return;
+  }
+  let tel = String(cli.telefono || '').replace(/\D/g, ''); if (tel.length === 10) tel = '52' + tel;
+  nunBajarArchivo(f); toast('Se bajó el PDF: en WhatsApp adjúntalo con 📎', { duration:7000 });
+  window.open('https://wa.me/' + tel + '?text=' + encodeURIComponent(txt), '_blank');
+}
+window.nunECWhatsApp = nunECWhatsApp;
 async function nunCompartirArchivo(f){ if (!f) return; try { await navigator.share({ files: [f], title: f.name }); } catch(e){ if (!/abort/i.test(String(e && e.name))) { toast('No se pudo compartir: se guarda en Descargas', { type:'error' }); nunBajarArchivo(f); } } }
 window.nunEstadoCuentaAbrir = nunEstadoCuentaAbrir; window.nunECElegir = nunECElegir; window.nunECMarcar = nunECMarcar; window.nunECTotales = nunECTotales; window.nunECPdf = nunECPdf;
 // v4.42 — documento VIGENTE sin cobro vivo en Cobranza (ej. Comarca A7/A24: se pasaron de "cancelada" a "timbrada" y su cobro no se

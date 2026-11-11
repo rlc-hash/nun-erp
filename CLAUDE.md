@@ -271,6 +271,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   cuenta quedó aparte en `nunECHTMLDe(D)` (solo usa lo que recibe; copiado a nun-pdf.js junto con `nunLogoPDF` por copiar_pdf.py). La app de vendedores lo
   tiene en la hoja del cliente (`estadoCuenta`/`datosEC`: pedidos vivos con lo que falta según `cobrosDePedido`, cobros sueltos con saldo, pagos válidos;
   PDF con `htmlAPdf`) con 💬 Enviar por WhatsApp (navigator.share, el PDF se prepara antes) y 📥 Guardar. Prueba `prueba_v2117_crm_estado_cuenta.js`.
+- v4.85 (11 nov, Rafa): Estado de cuenta del ERP (Cobranza/ficha) hace el PDF en compu y teléfono con **💬 Enviar por WhatsApp** (`nunECWhatsApp`: en el
+  teléfono comparte el archivo; en la compu baja el PDF y abre wa.me con el teléfono del cliente y el saldo), 📥 Guardar y 🖨 Imprimir (compu).
+  `nunHtmlAPdf` con límite de 25 s (si no sale: aviso + Imprimir). Prueba `prueba_v485_estado_cuenta_whatsapp.js` (Playwright, generador simulado).
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

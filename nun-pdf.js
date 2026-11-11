@@ -276,6 +276,81 @@ function imprimirDocumento(tipo, idDoc) {
   const w = window.open('', '_blank', 'width=900,height=700');
   if (w) { w.document.write(partsHTML); w.document.close(); setTimeout(()=>{ try{w.print();}catch(e){} }, 600); }
 }
+function nunLogoPDF(){
+  const br = (typeof brandingActual === 'function') ? brandingActual() : { logo:'' };
+  if (br && br.logo) return br.logo.trim().startsWith('<svg') ? br.logo.replace('<svg', '<svg class="logo" preserveAspectRatio="xMidYMid meet"') : `<img class="logo" src="${br.logo}" style="object-fit:contain">`;
+  const m = String(imprimirDocumento).match(/<svg class="logo-svg" viewBox[\s\S]*?<\/svg>/);
+  return m ? m[0].replace('class="logo-svg"', 'class="logo"') : '';
+}
+function nunECHTMLDe(D){
+  const cli = D.cliente || {}, S2 = { total: +D.total || 0, pagado: +D.pagado || 0, falta: +D.falta || 0, pagos: D.pagos || [] };
+  const e = escapeHTML, hoy = new Date(), hoyISO = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+  const dmy = f => { const x = String(f||'').slice(0, 10).split('-'); return x.length === 3 ? x[2] + '/' + x[1] + '/' + x[0] : '—'; };
+  const MES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'], my = f => { const x = String(f||'').slice(0, 10).split('-'); return x.length === 3 ? MES[+x[1] - 1] + ' ' + x[0] : ''; };
+  const dias = f => { const x = String(f||'').slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) return ''; return Math.max(0, Math.floor((hoy - new Date(x + 'T12:00:00')) / 86400000)); };
+  const est = (falta, pagado) => falta <= 0.5 ? '<span class="st ok">Liquidado</span>' : pagado > 0.5 ? '<span class="st par">Parcial</span>' : '<span class="st pen">Pendiente</span>';
+  const filas = (D.filas || []).slice().sort((a, b) => String(a.fecha||'').localeCompare(String(b.fecha||'')));
+  const fechas = filas.map(f => String(f.fecha||'').slice(0, 10)).filter(Boolean).sort();
+  const conSaldo = filas.filter(f => f.falta > 0.5).length, pct = S2.total > 0 ? Math.min(100, Math.round(S2.pagado / S2.total * 1000) / 10) : 0;
+  const totPagos = Math.round(S2.pagos.reduce((a, i) => a + (+i.monto||0), 0) * 100) / 100;
+  const logo = (typeof nunLogoPDF === 'function' ? nunLogoPDF() : '').replace('class="logo"', 'class="logo" style="width:92px;height:48px;display:block"');
+  const AZ = '#0b1d3a', NA = '#f25a1d', _nunEC = { prod: !!D.conProd, pagos: D.conPagos !== false };
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Estado de cuenta · ${e(cli.razon_social)}</title><style>
+    @page { size: letter; margin: 0; }
+    * { box-sizing:border-box; }
+    body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#14181f; margin:0; font-size:10px; line-height:1.4; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .head { background:${AZ}; color:#fff; padding:26px 34px 24px; display:flex; justify-content:space-between; align-items:center; border-bottom:5px solid ${NA}; }
+    .head h1 { margin:0; font-size:25px; font-weight:700; text-align:right; letter-spacing:-.01em; } .head .emp { font-size:8.5px; letter-spacing:.2em; color:rgba(255,255,255,.65); text-transform:uppercase; text-align:right; margin-top:4px; }
+    .cuerpo { padding:22px 34px 26px; }
+    .tres { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:12px; }
+    .card { background:#f1f2f4; border-radius:6px; padding:10px 12px; } .lbl { font-size:7.5px; letter-spacing:.14em; text-transform:uppercase; color:#6b7280; margin-bottom:3px; }
+    .card b { font-size:12px; } .card .sub { font-size:8.5px; color:#6b7280; margin-top:1px; }
+    .kpi { border:1px solid #d6d9de; border-radius:6px; padding:11px 13px; } .kpi .v { font-size:17px; font-weight:700; letter-spacing:-.01em; }
+    .barra { height:5px; background:#e3e5e8; border-radius:4px; margin-top:7px; overflow:hidden; } .barra i { display:block; height:100%; background:#1f7a4d; }
+    .kpi .sub { font-size:8px; color:#6b7280; margin-top:4px; }
+    .kpi.osc { background:${AZ}; color:#fff; border-color:${AZ}; } .kpi.osc .lbl, .kpi.osc .sub { color:rgba(255,255,255,.7); }
+    h2 { font-size:8.5px; letter-spacing:.18em; text-transform:uppercase; color:#374151; margin:20px 0 6px; }
+    table { width:100%; border-collapse:collapse; font-size:9px; }
+    th { background:${AZ}; color:#fff; padding:6px 6px; text-align:left; font-size:7.2px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; } th.r { text-align:right; } th.c { text-align:center; }
+    td { padding:6px 6px; border-bottom:1px solid #e6e8eb; vertical-align:top; } tbody tr:nth-child(even) td { background:#f6f7f8; }
+    td.r { text-align:right; white-space:nowrap; } td.c { text-align:center; } td.b { font-weight:700; } td.n { color:#9aa0a8; } td.doc { color:#6b7280; font-size:8.3px; }
+    .fol { display:block; color:#6b7280; font-size:7.8px; }
+    tr.det td { background:#fff !important; color:#555; font-size:8px; padding:0 6px 6px; } tr.det span { display:inline-block; margin-right:12px; }
+    tr.tot td { font-weight:700; background:#e9ebee !important; border-top:2px solid ${AZ}; } tr.tot td.na { background:${NA} !important; color:#fff; }
+    .st { display:inline-block; padding:2px 7px; border-radius:100px; font-size:7px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+    .st.ok { background:#e2f4ea; color:#1f7a4d; } .st.par { background:#fde8de; color:#c2410c; } .st.pen { background:#fde2e2; color:#b91c1c; }
+    .nota { margin-top:16px; border-left:3px solid ${NA}; padding:6px 12px; font-size:8.3px; color:#4b5563; line-height:1.55; }
+    .pie { margin-top:18px; font-size:7.5px; color:#9aa0a8; text-align:center; }
+    tr { page-break-inside:avoid; }
+  </style></head><body>
+    <div class="head"><div>${logo}</div><div><h1>Estado de cuenta</h1><div class="emp">Comercializadora Casraf S.A. de C.V.</div></div></div>
+    <div class="cuerpo">
+    <div class="tres">
+      <div class="card"><div class="lbl">Cliente</div><b>${e(cli.razon_social)}</b>${cli.vendedor ? '<div class="sub">Vendedor: ' + e(cli.vendedor) + '</div>' : ''}</div>
+      <div class="card"><div class="lbl">Fecha de corte</div><b>${dmy(hoyISO)}</b></div>
+      <div class="card"><div class="lbl">Periodo</div><b>${fechas.length ? (my(fechas[0]) === my(fechas[fechas.length - 1]) ? my(fechas[0]) : my(fechas[0]) + ' – ' + my(fechas[fechas.length - 1])) : '—'}</b><div class="sub">${filas.length} ${filas.length === 1 ? 'pedido' : 'pedidos'}</div></div>
+    </div>
+    <div class="tres">
+      <div class="kpi"><div class="lbl">Total facturado</div><div class="v">${fmtFull(S2.total)}</div></div>
+      <div class="kpi"><div class="lbl">Total pagado</div><div class="v">${fmtFull(S2.pagado)}</div><div class="barra"><i style="width:${pct}%"></i></div><div class="sub">${pct}% cubierto</div></div>
+      <div class="kpi osc"><div class="lbl">Saldo pendiente</div><div class="v">${fmtFull(S2.falta)}</div><div class="sub">MXN · ${conSaldo} ${conSaldo === 1 ? 'pedido' : 'pedidos'} con saldo</div></div>
+    </div>
+    <h2>Detalle de pedidos</h2>
+    <table><thead><tr><th>#</th><th>Pedido</th><th>Entrega</th><th>Remisión / Factura</th><th class="r">Importe</th><th class="r">Pagado</th><th class="r">Saldo</th><th class="c">Días</th><th>Estatus</th></tr></thead><tbody>
+      ${filas.map((f, k) => `<tr><td class="n">${String(k + 1).padStart(2, '0')}</td><td>${dmy(f.fecha)}${f.folio ? '<span class="fol">' + e(f.folio) + '</span>' : ''}</td><td>${f.ent ? dmy(f.ent) : '—'}</td><td class="doc">${e(f.docs) || '—'}</td>
+        <td class="r">${fmtFull(f.total)}</td><td class="r">${f.pagado > 0.5 ? fmtFull(f.pagado) : '—'}</td><td class="r ${f.falta > 0.5 ? 'b' : ''}">${fmtFull(f.falta > 0.5 ? f.falta : 0)}</td>
+        <td class="c">${f.falta > 0.5 && f.ent ? dias(f.ent) : '—'}</td><td>${est(f.falta, f.pagado)}</td></tr>`
+        + (_nunEC.prod && f.prods.length ? `<tr class="det"><td></td><td colspan="8">${f.prods.map(it => `<span>${+it.cantidad || 0} × <b>${e(it.sku||'')}</b> ${e(it.descripcion||'')} · ${fmtFull(it.precio_unitario)}</span>`).join('')}</td></tr>` : '')).join('')}
+      <tr class="tot"><td colspan="4">Totales</td><td class="r">${fmtFull(S2.total)}</td><td class="r">${fmtFull(S2.pagado)}</td><td class="r na">${fmtFull(S2.falta)}</td><td colspan="2"></td></tr>
+    </tbody></table>
+    <div class="nota">Importes en pesos mexicanos (MXN). Días = días transcurridos desde la fecha de entrega hasta la fecha de corte, solo para pedidos con saldo.${S2.falta > 0.5 ? ' Saldo pendiente: ' + fmtFull(S2.falta) + ' (' + e(numeroALetras(S2.falta)) + ' M.N.).' : ''} Si detecta alguna diferencia con sus registros, favor de comunicarlo para conciliarla.</div>
+    ${_nunEC.pagos && S2.pagos.length ? `<h2>Historial de pagos</h2><table><thead><tr><th>#</th><th>Fecha</th><th>Documento</th><th>Forma / cuenta</th><th class="r">Monto</th></tr></thead><tbody>
+      ${S2.pagos.map((i, k) => `<tr><td class="n">${String(k + 1).padStart(2, '0')}</td><td>${dmy(i.fecha)}</td><td class="doc">${e(String(i.factura||''))}</td><td class="doc">${e(String(i.cuenta||''))}</td><td class="r">${fmtFull(i.monto)}</td></tr>`).join('')}
+      <tr class="tot"><td colspan="4">Total pagos (${S2.pagos.length})</td><td class="r">${fmtFull(totPagos)}</td></tr></tbody></table>` : ''}
+    <div class="pie">Generado por NUN · ${new Date().toLocaleString('es-MX', { dateStyle:'long', timeStyle:'short' })}</div>
+    </div>
+  </body></html>`;
+}
 function cfdiGetTimbres(){ try { return JSON.parse(localStorage.getItem('nun_cfdi_timbres')||'{}'); } catch(e){ return {}; } }
 function cfdiSetTimbres(s){ try { localStorage.setItem('nun_cfdi_timbres', JSON.stringify(s)); } catch(e){} }
 function cfdiTimbreData(xmlText){

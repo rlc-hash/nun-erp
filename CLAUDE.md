@@ -267,6 +267,10 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - v4.83 (11 nov, Rafa): Estado de cuenta con buscador propio (en Android el datalist no mostraba la lista): se escribe parte del nombre y se toca el
   cliente (`nunECBuscar`/`nunECTomar`). Ficha: "Pedidos y saldo (según el sistema)" (antes "como tu Excel") con **💵 Pago** en cada pedido con saldo
   (`nunPagoDePedido`: abre Capturar pago del cobro del pedido con saldo más viejo). Rafa propone cobrar sobre el PEDIDO sin remisiones (pendiente que decida).
+- v4.84 / app v2.1.17 (11 nov, Rafa): botón **📄 Estado de cuenta** en cada cliente de la lista de Clientes y arriba en su ficha. El diseño del estado de
+  cuenta quedó aparte en `nunECHTMLDe(D)` (solo usa lo que recibe; copiado a nun-pdf.js junto con `nunLogoPDF` por copiar_pdf.py). La app de vendedores lo
+  tiene en la hoja del cliente (`estadoCuenta`/`datosEC`: pedidos vivos con lo que falta según `cobrosDePedido`, cobros sueltos con saldo, pagos válidos;
+  PDF con `htmlAPdf`) con 💬 Enviar por WhatsApp (navigator.share, el PDF se prepara antes) y 📥 Guardar. Prueba `prueba_v2117_crm_estado_cuenta.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

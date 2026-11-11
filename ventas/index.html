@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.16';
+const VERSION = 'v2.1.17';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -449,7 +449,9 @@ async function pdfArchivo(tabla, id){
   const d = (S.d[tabla] || []).find(x => String(x.id) === String(id)); if (!d) throw new Error('No encontré el documento');
   if (typeof imprimirDocumento !== 'function') throw new Error('No se pudo cargar el PDF');
   if (tabla === 'facturas' && d.uuid_sat && !cfdiGetTimbres()[d.uuid_sat]) await xmlDe(d.uuid_sat);
-  const html = htmlDoc(tabla, id);
+  return htmlAPdf(htmlDoc(tabla, id), (NOMBRE_DOC[tabla] || 'Documento') + '_' + String(d.folio || id).replace(/[^\w-]/g, '') + '.pdf');
+}
+async function htmlAPdf(html, nombre, margen){ // v2.1.17 — sirve para cualquier hoja (documento o estado de cuenta)
   const f = document.createElement('iframe'); f.setAttribute('aria-hidden', 'true');
   f.style.cssText = 'position:fixed;left:-10000px;top:0;width:710px;height:1000px;border:0;background:#fff';
   document.body.appendChild(f);
@@ -467,10 +469,10 @@ async function pdfArchivo(tabla, id){
       im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(sv)); sv.replaceWith(im);
     });
     await Promise.all(Array.from(doc.images).map(i => i.complete ? 0 : new Promise(z => { i.onload = i.onerror = z; })));
-    const op = w.JSON.parse(JSON.stringify({ margin: [12, 14, 12, 14], image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+    const op = w.JSON.parse(JSON.stringify({ margin: margen || [12, 14, 12, 14], image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
       jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'] } })); // opciones creadas dentro del iframe (html2pdf revisa "instanceof Array")
     const blob = await w.html2pdf().set(op).from(doc.body).outputPdf('blob');
-    return new File([blob], (NOMBRE_DOC[tabla] || 'Documento') + '_' + String(d.folio || id).replace(/[^\w-]/g, '') + '.pdf', { type: 'application/pdf' });
+    return new File([blob], nombre, { type: 'application/pdf' });
   } finally { f.remove(); }
 }
 const WA = {};
@@ -517,6 +519,49 @@ async function cancelarCot(id){
     if (!j.ok) throw new Error(j.error || 'no se pudo'); toast('Cotización cancelada'); cerrarHoja(); cargar(true); }
   catch(e){ toast('✗ ' + e.message, true); }
 }
+// v2.1.17 (Rafa 11 nov) — ESTADO DE CUENTA del cliente para mandarlo por WhatsApp: el mismo PDF del ERP (nunECHTMLDe de nun-pdf.js)
+function datosEC(nombre){
+  const n = norm(nombre), cl = (S.d.clientes || []).find(c => norm(c.razon_social) === n) || { razon_social: nombre };
+  const usados = new Set(), filas = [];
+  (S.d.pedidos || []).filter(p => vivo(p) && !/borrador/i.test(p.estatus || '') && norm(p.cliente) === n).forEach(p => {
+    const cs = cobrosDePedido(p); cs.forEach(c => usados.add(String(c.id)));
+    const f = String(p.folio || '').trim();
+    const docs = ['remisiones', 'facturas'].flatMap(t => (S.d[t] || []).filter(d => vivo(d) && String(d.pedido_origen || '').split(',').map(x => x.trim()).includes(f)).map(d => ({ L: t === 'facturas' ? 'F' : 'R', folio: d.folio, fecha: d.fecha })));
+    const total = +p.total || 0, falta = r2(cs.reduce((a, c) => a + Math.max(0, +c.pendiente || 0), 0));
+    const ds = docs.map(d => fecha10(d.fecha)).filter(Boolean).sort();
+    filas.push({ fecha: p.fecha, folio: String(p.folio || ''), ent: ds[0] || fecha10(p.fecha_entrega), docs: docs.map(d => d.L + ' ' + d.folio).join(' · '), total, pagado: r2(total - falta), falta, prods: [] });
+  });
+  cobrosVivos().filter(c => norm(c.cliente) === n && !usados.has(String(c.id)) && (+c.pendiente || 0) >= 1).forEach(c =>
+    filas.push({ fecha: c.fecha_emision, folio: '', ent: fecha10(c.fecha_entrega || c.fecha_emision), docs: ((c.tipo || '') + ' ' + (c.numero || '')).trim(), total: +c.total || 0, pagado: +c.cobrado || 0, falta: Math.max(0, +c.pendiente || 0), prods: [] }));
+  const total = r2(filas.reduce((a, x) => a + x.total, 0)), falta = r2(filas.reduce((a, x) => a + x.falta, 0));
+  const pagos = ingresosValidos().filter(i => norm(i.cliente) === n && (+i.monto || 0) > 0).sort((a, b) => fecha10(a.fecha).localeCompare(fecha10(b.fecha)));
+  return { cliente: cl, filas, total, pagado: r2(total - falta), falta, pagos, conProd: false, conPagos: true };
+}
+const EC = {};
+async function estadoCuenta(nombre){
+  if (typeof nunECHTMLDe !== 'function') { toast('No se pudo cargar el formato del PDF; recarga la app', true); return; }
+  const D = datosEC(nombre); EC.f = null; EC.D = D;
+  hoja('📄 Estado de cuenta', `<div class="sub">${esc(nombre)}</div>
+    <div class="kpis" style="margin-top:10px"><div class="kpi"><small>Total</small><b>${$$(D.total)}</b><span>${D.filas.length} pedidos</span></div><div class="kpi"><small>Saldo pendiente</small><b>${$$(D.falta)}</b><span>${D.pagos.length} pagos</span></div></div>
+    <div id="ecEstado" class="sub" style="margin:10px 2px">⏳ Preparando el PDF…</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn p" id="ecWA" disabled onclick="ecEnviar()">💬 Enviar por WhatsApp</button><button class="btn" id="ecBajar" disabled onclick="if(EC.f)bajar(EC.f)">📥 Guardar</button></div>`);
+  try {
+    const nom = 'Estado_de_cuenta_' + String(nombre).replace(/[^\wÁÉÍÓÚÑáéíóúñ]+/g, '_').slice(0, 40) + '_' + hoy() + '.pdf';
+    EC.f = await htmlAPdf(nunECHTMLDe(D), nom, [6, 6, 8, 6]);
+    const e = $('ecEstado'); if (e) e.textContent = 'Listo · ' + EC.f.name;
+    ['ecWA', 'ecBajar'].forEach(k => { const b = $(k); if (b) b.disabled = false; });
+  } catch(err){ const e = $('ecEstado'); if (e) e.textContent = 'No se pudo hacer el PDF: ' + (err.message || err) + ' (revisa la señal y vuelve a intentar)'; }
+}
+async function ecEnviar(){
+  if (!EC.f) return;
+  const D = EC.D || {}, txt = 'Estado de cuenta de ' + ((D.cliente || {}).razon_social || '') + ' al ' + fmtF(hoy()) + ': saldo pendiente ' + $$(D.falta || 0) + '.';
+  if (navigator.canShare && navigator.canShare({ files: [EC.f] })) {
+    try { await navigator.share({ files: [EC.f], text: txt }); cerrarHoja(); } catch(e){ if (!e || e.name !== 'AbortError') toast('No se pudo compartir: ' + (e && e.message || e), true); }
+    return;
+  }
+  bajar(EC.f); toast('Se bajó el PDF: adjúntalo en WhatsApp');
+  window.open('https://wa.me/' + telCliente((D.cliente || {}).razon_social || '') + '?text=' + encodeURIComponent(txt), '_blank');
+}
 function abrirCliente(nombre){
   const n = norm(nombre); const cl = (S.d.clientes || []).find(c => norm(c.razon_social) === n) || { razon_social: nombre };
   const cobros = cobrosVivos().filter(c => norm(c.cliente) === n).sort((a, b) => fecha10(b.fecha_emision).localeCompare(fecha10(a.fecha_emision)));
@@ -530,7 +575,8 @@ function abrirCliente(nombre){
       <div class="kpi"><small>Por verificar</small><b>${$$(pv.reduce((a, p) => a + (+p.monto || 0), 0))}</b><span>${pv.length} pagos</span></div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 4px">
       ${tel ? `<a class="btn s" href="https://wa.me/${tel.length === 10 ? '52' + tel : tel}" target="_blank" style="text-decoration:none">💬 WhatsApp</a><a class="btn s" href="tel:${tel}" style="text-decoration:none">📞 Llamar</a>` : ''}
-      ${puedeCotizar() ? `<button class="btn s p" onclick="cerrarHoja();S.cot.cliente=${esc(JSON.stringify(cl.razon_social))};ir('cotizar')">➕ Cotizar</button>` : ''}</div>
+      ${puedeCotizar() ? `<button class="btn s p" onclick="cerrarHoja();S.cot.cliente=${esc(JSON.stringify(cl.razon_social))};ir('cotizar')">➕ Cotizar</button>` : ''}
+      <button class="btn s" onclick="estadoCuenta(${esc(JSON.stringify(cl.razon_social))})">📄 Estado de cuenta</button></div>
     <h3>Lo que debe</h3><div class="card">${deben.length ? deben.map(c => `<div class="row" onclick="abrirPago('${esc(c.id)}')"><div class="m"><b>${esc(c.tipo || 'Documento')} ${esc(c.numero)}</b><span>${fmtF(c.fecha_emision)} · total ${$$(c.total)}${verificandoDe(c.id) ? ' · ' + $$(verificandoDe(c.id)) + ' por verificar' : ''}</span></div><div class="r"><b>${$$(c.pendiente)}</b><span>💵 registrar pago</span></div></div>`).join('') : '<div class="vacio">No debe nada</div>'}</div>
     ${pv.length ? `<h3>Pagos por verificar</h3><div class="card">${pv.map(p => `<div class="row" style="cursor:default"><div class="m"><b>${$$(p.monto)}</b><span>${esc(p.documento || '')} · ${fmtF(p.fecha)} · ${esc(p.cuenta || '')} ${esc(p.forma || '')}</span></div><div class="r"><span class="tag t-warn">por verificar</span>${(!esVendedor() || norm(p.vendedor) === miVendedor()) ? `<button class="btn s" style="margin-top:4px" onclick="cancelarPago('${esc(p.id)}')">Cancelar</button>` : ''}</div></div>`).join('')}</div>` : ''}
     ${rech.length ? `<h3>Pagos rechazados</h3><div class="card">${rech.map(p => `<div class="row" style="cursor:default"><div class="m"><b>${$$(p.monto)}</b><span>${esc(p.documento || '')} · ${fmtF(p.fecha)} · ${esc(p.motivo || '')}</span></div><div class="r"><span class="tag t-bad">rechazado</span></div></div>`).join('')}</div>` : ''}

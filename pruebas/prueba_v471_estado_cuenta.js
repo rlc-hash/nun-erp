@@ -53,6 +53,9 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   r.pdf={titulo:/Estado de cuenta/i.test(t), cliente:t.includes(C), pedidos:t.includes('P0101')&&t.includes('P0102')&&!t.includes('P0103'), otro:t.includes('V01300'),
    sinPiezas:!t.includes('MOCHILA YH008 NEGRO'), saldo:/Saldo pendiente \$5,000\.00/.test(t), letras:/CINCO MIL PESOS/.test(t), pagos:/Historial de pagos/.test(t)&&/Total pagos \(3\) \$12,500\.00/.test(t), estatus:/Liquidado/.test(t)&&/Parcial/.test(t), cubierto:/71\.4% cubierto/.test(t), logo:/<svg/.test(h)};
   if(Object.values(r.pdf).some(v=>!v)) r.fallas.push('pdf');
+  // v4.84: botón en cada cliente de la lista de Clientes
+  await w.eval("navegar('clientes')"); await sleep(400);
+  r.enLista=[...d.querySelectorAll('#dtMount_clientes button')].filter(b=>/Estado de cuenta/.test(b.textContent)).length; if(!r.enLista) r.fallas.push('botón en Clientes');
   // ficha del cliente también tiene el botón
   w.eval("document.getElementById('modalEC').remove(); abrirDetalleCliente('ce')"); await sleep(300);
   r.ficha=/Estado de cuenta/.test(txt(d.querySelector('.drawer details'))); if(!r.ficha) r.fallas.push('ficha');

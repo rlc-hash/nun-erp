@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.83 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.84 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3247,7 +3247,8 @@ const SCHEMAS = {
       { key:'contacto', label:'Contacto', render:r=>escapeHTML(r.contacto||'—') },
       { key:'telefono', label:'Teléfono', render:r=>escapeHTML(r.telefono||'—') },
       { key:'vendedor', label:'Vendedor', render:r=>r.vendedor ? `<span class="tag">${escapeHTML(r.vendedor)}</span>` : '—' },
-      { key:'limite_credito', label:'Límite', right:true, render:r=>fmt(r.limite_credito||0) }
+      { key:'limite_credito', label:'Límite', right:true, render:r=>fmt(r.limite_credito||0) },
+      { key:'_ec', label:'', render:r=>`<button class="btn btn-secondary btn-sm" style="white-space:nowrap" onclick="event.stopPropagation();nunEstadoCuentaAbrir(${escapeHTML(JSON.stringify(String(r.id)))})">📄 Estado de cuenta</button>` } // v4.84 (Rafa)
     ],
     fields:[
       { key:'rfc', label:'RFC', maxlength:13, style:'text-transform:uppercase' },
@@ -3907,7 +3908,7 @@ function abrirDetalleCliente(id, _opts) {
 
   // v4.39 — cliente de factura (ej. MARKET ARS de RAMIRO): sus montos cuentan SOLO en la ficha del cliente principal, aquí no se suman otra vez
   let _cuentaEn = ''; try { const _g = nunGrupoDe(cli.razon_social||''); if (_g && !nunCliExacto(_g.principal, cli.razon_social||'') && !_nunEsPublico(cli.razon_social||'')) _cuentaEn = _g.principal; } catch(e){}
-  const tabResumen = `<div class="nunCuadrePendMount" data-id="${escapeHTML(String(id))}">${nunCuadrePendHTML(cli)}</div>${_miembros.length ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">Los montos incluyen lo facturado a nombre de: <b>${_miembros.map(escapeHTML).join('</b>, <b>')}</b></div>` : ''}${_ncMonto > 0 ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">"Facturado" ya tiene restadas ${_ncCli.length} nota(s) de crédito por ${fmtFull(_ncMonto)}</div>` : ''}
+  const tabResumen = `<div style="display:flex;justify-content:flex-end;margin:-2px 0 10px"><button class="btn btn-primary btn-sm" onclick="nunEstadoCuentaAbrir(${escapeHTML(JSON.stringify(String(id)))})">📄 Estado de cuenta</button></div><div class="nunCuadrePendMount" data-id="${escapeHTML(String(id))}">${nunCuadrePendHTML(cli)}</div>${_miembros.length ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">Los montos incluyen lo facturado a nombre de: <b>${_miembros.map(escapeHTML).join('</b>, <b>')}</b></div>` : ''}${_ncMonto > 0 ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">"Facturado" ya tiene restadas ${_ncCli.length} nota(s) de crédito por ${fmtFull(_ncMonto)}</div>` : ''}
     ${_cuentaEn ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
       <div class="kpi" style="padding:12px"><div class="kpi-label">Facturado</div><div class="kpi-value" style="font-size:18px;color:var(--ink-3)">—</div><div class="kpi-sub" style="font-size:11.5px">${fmt(facturado)} a su nombre · cuenta en ${escapeHTML(_cuentaEn)}</div></div>
       <div class="kpi" style="padding:12px"><div class="kpi-label">Pendiente</div><div class="kpi-value" style="font-size:18px;color:var(--ink-3)">—</div><div class="kpi-sub" style="font-size:11.5px">${fmt(pendiente)} · se cobra en la ficha de ${escapeHTML(_cuentaEn)}</div></div>
@@ -4325,20 +4326,27 @@ function nunECTotales(){
 // pagado, saldo, días, estatus LIQUIDADO/PARCIAL/PENDIENTE) y abajo el historial de pagos. Sin detalle por pieza (se puede prender).
 function nunECHTML(){
   const cli = _nunEC.cli, S2 = nunECSeleccion();
-  const e = escapeHTML, hoy = new Date(), dmy = f => { const x = String(f||'').slice(0, 10).split('-'); return x.length === 3 ? x[2] + '/' + x[1] + '/' + x[0] : '—'; };
-  const MES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'], my = f => { const x = String(f||'').slice(0, 10).split('-'); return x.length === 3 ? MES[+x[1] - 1] + ' ' + x[0] : ''; };
-  const dias = f => { const x = String(f||'').slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) return ''; return Math.max(0, Math.floor((hoy - new Date(x + 'T12:00:00')) / 86400000)); };
   const items = p => { try { const a = JSON.parse(p.items_json || '[]'); return Array.isArray(a) ? a : []; } catch(err){ return []; } };
-  const est = (falta, pagado) => falta <= 0.5 ? '<span class="st ok">Liquidado</span>' : pagado > 0.5 ? '<span class="st par">Parcial</span>' : '<span class="st pen">Pendiente</span>';
   const filas = S2.peds.map(x => { const ds = (x.docs || []).map(d => String(d.fecha||'').slice(0, 10)).filter(Boolean).sort(); const ent = ds[0] || String(x.p.fecha_entrega||'').slice(0, 10);
       return { fecha: x.p.fecha, folio: nunFolioStr(x.p), ent, docs: (x.docs || []).map(d => (d.L === 'F' ? 'F ' : 'R ') + d.folio).join(' · '), total: x.total, pagado: x.pagado, falta: x.falta, prods: items(x.p) }; })
-    .concat(S2.otros.map(c => ({ fecha: c.fecha_emision, folio: '', ent: String(c.fecha_entrega || c.fecha_emision || '').slice(0, 10), docs: ((c.tipo || '') + ' ' + (c.numero || '')).trim(), total: +c.total || 0, pagado: +c.cobrado || 0, falta: Math.max(0, +c.pendiente || 0), prods: [] })))
-    .sort((a, b) => String(a.fecha||'').localeCompare(String(b.fecha||'')));
+    .concat(S2.otros.map(c => ({ fecha: c.fecha_emision, folio: '', ent: String(c.fecha_entrega || c.fecha_emision || '').slice(0, 10), docs: ((c.tipo || '') + ' ' + (c.numero || '')).trim(), total: +c.total || 0, pagado: +c.cobrado || 0, falta: Math.max(0, +c.pendiente || 0), prods: [] })));
+  return nunECHTMLDe({ cliente: cli, filas, total: S2.total, pagado: S2.pagado, falta: S2.falta, pagos: S2.pagos, conProd: !!_nunEC.prod, conPagos: !!_nunEC.pagos });
+}
+// v4.84 — el diseño del estado de cuenta (formato de Rafa) solo con los datos que recibe: lo usan el ERP y la app de vendedores (nun-pdf.js)
+// D = { cliente:{razon_social, vendedor}, filas:[{fecha, folio, ent, docs, total, pagado, falta, prods}], total, pagado, falta, pagos:[{fecha, factura, cuenta, monto}], conProd, conPagos }
+function nunECHTMLDe(D){
+  const cli = D.cliente || {}, S2 = { total: +D.total || 0, pagado: +D.pagado || 0, falta: +D.falta || 0, pagos: D.pagos || [] };
+  const e = escapeHTML, hoy = new Date(), hoyISO = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+  const dmy = f => { const x = String(f||'').slice(0, 10).split('-'); return x.length === 3 ? x[2] + '/' + x[1] + '/' + x[0] : '—'; };
+  const MES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'], my = f => { const x = String(f||'').slice(0, 10).split('-'); return x.length === 3 ? MES[+x[1] - 1] + ' ' + x[0] : ''; };
+  const dias = f => { const x = String(f||'').slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(x)) return ''; return Math.max(0, Math.floor((hoy - new Date(x + 'T12:00:00')) / 86400000)); };
+  const est = (falta, pagado) => falta <= 0.5 ? '<span class="st ok">Liquidado</span>' : pagado > 0.5 ? '<span class="st par">Parcial</span>' : '<span class="st pen">Pendiente</span>';
+  const filas = (D.filas || []).slice().sort((a, b) => String(a.fecha||'').localeCompare(String(b.fecha||'')));
   const fechas = filas.map(f => String(f.fecha||'').slice(0, 10)).filter(Boolean).sort();
   const conSaldo = filas.filter(f => f.falta > 0.5).length, pct = S2.total > 0 ? Math.min(100, Math.round(S2.pagado / S2.total * 1000) / 10) : 0;
-  const totPagos = nunR2(S2.pagos.reduce((a, i) => a + (+i.monto||0), 0));
+  const totPagos = Math.round(S2.pagos.reduce((a, i) => a + (+i.monto||0), 0) * 100) / 100;
   const logo = (typeof nunLogoPDF === 'function' ? nunLogoPDF() : '').replace('class="logo"', 'class="logo" style="width:92px;height:48px;display:block"');
-  const AZ = '#0b1d3a', NA = '#f25a1d';
+  const AZ = '#0b1d3a', NA = '#f25a1d', _nunEC = { prod: !!D.conProd, pagos: D.conPagos !== false };
   return `<!doctype html><html><head><meta charset="utf-8"><title>Estado de cuenta · ${e(cli.razon_social)}</title><style>
     @page { size: letter; margin: 0; }
     * { box-sizing:border-box; }
@@ -4371,7 +4379,7 @@ function nunECHTML(){
     <div class="cuerpo">
     <div class="tres">
       <div class="card"><div class="lbl">Cliente</div><b>${e(cli.razon_social)}</b>${cli.vendedor ? '<div class="sub">Vendedor: ' + e(cli.vendedor) + '</div>' : ''}</div>
-      <div class="card"><div class="lbl">Fecha de corte</div><b>${dmy(nunHoy())}</b></div>
+      <div class="card"><div class="lbl">Fecha de corte</div><b>${dmy(hoyISO)}</b></div>
       <div class="card"><div class="lbl">Periodo</div><b>${fechas.length ? (my(fechas[0]) === my(fechas[fechas.length - 1]) ? my(fechas[0]) : my(fechas[0]) + ' – ' + my(fechas[fechas.length - 1])) : '—'}</b><div class="sub">${filas.length} ${filas.length === 1 ? 'pedido' : 'pedidos'}</div></div>
     </div>
     <div class="tres">

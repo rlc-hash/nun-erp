@@ -34,7 +34,7 @@ const sleep=t=>new Promise(z=>setTimeout(z,t));
  await w.eval('subirCot()'); await sleep(300);
  const c=env.find(b=>b.accion==='erp_crear'&&b.tabla==='cotizaciones'); const its=c&&JSON.parse(c.item.items_json);
  r.guardado=its&&its.map(i=>[i.sku,i.cantidad,i.precio_unitario,i.descripcion,i.iva_pct]); r.total=c&&c.item.total;
- if(!its||its[0].cantidad!==18||its[0].precio_unitario!==550||!/3 sets de 6 pz/.test(its[0].descripcion)||its[0].iva_pct!==0||its[1].cantidad!==1||c.item.total!==11550||!c.item.sin_iva) r.fallas.push('guardado');
+ if(!its||its[0].cantidad!==18||its[0].precio_unitario!==550||!/3 sets de 6 pz/.test(its[0].descripcion)||its[0].iva_pct!==0||its[0].pz_caja!==6||its[1].pz_caja!==undefined||its[1].cantidad!==1||c.item.total!==11550||!c.item.sin_iva) r.fallas.push('guardado');
  r.errs=errs.slice(0,3); if(errs.length) r.fallas.push('errores');
 }catch(e){r.error=String(e.stack).slice(0,400);}
 console.log(JSON.stringify(r,null,1)); process.exit(r.error||r.fallas.length?1:0);})();

@@ -235,6 +235,10 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   cotizaciones/pedidos/remisiones/facturas (se crea sola). El vendedor la pone al cotizar (opcional; sugiere las ya usadas: `enviosUsados`); `confirmar_cotizacion`
   la pasa al pedido; en el ERP es un campo del documento (`dEnvio`, `nunEnviosUsados`), columna "Envío" en Cotizaciones/Pedidos y pasa del pedido a la remisión/factura
   (convertirDocConItems). Pruebas `prueba_v477_envio.js` (servidor), `prueba_v477_envio_erp.js`, `prueba_v2113_crm_envio.js`.
+- v4.78 / app v2.1.14 (11 nov, Rafa): **carry on por CAJA en el documento**. El renglón se sigue guardando en PIEZAS (inventario, apartado, márgenes) con
+  `pz_caja: 6`; el PDF (imprimirDocumento → `nunLineaCaja`, copiado a nun-pdf.js) y la app lo muestran como N cajas × precio de la caja con
+  "caja de 6 pz (pieza $550.00)", mismo total. Si las piezas no completan cajas se ve en piezas. La app pone pz_caja al cotizar en sets. Se aplicó a
+  C0004–C0008 y C0013 (totales iguales). Prueba `prueba_v478_carry_on_caja.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

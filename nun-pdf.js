@@ -41,6 +41,15 @@ function numeroALetras(num) {
   if (resto > 0) txt += trio(resto);
   return txt.trim().toUpperCase() + ' PESOS ' + String(cent).padStart(2,'0') + '/100';
 }
+function nunLineaCaja(it){
+  const pz = +it.pz_caja || 0, cant = +it.cantidad || 0, pu = +it.precio_unitario || 0;
+  const base = String(it.descripcion || '').replace(/\s*·\s*\d+\s*sets? de \d+ pz\s*$/i, '');
+  if (pz > 1 && cant > 0 && Math.abs(cant / pz - Math.round(cant / pz)) < 1e-9) {
+    const pzu = Math.round(pu * 100) / 100;
+    return { cant: Math.round(cant / pz), unidad: Math.round(cant / pz) === 1 ? 'caja' : 'cajas', pu: Math.round(pu * pz * 10000) / 10000, desc: base + ' · caja de ' + pz + ' pz (pieza ' + fmtFull(pzu) + ')' };
+  }
+  return { cant, unidad: it.unidad || 'pieza', pu, desc: it.descripcion || '' };
+}
 function imprimirDocumento(tipo, idDoc) {
   // v3.0 — PDF profesional con logo, datos fiscales, tabla de items, totales en letras
   const doc = (State.data[tipo]||[]).find(c => c.id === idDoc);
@@ -124,13 +133,13 @@ function imprimirDocumento(tipo, idDoc) {
   const itemsHTML = items.length === 0
     ? `<tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa">Sin productos en el documento</td></tr>`
     : items.map(it => {
-        const cant = +it.cantidad || 0;
-        const pu = +it.precio_unitario || 0;
+        const _lc = nunLineaCaja(it), cant = _lc.cant; // v4.78 carry on por caja
+        const pu = _lc.pu;
         const desc = +it.descuento_pct || 0;
         const sub = nunCalcLinea(it, true).base; // v3.80 — importe sin IVA (cuadra con el Subtotal)
         return `<tr>
           <td class="sku">${escapeHTML(it.sku||'—')}</td>
-          <td>${escapeHTML(it.descripcion||'')}</td>
+          <td>${escapeHTML(_lc.desc)}</td>
           <td class="right">${cant}</td>
           <td class="right">${fmtFull(pu)}</td>
           <td class="right">${desc>0?_pctTxt(desc):'—'}</td>
@@ -205,15 +214,15 @@ function imprimirDocumento(tipo, idDoc) {
       <tbody>${items.length === 0
         ? `<tr><td colspan="7" style="padding:24px;text-align:center;color:#aaa;font-style:italic">Sin productos en el documento</td></tr>`
         : items.map(it => {
-            const cant = +it.cantidad || 0;
-            const pu = +it.precio_unitario || 0;
+            const _lc = nunLineaCaja(it), cant = _lc.cant; // v4.78 carry on por caja
+            const pu = _lc.pu;
             const desc = +it.descuento_pct || 0;
             const sub = nunCalcLinea(it, true).base; // v3.80 — importe sin IVA (cuadra con el Subtotal)
             return `<tr>
               <td class="sku">${escapeHTML(it.sku||'—')}</td>
-              <td class="desc">${escapeHTML(it.descripcion||'')}</td>
+              <td class="desc">${escapeHTML(_lc.desc)}</td>
               <td class="right">${cant}</td>
-              <td class="right" style="font-size:9.5px;color:#666">${escapeHTML(it.unidad||'pieza')}</td>
+              <td class="right" style="font-size:9.5px;color:#666">${escapeHTML(_lc.unidad)}</td>
               <td class="right">${fmtFull(pu)}</td>
               <td class="right" style="color:${desc>0?'#e31937':'#aaa'}">${desc>0?_pctTxt(desc):'—'}</td>
               <td class="right" style="font-weight:600">${fmtFull(sub)}</td>

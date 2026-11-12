@@ -338,6 +338,8 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   `abrirEspera` con 📎 Ver/Subir comprobante, ✅ Confirmar (`confirmarPV`: capturar_pago_cliente + verificado) y ✕ Rechazar. Datos: el pago repetido quedó
   cancelado (motivo), los dos buenos por_verificar. Cuentas "Calixto diciembre" y "Mercado Pago" desactivadas (no borradas). Pruebas `prueba_v2124_crm_espera.js`,
   `prueba_servidor_vendedores.js` (pago-oficina).
+- servidor supabase-2.4 (12 nov, Rafa): aviso al teléfono de Rafa cuando ALGUIEN DE LA OFICINA reporta un pago desde la app (`avisoOficina`: erp_crear
+  pagosverificar → "💵 X reportó un pago", liga ?ir=cobranza&pv=…; nunca a quien lo hizo). Los de vendedores ya avisaban a toda la oficina. Prueba `prueba_v476_avisos_oficina.js`.
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

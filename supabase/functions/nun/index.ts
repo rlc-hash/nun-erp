@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-2.3'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-2.4'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -180,6 +180,9 @@ function avisoOficina(body: any, j: any, quien: string){
   if (a === 'facturama_timbrar'){ const c = body.cfdi || {}; const tipo = c.CfdiType === 'P' ? 'complemento de pago' : c.CfdiType === 'E' ? 'nota de crédito' : 'factura';
     return { titulo: '🧾 ' + q + ' timbró ' + tipo + ' ' + (c.Serie || '') + (j.folio || c.Folio || ''), cuerpo: ((c.Receiver && c.Receiver.Name) || '') + (j.total ? ' · ' + pesos(j.total) : ''), url: c.CfdiType === 'P' ? ir('cobranza') : ir(c.CfdiType === 'E' ? 'notascredito' : 'facturas', { folio: (c.Serie || '') + (j.folio || c.Folio || '') }), tag: 'tim_' + (j.uuid || Date.now()) }; }
   if (a === 'facturama_cancelar') return { titulo: '⚠️ ' + q + ' canceló un CFDI ante el SAT', cuerpo: String(body.uuid || body.id || ''), url: ir('facturas'), tag: 'can_' + (body.uuid || body.id || Date.now()) };
+  // supabase-2.4 (Rafa 12 nov: "que me llegue una notificación cuando alguien sube un pago") — pago reportado desde la app por alguien de la oficina
+  if (a === 'erp_crear' && t === 'pagosverificar'){ const it = j.item || body.item || {};
+    return { titulo: '💵 ' + q + ' reportó un pago' + (it.con_comprobante ? ' 📎' : ''), cuerpo: [it.cliente, pesos(it.monto), it.documento, 'por verificar'].filter(Boolean).join(' · '), url: ir('cobranza', { pv: it.id }), tag: 'pv_' + it.id }; }
   if (a === 'capturar_pago_cliente') return { titulo: '💵 ' + q + ' registró un pago de ' + pesos(body.monto), cuerpo: [body.cuenta, String(body.fecha || '').slice(0, 10), String(body.notas || '').slice(0, 80)].filter(Boolean).join(' · '), url: ir('cobranza', { id: body.id_doc }), tag: 'pago_' + body.id_doc + '_' + body.monto };
   if (a === 'confirmar_cotizacion') return { titulo: '✅ ' + q + ' confirmó la cotización ' + ((j.pedido && j.pedido.cotizacion_origen) || '') + ' → pedido ' + ((j.pedido && j.pedido.folio) || ''), cuerpo: (j.pedido && ((j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('pedidos', { id: j.pedido && j.pedido.id }), tag: 'conf_' + body.id };
   if (a === 'activar_pedido') return { titulo: '✅ ' + q + ' confirmó un pedido', cuerpo: (j.pedido && (j.pedido.folio + ' · ' + (j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('pedidos', { id: body.id }), tag: 'act_' + body.id };

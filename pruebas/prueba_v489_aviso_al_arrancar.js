@@ -28,10 +28,12 @@ const sleep=t=>new Promise(z=>setTimeout(z,t));
    addEventListener:(n,f)=>{ev[n]=f;} };
   vm.runInNewContext(code,{self,URL,MessageChannel,setTimeout,Promise});
   let p; ev.notificationclick({ notification:{ close(){}, data:{ url:'./?ir=cotizaciones&id=q1' } }, waitUntil:x=>{p=x;} }); await p; return log; }
- const cli=(contesta)=>log=>({ url:'https://x.io/nun-erp/#/dashboard', focus:async function(){log.push('focus');return this;},
+ const cli=(contesta,vis)=>log=>({ url:'https://x.io/nun-erp/#/dashboard', visibilityState:vis||'hidden', focused:false, focus:async function(){log.push('focus');return this;},
    postMessage(m,ports){ log.push('msg '+m.nunIr+' '+m.id); if(contesta) ports[0].postMessage({ok:1}); }, navigate:async u=>{log.push('navigate '+u); return {};} });
- r.swDespierta=await clic(cli(true)); if(r.swDespierta.some(x=>/navigate|open/.test(x))||!r.swDespierta.includes('msg cotizaciones q1')) r.fallas.push('sw: app despierta');
- r.swDormida=await clic(cli(false)); if(!r.swDormida.some(x=>/navigate .*ir=cotizaciones&id=q1/.test(x))) r.fallas.push('sw: app dormida');
+ // v4.90: app a la vista → mensaje (sin recargar); en segundo plano o cerrada → se abre la liga del aviso
+ r.swALaVista=await clic(cli(true,'visible')); if(r.swALaVista.some(x=>/navigate|open/.test(x))||!r.swALaVista.includes('msg cotizaciones q1')) r.fallas.push('sw: app a la vista');
+ r.swALaVistaNoContesta=await clic(cli(false,'visible')); if(!r.swALaVistaNoContesta.some(x=>/open .*ir=cotizaciones&id=q1/.test(x))) r.fallas.push('sw: a la vista sin contestar');
+ r.swSegundoPlano=await clic(cli(true,'hidden')); if(r.swSegundoPlano.some(x=>/^msg/.test(x))||!r.swSegundoPlano.some(x=>/open .*ir=cotizaciones&id=q1/.test(x))) r.fallas.push('sw: app en segundo plano');
  r.swCerrada=await clic(null); if(!r.swCerrada.some(x=>/open .*ir=cotizaciones&id=q1/.test(x))) r.fallas.push('sw: app cerrada');
 }catch(e){r.error=String(e.stack).slice(0,500);}
 console.log(JSON.stringify(r,null,1)); process.exit(0);})();

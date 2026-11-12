@@ -11,16 +11,21 @@ self.addEventListener('push', e => {
 self.addEventListener('notificationclick', e => {
   e.notification.close();
   const url = new URL((e.notification.data && e.notification.data.url) || './', self.registration.scope).href;
-  // v4.89 — si el sistema ya está abierto se le avisa qué abrir; si no contesta en 1.5 s (Android/iPhone lo tenía dormido) se carga la liga del aviso
+  // v4.90 (Rafa: seguía quedando en el Inicio) — solo si el sistema está A LA VISTA se le avisa qué abrir (mensaje con respuesta).
+  // Si está en segundo plano o cerrado se abre la LIGA del aviso: en Android/iPhone eso abre la app instalada directo en el documento
+  // (antes se le mandaba el mensaje a una ventana escondida —a veces una pestaña de Chrome— y al frente quedaba la app en el Inicio).
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async ws => {
-    const w = ws.find(x => x.url.startsWith(self.registration.scope));
-    if (!w) return self.clients.openWindow(url);
-    let v = w; try { v = (await w.focus()) || w; } catch(x){}
+    ws = ws.filter(x => x.url.startsWith(self.registration.scope));
     const q = new URL(url).searchParams;
-    const ok = await new Promise(res => { try { const ch = new MessageChannel(); ch.port1.onmessage = () => res(true);
-      v.postMessage({ nunIr: q.get('ir') || '', id: q.get('id') || '', folio: q.get('folio') || '', pv: q.get('pv') || '' }, [ch.port2]); setTimeout(() => res(false), 1500); } catch(x){ res(false); } });
-    if (ok || !q.get('ir')) return;
-    try { if (v.navigate) { const r = await v.navigate(url); if (r) return; } } catch(x){}
-    return self.clients.openWindow(url);
+    const v = ws.find(x => x.visibilityState === 'visible') || ws.find(x => x.focused);
+    if (v && q.get('ir')) {
+      const ok = await new Promise(res => { try { const ch = new MessageChannel(); ch.port1.onmessage = () => res(true);
+        v.postMessage({ nunIr: q.get('ir') || '', id: q.get('id') || '', folio: q.get('folio') || '', pv: q.get('pv') || '' }, [ch.port2]); setTimeout(() => res(false), 1500); } catch(x){ res(false); } });
+      if (ok) { try { await v.focus(); } catch(x){} return; }
+    }
+    try { await self.clients.openWindow(url); return; } catch(x){}
+    const w = v || ws[0]; if (!w) return;
+    try { if (w.navigate) await w.navigate(url); } catch(x){}
+    try { await w.focus(); } catch(x){}
   }));
 });

@@ -293,6 +293,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - v4.89 (11 nov, Rafa: tocó el aviso y quedó en el Inicio): el destino del aviso (?ir=…) se guarda en sessionStorage `nun_ir_pendiente` y boot() lo abre
   (`nunIrPendiente`; antes se navegaba antes de arrancar y boot ponía #/dashboard). sw.js: con la app abierta manda mensaje y espera respuesta 1.5 s
   (MessageChannel); si no contesta (dormida) hace navigate(liga) o openWindow. Prueba `prueba_v489_aviso_al_arrancar.js`.
+- v4.90 (12 nov, Rafa: seguía en el Inicio): sw.js solo manda mensaje si una ventana del ERP está A LA VISTA (visibilityState visible); si la app está
+  en segundo plano o cerrada abre la LIGA del aviso con openWindow (Android/iPhone abren la app instalada ahí). Antes el mensaje iba a una ventana escondida
+  (a veces una pestaña de Chrome) y al frente quedaba la app en el Inicio. Revisado en Chrome real (Playwright, liga y mensaje).
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

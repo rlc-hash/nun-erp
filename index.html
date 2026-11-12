@@ -842,7 +842,7 @@ body.sidenav-collapsed .rwd-sidenav-toggle svg {
 
 /* === TOAST === */
 .toast-container {
-  position:fixed; bottom:24px; right:24px; z-index:200;
+  position:fixed; bottom:24px; right:24px; z-index:10100; /* v4.97 los avisos encima de todo */
   display:flex; flex-direction:column; gap:8px; pointer-events:none;
 }
 .toast {
@@ -921,7 +921,7 @@ body.sidenav-collapsed .rwd-sidenav-toggle svg {
 .dialog-backdrop {
   position:fixed; inset:0; background:rgba(10,12,15,0.32);
   display:none; align-items:center; justify-content:center; padding:20px;
-  z-index:400;
+  z-index:10050; /* v4.97 encima de las ventanas (z 9000): antes "¿Registrar este pago?" salía detrás y parecía que no hacía nada */
 }
 .dialog-backdrop.show { display:flex; }
 .dialog {
@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.96 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.97 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -1952,6 +1952,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
     <span class="nav-text">Cobranza</span><span class="nav-count" id="navCobranza"></span>
   </button>
+  <button class="nav-btn" onclick="nunPagosPorConfirmar()"><span class="nav-icon">⏳</span><span class="nav-text">Pagos por confirmar</span><span class="nav-count" id="navPV"></span></button>
   <button class="nav-btn" data-mod="clientes" onclick="navegar('clientes')">
     <span class="nav-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
     <span class="nav-text">Clientes</span><span class="nav-count" id="navClientes"></span>
@@ -5199,7 +5200,7 @@ async function nunPVPintarBanner(){
   if (!window._nunPVt || Date.now() - window._nunPVt > 60000) { window._nunPVt = Date.now(); try { await cargarTabla('pagosverificar', { ttl: 60000 }); } catch(e){} }
   const L = nunPVPendientes(); const bb = document.getElementById('nunPVBanner'); if (!bb) return;
   bb.innerHTML = L.length ? `<div style="margin:0 0 12px;padding:12px 14px;border-radius:10px;background:#fff7e6;border:1px solid #f0d9a8;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-    <div style="flex:1;min-width:200px"><b>🔔 ${L.length} ${L.length === 1 ? 'pago reportado' : 'pagos reportados'} por vendedores</b> · ${fmtFull(L.reduce((a, p) => a + (+p.monto || 0), 0))} por verificar</div>
+    <div style="flex:1;min-width:200px"><b>⏳ ${L.length} ${L.length === 1 ? 'pago por confirmar' : 'pagos por confirmar'}</b> · ${fmtFull(L.reduce((a, p) => a + (+p.monto || 0), 0))} · revisa el comprobante y confírmalo</div>
     <button class="btn btn-primary btn-sm" onclick="nunPVAbrir()">Revisar</button></div>` : '';
 }
 function nunPVAbrir(){
@@ -5211,7 +5212,7 @@ function nunPVAbrir(){
   m.onclick = e => { if (e.target === m) m.remove(); };
   const ctas = (State.data.cuentas || []).filter(c => c.activa !== false && c.activa !== 'false').map(c => c.nombre);
   m.innerHTML = `<div style="background:var(--bg,#fff);border-radius:14px;max-width:760px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 24px 64px rgba(0,0,0,0.3)">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><h3 style="margin:0">Pagos por verificar (${L.length})</h3><button class="icon-btn" onclick="document.getElementById('modalPV').remove()">✕</button></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)"><h3 style="margin:0">⏳ Pagos por confirmar (${L.length})</h3><button class="icon-btn" onclick="document.getElementById('modalPV').remove()">✕</button></div>
     <div style="padding:8px 20px 16px">${L.map(p => { const c = cob.find(x => String(x.id) === String(p.cobro_id)); const saldo = c ? +c.pendiente || 0 : 0;
       return `<div style="padding:12px 0;border-bottom:1px solid var(--line)">
         <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><b>${escapeHTML(p.cliente)}</b> · ${escapeHTML(p.documento || '')}<div style="font-size:12.5px;color:var(--mute)">Reportó <b>${escapeHTML(p.vendedor || '')}</b> · pagó el ${fmtFecha(p.fecha)} · ${escapeHTML(p.forma || '')}${p.referencia ? ' · ref ' + escapeHTML(p.referencia) : ''}${p.notas ? ' · ' + escapeHTML(p.notas) : ''}</div>
@@ -5220,9 +5221,9 @@ function nunPVAbrir(){
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
           <input type="date" id="pvF_${escapeHTML(p.id)}" value="${escapeHTML(String(p.fecha || '').substring(0, 10))}" style="width:auto">
           <select id="pvC_${escapeHTML(p.id)}" style="width:auto"><option value="">— Cuenta —</option>${ctas.map(x => `<option ${x === p.cuenta ? 'selected' : ''}>${escapeHTML(x)}</option>`).join('')}</select>
-          <button class="btn btn-primary btn-sm" ${c && (+p.monto || 0) <= saldo + 0.01 ? '' : 'disabled title="El monto es mayor al saldo o no hay cobro"'} onclick="nunPVVerificar(${escapeHTML(JSON.stringify(String(p.id)))})">✅ Verificar y registrar</button>
+          <button class="btn btn-primary btn-sm" ${c && (+p.monto || 0) <= saldo + 0.01 ? '' : 'disabled title="El monto es mayor al saldo o no hay cobro"'} onclick="nunPVVerificar(${escapeHTML(JSON.stringify(String(p.id)))})">✅ Confirmar y registrar</button>
           <button class="btn btn-secondary btn-sm" onclick="nunPVRechazar(${escapeHTML(JSON.stringify(String(p.id)))})">✕ Rechazar</button>
-          <span class="pvComp" data-pv="${escapeHTML(String(p.id))}" data-cobro="${escapeHTML(String(p.cobro_id || ''))}" style="font-size:12px;color:var(--mute)"></span></div></div>`; }).join('') || '<div style="padding:30px;text-align:center;color:var(--mute)">No hay pagos por verificar</div>'}</div></div>`;
+          <span class="pvComp" data-pv="${escapeHTML(String(p.id))}" data-cobro="${escapeHTML(String(p.cobro_id || ''))}" style="font-size:12px;color:var(--mute)"></span></div></div>`; }).join('') || '<div style="padding:30px;text-align:center;color:var(--mute)">No hay pagos por confirmar</div>'}</div></div>`;
   document.body.appendChild(m);
   nunPVComprobantes(m); // v4.80 foto que mandó el vendedor
 }
@@ -5232,9 +5233,21 @@ async function nunPVComprobantes(m){
   for (const sp of spans) { const c = sp.dataset.cobro; if (!c) continue;
     if (!porCobro[c]) { try { const r = await api({ accion:'archivo_listar', cobro_id: c }); porCobro[c] = (r && r.ok && r.items) || []; } catch(e){ porCobro[c] = []; } }
     const xs = porCobro[c].filter(x => !x.cancelado && String(x.ref || '').includes('pv:' + sp.dataset.pv));
-    sp.innerHTML = xs.length ? xs.map(x => `<button class="btn btn-sm" style="background:#fff7e0" onclick="nunCompVer('${escapeHTML(x.id)}')">📎 Ver comprobante</button>`).join(' ') : 'sin foto del comprobante';
+    sp.innerHTML = (xs.length ? xs.map(x => `<button class="btn btn-sm" style="background:#fff7e0" onclick="nunCompVer('${escapeHTML(x.id)}')">📎 Ver comprobante</button>`).join(' ') : '⚠ sin foto del comprobante')
+      + ` <label class="btn btn-secondary btn-sm" style="cursor:pointer">📎 Subir<input type="file" accept="image/*,application/pdf" style="display:none" onchange="nunPVSubirComp(${escapeHTML(JSON.stringify(String(sp.dataset.pv)))}, this)"></label>`; // v4.97
   }
 }
+// v4.97 — subir la foto del comprobante de un pago por confirmar (se liga a su cobro con "pv:<id>", igual que la del vendedor)
+async function nunPVSubirComp(pvId, inp){
+  const f = inp.files && inp.files[0]; if (!f) return; const p = nunPVPendientes().find(x => String(x.id) === String(pvId)); if (!p) return;
+  toast('⏳ Subiendo comprobante…');
+  const ok = await nunCompSubir(p.cobro_id, f, 'Reportado por ' + (p.vendedor || '') + ' · ' + (p.forma || '') + ' ' + fmtFull(p.monto) + ' · pv:' + p.id);
+  if (ok) toast('📎 Comprobante guardado'); const m = document.getElementById('modalPV'); if (m) nunPVComprobantes(m);
+}
+// v4.97 (Rafa 12 nov: "ponlo en Cobranza: Pagos por confirmar") — apartado del menú: abre Cobranza con la lista
+function nunPagosPorConfirmar(){ navegar('cobranza'); const go = n => { if (State.data.pagosverificar || n > 20) { try { nunPVAbrir(); } catch(e){} return; } setTimeout(() => go(n + 1), 500); };
+  cargarTabla('pagosverificar', { ttl: 1 }).catch(() => {}).finally(() => go(0)); }
+window.nunPagosPorConfirmar = nunPagosPorConfirmar; window.nunPVSubirComp = nunPVSubirComp;
 // v4.95 (Rafa 12 nov: "me depositó 45,292 que equivalen a las dos cuentas que tiene pendientes") — UN pago repartido en varias cuentas del cliente:
 // se llena solo empezando por la MÁS VIEJA (se puede cambiar a mano) y se registra con capturar_pago_cliente en cada cobro (igual que Capturar pago).
 // El comprobante se guarda en cada cobro. Si algo falla a la mitad, lo ya registrado se marca y no se repite.
@@ -13404,6 +13417,7 @@ async function cargarTabla(tabla, opts) {
     if (data.ok) {
       const _firmaAntes = nunFirmaLista(State.data[tabla]); // v4.94
       State.data[tabla] = data.items || [];
+      if (tabla === 'pagosverificar') { try { const el = document.getElementById('navPV'); if (el) el.textContent = nunPVPendientes().length || ''; } catch(e){} } // v4.97
       if (/^(pedidos|remisiones|facturas)$/.test(tabla)) { try { _nunSitIdx = null; } catch(e){} } // v3.90 situación al día
       if (tabla === 'cobranza') State.data.cobranzaTodos = data.items.slice(); // v3.64 incluye canceladas
       // v3.59 — cobranza de documentos cancelados no cuenta
@@ -13599,6 +13613,7 @@ function setConexionStatus(status) {
 function actualizarContadoresNav() {
   const set = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n; };
   set('navCobranza', (State.data.cobranza||[]).length);
+  try { set('navPV', nunPVPendientes().length || ''); } catch(e){} // v4.97
   set('navClientes', (State.data.clientes||[]).length);
   set('navProductos', (State.data.productos||[]).length);
   set('navCotizaciones', (State.data.cotizaciones||[]).length);

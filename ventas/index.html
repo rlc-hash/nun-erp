@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.24';
+const VERSION = 'v2.1.25';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -403,10 +403,10 @@ function vCatalogo(){
 // verificado; ✕ Rechazar con motivo. Nada se borra.
 function enEspera(){ return esVendedor() ? [] : porVerificar().slice().sort((a, b) => String(a.creado || a.fecha || '').localeCompare(String(b.creado || b.fecha || ''))); }
 function avisoEspera(){ const L = enEspera(); if (!L.length) return '';
-  return `<div class="aviso" style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px" onclick="abrirEspera()"><div style="flex:1">⏳ <b>${L.length} ${L.length === 1 ? 'pago' : 'pagos'} en espera de confirmación</b> · ${$$(L.reduce((a, p) => a + (+p.monto || 0), 0))}<div class="sub">Revisa el comprobante y confírmalo</div></div><b>Ver ›</b></div>`; }
+  return `<div class="aviso" style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px" onclick="abrirEspera()"><div style="flex:1">⏳ <b>${L.length} ${L.length === 1 ? 'pago por confirmar' : 'pagos por confirmar'}</b> · ${$$(L.reduce((a, p) => a + (+p.monto || 0), 0))}<div class="sub">Revisa el comprobante y confírmalo</div></div><b>Ver ›</b></div>`; }
 function abrirEspera(){
   const L = enEspera(), ctas = S.cuentas.length ? S.cuentas : ['BBVA', 'Efectivo Transferencia'];
-  hoja('⏳ En espera de confirmación', L.length ? `<div class="sub">Revisa el comprobante. Al confirmar, el pago se registra en Cobranza.</div>` + L.map(p => `<div class="card" style="margin-top:10px">
+  hoja('⏳ Pagos por confirmar', L.length ? `<div class="sub">Revisa el comprobante. Al confirmar, el pago se registra en Cobranza.</div>` + L.map(p => `<div class="card" style="margin-top:10px">
     <b>${esc(p.cliente)}</b><div class="sub">${esc(p.documento || '')} · ${$$(p.monto)} · ${fmtF(p.fecha)} · ${esc(p.forma || '')}${p.vendedor ? ' · reportó ' + esc(p.vendedor) : ''}</div>
     ${p.notas ? `<div class="sub">${esc(p.notas)}</div>` : ''}${p.referencia ? `<div class="sub">Ref: ${esc(p.referencia)}</div>` : ''}
     <div id="esC_${esc(p.id)}" style="margin:8px 0" class="sub">Buscando comprobante…</div>

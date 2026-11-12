@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-2.4'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-2.5'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -183,6 +183,10 @@ function avisoOficina(body: any, j: any, quien: string){
   // supabase-2.4 (Rafa 12 nov: "que me llegue una notificación cuando alguien sube un pago") — pago reportado desde la app por alguien de la oficina
   if (a === 'erp_crear' && t === 'pagosverificar'){ const it = j.item || body.item || {};
     return { titulo: '💵 ' + q + ' reportó un pago' + (it.con_comprobante ? ' 📎' : ''), cuerpo: [it.cliente, pesos(it.monto), it.documento, 'por verificar'].filter(Boolean).join(' · '), url: ir('cobranza', { pv: it.id }), tag: 'pv_' + it.id }; }
+  if (a === 'capturar_pago_cliente' && /^Reportado por/.test(String(body.notas || ''))) // supabase-2.5 confirmó un pago que reportaron
+    return { titulo: '✅ ' + q + ' confirmó un pago de ' + pesos(body.monto), cuerpo: [String(body.notas || '').replace(/ en (su|la) app.*$/, ''), body.cuenta, String(body.fecha || '').slice(0, 10)].filter(Boolean).join(' · '), url: ir('cobranza', { id: body.id_doc }), tag: 'pago_' + body.id_doc + '_' + Date.now() };
+  if (a === 'erp_upsert_batch' && t === 'pagosverificar'){ const L = (body.items || []).filter((i: any) => i && i.estatus === 'rechazado'); // supabase-2.5
+    if (L.length) return { titulo: '✕ ' + q + ' rechazó ' + (L.length > 1 ? L.length + ' pagos reportados' : 'un pago reportado'), cuerpo: String(L[0].motivo || ''), url: ir('cobranza', { pv: L[0].id }), tag: 'pvr_' + L[0].id }; }
   if (a === 'capturar_pago_cliente') return { titulo: '💵 ' + q + ' registró un pago de ' + pesos(body.monto), cuerpo: [body.cuenta, String(body.fecha || '').slice(0, 10), String(body.notas || '').slice(0, 80)].filter(Boolean).join(' · '), url: ir('cobranza', { id: body.id_doc }), tag: 'pago_' + body.id_doc + '_' + body.monto };
   if (a === 'confirmar_cotizacion') return { titulo: '✅ ' + q + ' confirmó la cotización ' + ((j.pedido && j.pedido.cotizacion_origen) || '') + ' → pedido ' + ((j.pedido && j.pedido.folio) || ''), cuerpo: (j.pedido && ((j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('pedidos', { id: j.pedido && j.pedido.id }), tag: 'conf_' + body.id };
   if (a === 'activar_pedido') return { titulo: '✅ ' + q + ' confirmó un pedido', cuerpo: (j.pedido && (j.pedido.folio + ' · ' + (j.pedido.cliente || '') + ' · ' + pesos(j.pedido.total))) || '', url: ir('pedidos', { id: body.id }), tag: 'act_' + body.id };
@@ -409,6 +413,18 @@ async function atenderPeticion(req: Request) {
         const r = await sql`insert into nun_archivos (id, cobro_id, ref, nombre, mime, tam, datos, quien) values (${id}, ${cob}, ${String(body.ref || '').slice(0, 300)}, ${String(body.nombre || '').slice(0, 120)}, ${mime}, ${Math.round(datos.length * 3 / 4)}, ${datos}, ${quien})
                             on conflict (id) do nothing`;
         accion += ' ' + cob.slice(0, 26);
+        // supabase-2.5 (Rafa 12 nov: "que me llegue cuando suban la foto") — vendedor: a toda la oficina; oficina: a Rafa (nunca a quien la subió)
+        if (r && r.count && (se.rol === 'vendedor' || !esRafa(se.codigo))) await (async () => { // la búsqueda va dentro del turno; el envío en segundo plano
+          const pvId = (String(body.ref || '').match(/pv:([\w.-]+)/) || [])[1] || '';
+          let pv: any = null, cobro: any = null;
+          try { if (pvId) { const b = { accion: 'erp_listar', tabla: 'pagosverificar', codigo: se.codigo }; pv = (JSON.parse(await ejecutar('post', JSON.stringify(b), b, m, false)).items || []).find((x: any) => String(x.id) === pvId) || null; }
+            if (!pv) { const b = { accion: 'erp_listar', tabla: 'cobranza', codigo: se.codigo }; cobro = (JSON.parse(await ejecutar('post', JSON.stringify(b), b, m, false)).items || []).find((x: any) => String(x.id) === cob) || null; } } catch(e){}
+          const q = se.rol === 'vendedor' ? se.vend : String(quien || 'Alguien de la oficina').split(' ')[0];
+          const datos = { titulo: '📎 ' + q + ' subió el comprobante' + (pv ? ' de un pago de ' + pesos(pv.monto) : ''),
+            cuerpo: (pv ? [pv.cliente, pv.documento, pv.estatus === 'por_verificar' ? 'por verificar' : pv.estatus] : [cobro && cobro.cliente, cobro && ((cobro.tipo || '') + ' ' + (cobro.numero || '')), String(body.ref || '').slice(0, 60)]).filter(Boolean).join(' · '),
+            url: pv ? './?ir=cobranza&pv=' + encodeURIComponent(pv.id) : './?ir=cobranza&id=' + encodeURIComponent(cob), tag: 'cmp_' + id };
+          enSegundoPlano(se.rol === 'vendedor' ? avisar(datos) : avisarRafa(datos, se.codigo));
+        })().catch(() => {});
         return json({ ok: true, id, ya_existia: !(r && r.count) });
       }
       if (accion === 'archivo_listar'){

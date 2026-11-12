@@ -24,10 +24,10 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   await w.eval("Promise.all(['clientes','cobranza'].map(t=>cargarTabla(t)))"); await w.eval("State.data.cuentas = [{nombre:'BBVA',activa:true},{nombre:'Efectivo Transferencia',activa:true}]");
   await w.eval("navegar('cobranza')"); await sleep(1500);
   r.banner=txt(d.getElementById('nunPVBanner'));
-  if(!/2 pagos reportados/.test(r.banner)||!/\$500\.00/.test(r.banner)) r.fallas.push('banner');
+  if(!/2 pagos por confirmar/.test(r.banner)||!/\$500\.00/.test(r.banner)) r.fallas.push('banner');
   await w.eval("nunPVAbrir()"); await sleep(200);
   r.modal=txt(d.getElementById('modalPV')).slice(0,200);
-  if(!/Pagos por verificar \(2\)/.test(r.modal)||!/LUIS/.test(r.modal)) r.fallas.push('modal');
+  if(!/Pagos por confirmar \(2\)/.test(r.modal)||!/LUIS/.test(r.modal)) r.fallas.push('modal');
   // v2 no trae cuenta: no deja verificar sin cuenta
   await w.eval("nunPVVerificar('v2')"); await sleep(200);
   r.sinCuenta=!llamadas.some(b=>b.accion==='capturar_pago_cliente');

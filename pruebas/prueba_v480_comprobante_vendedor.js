@@ -87,6 +87,7 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
   r.pv = pv.ok; r.avisos = PUSH.length;
   const foto = Buffer.from('foto').toString('base64');
   r.sube = await post({ accion: 'archivo_subir', id: 'cmp_pv1', pv_id: 'pv1', cobro_id: 'OTRO', nombre: 'f.jpg', mime: 'image/jpeg', datos: foto, codigo: 'EDGAR-1' });
+  await new Promise(z => setTimeout(z, 300)); r.avisoFoto = PUSH.length - r.avisos; // supabase-2.5 aviso de la foto
   r.ligado = ARCH.get('cmp_pv1') && ARCH.get('cmp_pv1').cobro_id === 'k1' && /pv:pv1/.test(ARCH.get('cmp_pv1').ref) && /Reportado por EDGAR/.test(ARCH.get('cmp_pv1').ref);
   r.ajeno = (await post({ accion: 'archivo_subir', id: 'cmp_x', pv_id: 'pv1', nombre: 'f.jpg', mime: 'image/jpeg', datos: foto, codigo: 'LUIS-1' })).ok;
   r.sinPv = (await post({ accion: 'archivo_subir', id: 'cmp_y', cobro_id: 'k1', nombre: 'f.jpg', mime: 'image/jpeg', datos: foto, codigo: 'EDGAR-1' })).ok;
@@ -95,6 +96,7 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
   await post({ accion: 'erp_upsert_batch', tabla: 'pagosverificar', items: [{ id: 'pv1', estatus: 'verificado' }], codigo: 'RAFA-1' });
   r.yaRevisado = (await post({ accion: 'archivo_subir', id: 'cmp_z', pv_id: 'pv1', nombre: 'f.jpg', mime: 'image/jpeg', datos: foto, codigo: 'EDGAR-1' })).ok;
   ok('foto-del-vendedor', r.pv && r.avisos === 1 && r.sube.ok && r.ligado);
+  ok('aviso-de-la-foto', r.avisoFoto === 1);
   ok('candados', r.ajeno === false && r.sinPv === false && r.verVend === false && r.rafaLoVe === 'cmp_pv1' && r.yaRevisado === false);
   r.sube = r.sube.ok; r.fallas = fallas; console.log(JSON.stringify(r, null, 1));
 })().catch(e => console.log(JSON.stringify({ error: String(e.stack).slice(0, 800) })));

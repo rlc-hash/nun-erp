@@ -85,6 +85,8 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
   r.yazPago = await avisos(() => post({ accion: 'capturar_pago_cliente', id_doc: 'k1', monto: 40, cuenta: 'BBVA', fecha: '2026-11-11', codigo: 'YAZ-1', codigo_usuario: 'YAZ-1' }));
   r.yazReporta = await avisos(() => post({ accion: 'erp_crear', tabla: 'pagosverificar', item: { id: 'pvy', cobro_id: 'k1', cliente: 'Cliente X', monto: 40, documento: 'R0001', fecha: '2026-11-12' }, codigo: 'YAZ-1' })); // supabase-2.4
   r.rafaReporta = await avisos(() => post({ accion: 'erp_crear', tabla: 'pagosverificar', item: { id: 'pvr', cobro_id: 'k1', cliente: 'Cliente X', monto: 1, fecha: '2026-11-12' }, codigo: 'RAFA-1' }));
+  r.yazConfirma = await avisos(() => post({ accion: 'capturar_pago_cliente', id_doc: 'k1', monto: 10, cuenta: 'BBVA', fecha: '2026-11-12', notas: 'Reportado por EDGAR en su app · Transferencia', codigo: 'YAZ-1', codigo_usuario: 'YAZ-1' })); // supabase-2.5
+  r.yazRechaza = await avisos(() => post({ accion: 'erp_upsert_batch', tabla: 'pagosverificar', items: [{ id: 'pvy', estatus: 'rechazado', motivo: 'No llegó' }], codigo: 'YAZ-1' }));
   r.yazTimbra = await avisos(() => post({ accion: 'facturama_timbrar', cfdi: { CfdiType: 'I', Serie: 'FT', Folio: '77', Receiver: { Name: 'CLIENTE X' } }, codigo: 'YAZ-1' }));
   r.yazCancela = await avisos(() => post({ accion: 'erp_upsert_batch', tabla: 'remisiones', items: [{ id: 'r1', estatus: 'cancelada' }], codigo: 'YAZ-1' }));
   r.yazCambiaNota = await avisos(() => post({ accion: 'erp_upsert_batch', tabla: 'remisiones', items: [{ id: 'r1', notas: 'x' }], codigo: 'YAZ-1' }));
@@ -95,6 +97,7 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
   r.vendedorCot = await avisos(() => post({ accion: 'erp_crear', tabla: 'cotizaciones', item: { id: 'q1', folio: '', cliente: 'Cliente X', total: 10, items_json: '[]' }, codigo: 'EDGAR-1' }));
   ok('oficina-a-rafa', r.yazRemision === 'rafa' && r.yazPago === 'rafa' && r.yazTimbra === 'rafa' && r.yazCancela === 'rafa' && r.yadahCrea === 'rafa');
   ok('pago-reportado-oficina', r.yazReporta === 'rafa' && r.rafaReporta === '');
+  ok('confirma-rechaza', r.yazConfirma === 'rafa' && r.yazRechaza === 'rafa');
   ok('sin-ruido', r.yazCambiaNota === '' && r.yazLee === '' && r.rafaCrea === '' && r.rafaTimbra === '');
   ok('vendedor-igual', r.vendedorCot === 'rafa,yaz');
   r.fallas = fallas; console.log(JSON.stringify(r, null, 1));

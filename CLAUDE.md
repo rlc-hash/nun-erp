@@ -340,6 +340,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   `prueba_servidor_vendedores.js` (pago-oficina).
 - servidor supabase-2.4 (12 nov, Rafa): aviso al teléfono de Rafa cuando ALGUIEN DE LA OFICINA reporta un pago desde la app (`avisoOficina`: erp_crear
   pagosverificar → "💵 X reportó un pago", liga ?ir=cobranza&pv=…; nunca a quien lo hizo). Los de vendedores ya avisaban a toda la oficina. Prueba `prueba_v476_avisos_oficina.js`.
+- v4.97 / app v2.1.25 / servidor supabase-2.5 (12 nov, Rafa): en el ERP "✅ Verificar y registrar" no hacía nada: la confirmación (`.dialog-backdrop` z 400) y los
+  toasts (z 200) salían DETRÁS de las ventanas (z 9000). Ahora z 10050 / 10100. Apartado del menú **⏳ Pagos por confirmar** (`nunPagosPorConfirmar`, cuenta en `navPV`),
+  textos "Pagos por confirmar", botón ✅ Confirmar y registrar, 📎 Subir comprobante (`nunPVSubirComp`, ref "… · pv:<id>"). CRM: mismo nombre. Servidor: avisos
+  📎 "X subió el comprobante" (vendedor → toda la oficina; oficina → Rafa), ✅ "X confirmó un pago" (capturar_pago_cliente con notas "Reportado por…") y
+  ✕ "X rechazó un pago reportado". Pruebas `prueba_v497_pagos_por_confirmar.js` (Playwright), `prueba_v480_comprobante_vendedor.js`, `prueba_v476_avisos_oficina.js`.
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

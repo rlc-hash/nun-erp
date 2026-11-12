@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.93 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.94 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -10336,7 +10336,7 @@ async function guardarDoc(tabla, id, opts) {
   else if (!id && NUN_PREF_FOLIO[tabla] && idGuardado) folio = await nunResolverFolioDuplicado(tabla, idGuardado, folio);
   // v3.80 — si algo de Cobranza falla, se avisa (antes decía "✓ Creado" aunque el cobro no existiera)
   if (id && /cancel/i.test(item.estatus||'') && _previo && !/cancel/i.test(_previo.estatus||'')) { await nunCancelarCobranzaDoc(tabla, Object.assign({}, _previo, item, { id, folio })); if (tabla === 'pedidos') await nunLiberarApartado(id); } // v3.82
-  else if (id) { try { await nunSyncCobranzaDoc(tabla, Object.assign({}, _previo||{}, item, { id, folio })); await cargarTabla('cobranza'); } catch(e){ toast('⚠ Se guardó el documento pero no se pudo actualizar Cobranza: ' + e.message, { type:'error', duration:9000 }); } } // v3.72
+  else if (id && tabla !== 'cotizaciones') { try { await nunSyncCobranzaDoc(tabla, Object.assign({}, _previo||{}, item, { id, folio })); await cargarTabla('cobranza'); } catch(e){ toast('⚠ Se guardó el documento pero no se pudo actualizar Cobranza: ' + e.message, { type:'error', duration:9000 }); } } // v3.72
   if (!id && (tabla === 'remisiones' || tabla === 'facturas')) { try { const _r = await nunAltaCobranza(tabla, Object.assign({}, item, { id: idGuardado, folio }), true); if (_r === false) throw new Error('el servidor no confirmó'); cargarTabla('cobranza').catch(()=>{}); } catch(e){ toast('⚠ Se creó ' + folio + ' pero NO su renglón de Cobranza (' + e.message + '). Avísame o créalo a mano.', { type:'error', duration:12000 }); } } // v3.69
   await cargarTabla(tabla);
   // v3.47 — flujo "Guardar y Facturar": después de guardar, timbrar sin cerrar
@@ -13287,6 +13287,7 @@ async function cargarTabla(tabla, opts) {
     State._cargaOk[tabla] = true; try { nunAvisoCopia(); } catch(e){}
     if (data.ok && Array.isArray(data.items)) nunCopiaSet(tabla, data.items); // v4.05 copia completa para la próxima vez
     if (data.ok) {
+      const _firmaAntes = nunFirmaLista(State.data[tabla]); // v4.94
       State.data[tabla] = data.items || [];
       if (/^(pedidos|remisiones|facturas)$/.test(tabla)) { try { _nunSitIdx = null; } catch(e){} } // v3.90 situación al día
       if (tabla === 'cobranza') State.data.cobranzaTodos = data.items.slice(); // v3.64 incluye canceladas
@@ -13301,9 +13302,16 @@ async function cargarTabla(tabla, opts) {
         });
         localStorage.setItem(cacheKey, JSON.stringify({ t: Date.now(), items: slim }));
       } catch(e) { /* localStorage lleno */ }
+      // v4.94 (Rafa 12 nov: "Yazmín ya las confirmó y siguen en por confirmar") — se bajaba la lista nueva cada minuto pero la pantalla no se redibujaba.
+      // Ahora si cambió algo (estatus, total, folio, renglones) y estás en esa pantalla sin una ficha abierta ni escribiendo, se redibuja sola.
+      try { if (State.modulo === tabla && nunFirmaLista(State.data[tabla]) !== _firmaAntes && nunPuedeRedibujar()) { renderCurrent(); try { actualizarContadoresNav(); } catch(e){} } } catch(e){}
     }
   } catch(e) { console.warn('cargarTabla', tabla, e.message); }
 }
+function nunFirmaLista(L){ if (!Array.isArray(L)) return ''; let h = L.length + '|'; L.forEach(r => { h += (r.id||'') + ':' + (r.estatus||'') + ':' + (r.total||r.pendiente||'') + ':' + (r.folio||r.numero||'') + ':' + (r.cobrado||'') + ';'; }); return h; }
+function nunPuedeRedibujar(){ const dr = document.getElementById('drawer'); if (dr && dr.classList.contains('show')) return false;
+  const a = document.activeElement; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return false;
+  if (document.querySelector('[id^="modal"]')) return false; return true; }
 async function cargarVendedores() {
   try {
     const d = await api({ accion:'listar_vendedores' });

@@ -314,6 +314,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   pedidos del mismo cliente por factura compartida van aparte) y cobros sin pedido; reparto del dinero de Cobranza: Facturado (factura o remisión ya facturada) /
   Solo remisión / Pedido sin documento. `nunPedidosExcelCalc`: factura/remisión a PÚBLICO EN GENERAL con pedido_origen = folio (único) de un pedido del cliente cuenta
   en ese pedido. Dato: R0005 borrador → entregada (pagada; su pedido P0034 no la contaba). Prueba `prueba_v493_cuadre_general.js`.
+- v4.94 (12 nov, Rafa: "Yazmín ya las confirmó y siguen en por confirmar"): cargarTabla bajaba la lista nueva (cada minuto con nunAvisosRevisar) pero no
+  redibujaba. Ahora si cambió (`nunFirmaLista`) y estás en esa pantalla sin ficha/modal abierto ni escribiendo (`nunPuedeRedibujar`) se redibuja sola.
+  Guardar una cotización ya no espera nunSyncCobranzaDoc + bajar Cobranza (era lo lento de "Guardando…"). Prueba `prueba_v494_lista_al_dia.js`.
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

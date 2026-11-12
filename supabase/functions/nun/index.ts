@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-2.2'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-2.3'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -320,7 +320,7 @@ async function atenderPeticion(req: Request) {
       }
       return json(await lectura(() => conReintento(() => ejecutar('get', p, null, m, false))));
     }
-    const texto = await req.text();
+    let texto = await req.text();
     let body: any; try { body = JSON.parse(texto); } catch(e){ return json({ ok: false, error: 'Petición inválida' }); }
     accion = String(body.accion || '');
     // en el registro: también qué tabla y qué documentos (para saber quién cambió qué y cuándo)
@@ -424,6 +424,8 @@ async function atenderPeticion(req: Request) {
       const r = await sql`update nun_archivos set cancelado = true where id = ${String(body.id || '')}`; accion += ' ' + String(body.id || '').slice(0, 26);
       return json({ ok: true, cancelados: (r && r.count) || 0 });
     }
+    // v2.3 (12 nov) — pago reportado desde la app por alguien de la oficina: si no trae estatus queda "por verificar" (antes quedaba en blanco y no salía en ningún lado)
+    if (se.ok && se.rol !== 'vendedor' && accion === 'erp_crear' && body.tabla === 'pagosverificar' && body.item && !body.item.estatus) { body.item = { ...body.item, estatus: 'por_verificar' }; texto = JSON.stringify(body); }
     if (se.ok && se.rol === 'vendedor'){ // v4.63
       const e = await revisarVend(body, se, m);
       if (e){ ok = false; err = e; return json({ ok: false, error: e }); }

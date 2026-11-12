@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.22';
+const VERSION = 'v2.1.24';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -269,7 +269,7 @@ function vInicio(){
   const cots = filtroMios((S.d.cotizaciones || []).filter(c => c.estatus === 'enviada')).sort(masReciente); // v2.1.18 la más nueva arriba
   const pv = filtroMios(porVerificar());
   const vencidos = cobros.filter(c => (+c.pendiente || 0) >= 1).sort((a, b) => (+b.pendiente) - (+a.pendiente)).slice(0, 5);
-  return `${selectorVendedor()}<h2>Hola${(S.ses.usuario || {}).nombre ? ', ' + esc(S.ses.usuario.nombre) : ''}</h2>
+  return `${avisoEspera()}${selectorVendedor()}<h2>Hola${(S.ses.usuario || {}).nombre ? ', ' + esc(S.ses.usuario.nombre) : ''}</h2>
   <div class="kpis">
     <div class="kpi"><small>Vendido en ${MESES[+mes.slice(5) - 1]}</small><b>${$0(vendidoMes)}</b><span>${pedidos.filter(p => fecha10(p.fecha).slice(0, 7) === mes).length} pedidos</span></div>
     <div class="kpi" style="cursor:pointer" onclick="ir('pagos')"><small>Cobrado en ${MESES[+mes.slice(5) - 1]} ›</small><b>${$0(cobradoMes)}</b><span>${ingMes.length} pagos</span></div>
@@ -327,7 +327,7 @@ function vCobranza(){
   if (q) l = l.filter(c => norm(c.cliente + ' ' + c.numero).includes(q));
   l.sort((a, b) => f === 'pag' ? fecha10(b.fecha_emision).localeCompare(fecha10(a.fecha_emision)) : ((+b.pendiente || 0) - (+a.pendiente || 0)));
   const tot = l.reduce((a, c) => a + ((+c.pendiente || 0) >= 1 ? +c.pendiente : 0), 0);
-  return `${selectorVendedor()}<h2 style="display:flex;justify-content:space-between;align-items:center">Cobranza <button class="btn s p" onclick="abrirRegistrarPago('')">💵 Registrar pago</button></h2>
+  return `${avisoEspera()}${selectorVendedor()}<h2 style="display:flex;justify-content:space-between;align-items:center">Cobranza <button class="btn s p" onclick="abrirRegistrarPago('')">💵 Registrar pago</button></h2>
   <div class="chips">${[['saldo','Con saldo'],['venc','Vencidos'],['pag','Pagados'],['todo','Todos']].map(([k, n]) => `<button class="${f === k ? 'on' : ''}" onclick="S.filtroCob='${k}';pintar()">${n}</button>`).join('')}</div>
   <input class="in" placeholder="Buscar cliente o folio" value="${esc(S.qCob || '')}" oninput="S.qCob=this.value;clearTimeout(window._qb);window._qb=setTimeout(()=>{pintar();const i=document.querySelector('main .in');i.focus();i.setSelectionRange(i.value.length,i.value.length)},350)">
   <div class="sub" style="margin:8px 2px">${l.length} documentos${tot ? ' · deben ' + $$(tot) : ''}</div>
@@ -398,6 +398,62 @@ function vCatalogo(){
 }
 
 // ---------- hojas (detalle) ----------
+// v2.1.24 (Rafa 12 nov: "un aviso: en espera de confirmación de pagos, y yo los confirmo viendo el comprobante") — solo la oficina.
+// Lista los pagos reportados por verificar; 📎 ver (o subir) el comprobante; ✅ Confirmar = se registra en Cobranza (capturar_pago_cliente) y queda
+// verificado; ✕ Rechazar con motivo. Nada se borra.
+function enEspera(){ return esVendedor() ? [] : porVerificar().slice().sort((a, b) => String(a.creado || a.fecha || '').localeCompare(String(b.creado || b.fecha || ''))); }
+function avisoEspera(){ const L = enEspera(); if (!L.length) return '';
+  return `<div class="aviso" style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px" onclick="abrirEspera()"><div style="flex:1">⏳ <b>${L.length} ${L.length === 1 ? 'pago' : 'pagos'} en espera de confirmación</b> · ${$$(L.reduce((a, p) => a + (+p.monto || 0), 0))}<div class="sub">Revisa el comprobante y confírmalo</div></div><b>Ver ›</b></div>`; }
+function abrirEspera(){
+  const L = enEspera(), ctas = S.cuentas.length ? S.cuentas : ['BBVA', 'Efectivo Transferencia'];
+  hoja('⏳ En espera de confirmación', L.length ? `<div class="sub">Revisa el comprobante. Al confirmar, el pago se registra en Cobranza.</div>` + L.map(p => `<div class="card" style="margin-top:10px">
+    <b>${esc(p.cliente)}</b><div class="sub">${esc(p.documento || '')} · ${$$(p.monto)} · ${fmtF(p.fecha)} · ${esc(p.forma || '')}${p.vendedor ? ' · reportó ' + esc(p.vendedor) : ''}</div>
+    ${p.notas ? `<div class="sub">${esc(p.notas)}</div>` : ''}${p.referencia ? `<div class="sub">Ref: ${esc(p.referencia)}</div>` : ''}
+    <div id="esC_${esc(p.id)}" style="margin:8px 0" class="sub">Buscando comprobante…</div>
+    <label class="l">Entró a la cuenta</label><select id="esCta_${esc(p.id)}" class="in">${ctas.map(x => `<option ${x === p.cuenta ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+    <label class="l">Fecha en que entró</label><input id="esF_${esc(p.id)}" class="in" type="date" value="${fecha10(p.fecha) || hoy()}" max="${hoy()}">
+    <div style="display:flex;gap:8px;margin-top:10px"><button class="btn p" style="flex:1" id="esOk_${esc(p.id)}" onclick="confirmarPV('${esc(p.id)}')">✅ Confirmar</button><button class="btn" style="color:var(--bad)" onclick="rechazarPV('${esc(p.id)}')">✕ Rechazar</button></div></div>`).join('')
+    : '<div class="vacio">No hay pagos en espera.</div>');
+  L.forEach(p => pintarComprobantePV(p));
+}
+async function pintarComprobantePV(p){
+  const box = $('esC_' + p.id); if (!box) return;
+  try { const r = await api({ accion: 'archivo_listar', cobro_id: p.cobro_id });
+    const xs = ((r && r.items) || []).filter(x => !x.cancelado && String(x.ref || '').includes('pv:' + p.id));
+    box.innerHTML = (xs.length ? xs.map(x => `<button class="btn s" onclick="verComprobante('${esc(x.id)}')">📎 Ver comprobante</button>`).join(' ') : '⚠ Sin comprobante') +
+      ` <label class="btn s" style="cursor:pointer">📎 Subir<input type="file" accept="image/*,application/pdf" style="display:none" onchange="subirCompEspera('${esc(p.id)}', this)"></label>`;
+  } catch(e){ box.textContent = 'No pude ver el comprobante (' + e.message + ')'; }
+}
+async function verComprobante(id){
+  const w = window.open('', '_blank'); try { if (w) w.document.write('<p style="font-family:sans-serif;padding:20px">Abriendo comprobante…</p>'); } catch(e){}
+  try { const r = await api({ accion: 'archivo_ver', id }); if (!r.ok) throw new Error(r.error || 'no se encontró');
+    const b = Uint8Array.from(atob(r.datos), c => c.charCodeAt(0)), u = URL.createObjectURL(new Blob([b], { type: r.mime }));
+    if (w) w.location.href = u; else location.href = u; } catch(e){ try { if (w) w.close(); } catch(x){} toast('✗ ' + e.message, true); }
+}
+async function subirCompEspera(pvId, inp){ const f = inp.files && inp.files[0]; if (!f) return; const p = porVerificar().find(x => x.id === pvId) || {};
+  toast('Subiendo comprobante…'); const e = await subirComprobante(pvId, f, p.cobro_id); if (e) { toast('✗ ' + e, true); return; } toast('📎 Comprobante guardado'); pintarComprobantePV(p); }
+async function confirmarPV(id){
+  const p = porVerificar().find(x => String(x.id) === String(id)); if (!p) return;
+  const cuenta = ($('esCta_' + id) || {}).value, fecha = ($('esF_' + id) || {}).value;
+  if (!cuenta || !fecha) { toast('Pon la cuenta y la fecha', true); return; }
+  if (!confirm('¿Confirmar el pago de ' + $$(p.monto) + ' de ' + p.cliente + ' (' + (p.documento || '') + ') a ' + cuenta + ' el ' + fecha + '? Se registra en Cobranza.')) return;
+  const btn = $('esOk_' + id); if (btn) { btn.disabled = true; btn.textContent = 'Registrando…'; }
+  try {
+    await cargar(true); const q = (S.d.pagosverificar || []).find(x => String(x.id) === String(id)); // ¿ya lo confirmó alguien más?
+    if (!q || q.estatus !== 'por_verificar') { toast('Ese pago ya fue revisado', true); abrirEspera(); return; }
+    const notas = 'Reportado por ' + (p.vendedor || '') + ' en la app' + (p.forma ? ' · ' + p.forma : '') + (p.referencia ? ' · ref ' + p.referencia : '') + (p.notas ? ' · ' + p.notas : '');
+    const r = await api({ accion: 'capturar_pago_cliente', id_doc: p.cobro_id, monto: +p.monto, fecha, cuenta, notas, usuario: ((S.ses || {}).usuario || {}).nombre || '', codigo_usuario: (S.ses || {}).codigo });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'no se registró');
+    await api({ accion: 'erp_upsert_batch', tabla: 'pagosverificar', items: [{ id: p.id, estatus: 'verificado', cuenta, verificado_por: ((S.ses || {}).usuario || {}).nombre || '', verificado_fecha: new Date().toISOString() }] });
+    toast('✓ Pago confirmado y registrado · ' + $$(p.monto)); await cargar(true); if (enEspera().length) abrirEspera(); else cerrarHoja();
+  } catch(e){ toast('✗ ' + e.message, true); if (btn) { btn.disabled = false; btn.textContent = '✅ Confirmar'; } }
+}
+async function rechazarPV(id){
+  const p = porVerificar().find(x => String(x.id) === String(id)); if (!p) return;
+  const motivo = prompt('¿Por qué se rechaza? (lo verá el vendedor)', 'No se encontró el depósito'); if (motivo === null) return;
+  const r = await api({ accion: 'erp_upsert_batch', tabla: 'pagosverificar', items: [{ id: p.id, estatus: 'rechazado', motivo: motivo || 'Rechazado', verificado_por: ((S.ses || {}).usuario || {}).nombre || '', verificado_fecha: new Date().toISOString() }] });
+  if (!r || !r.ok) { toast('✗ No se guardó', true); return; } toast('Pago rechazado'); await cargar(true); if (enEspera().length) abrirEspera(); else cerrarHoja();
+}
 function hoja(titulo, html){ cerrarHoja(); const h = document.createElement('div'); h.className = 'hoja'; h.id = 'hoja'; h.onclick = e => { if (e.target === h) cerrarHoja(); };
   h.innerHTML = `<div><div class="cab"><b>${titulo}</b><button class="x" onclick="cerrarHoja()">✕</button></div><div id="hojaC">${html}</div></div>`; document.body.appendChild(h); }
 function cerrarHoja(){ const h = $('hoja'); if (h) h.remove(); }
@@ -621,10 +677,12 @@ async function prepararFoto(f){
   }
   const d = await leerArchivo(f); return { mime: /pdf/i.test(f.type || f.name || '') ? 'application/pdf' : (f.type || 'image/jpeg'), datos: d.split(',')[1] || '', nombre: f.name || 'comprobante' };
 }
-async function subirComprobante(pvId, f){ // regresa '' si se subió, o el error
+async function subirComprobante(pvId, f, cobroId){ // regresa '' si se subió, o el error
   try { if (f.size > 12 * 1024 * 1024) return 'muy grande, máx. 12 MB';
     const x = await prepararFoto(f);
-    const j = await api({ accion: 'archivo_subir', id: 'cmp_' + pvId, pv_id: pvId, nombre: x.nombre, mime: x.mime, datos: x.datos });
+    const pv = (S.d.pagosverificar || []).find(p => String(p.id) === String(pvId)) || {};
+    const cob = cobroId || pv.cobro_id || ''; // v2.1.24 la oficina sube al cobro (antes: "Falta el archivo o el cobro"); al vendedor el servidor lo pone solo
+    const j = await api({ accion: 'archivo_subir', id: 'cmp_' + pvId, pv_id: pvId, cobro_id: cob, ref: 'Reportado por ' + (miVendedor() || ((S.ses || {}).usuario || {}).nombre || '') + ' · pv:' + pvId, nombre: x.nombre, mime: x.mime, datos: x.datos });
     return j.ok ? '' : (j.error || 'no se guardó');
   } catch(e){ return e.message || 'sin conexión'; }
 }
@@ -706,13 +764,14 @@ async function guardarPago(){
       if (!P.enviados[id]) {
         const item = { id, fecha: P.fecha, creado: new Date().toISOString(), cliente: x.c.cliente, cobro_id: x.c.id, documento: (x.c.tipo ? x.c.tipo + ' ' : '') + x.c.numero,
           monto: P.montos[x.c.id], cuenta: ($('pgCuenta') || {}).value || P.cuenta, forma: P.forma, referencia: P.ref.trim(),
+          estatus: 'por_verificar', vendedor: miVendedor() || String(((S.ses || {}).usuario || {}).nombre || '').toUpperCase(), // v2.1.23 desde la oficina quedaba sin estatus y no salía en ningún lado
           notas: usados.length > 1 ? 'Un pago de ' + $$(P.total) + ' repartido en ' + usados.length + ' cuentas (' + (k + 1) + ' de ' + usados.length + ')' + (base ? ' · ' + base : '') : base };
         if (foto) item.con_comprobante = true; // el aviso a Rafa dice que trae foto
         const j = await api({ accion: 'erp_crear', tabla: 'pagosverificar', item });
         if (!j.ok && !j.ya_existia) throw new Error(x.c.numero + ': ' + (j.error || 'no se guardó'));
         P.enviados[id] = 1;
       }
-      if (foto && !P.fotos[id]) { btn.textContent = 'Subiendo foto…'; const e = await subirComprobante(id, foto);
+      if (foto && !P.fotos[id]) { btn.textContent = 'Subiendo foto…'; const e = await subirComprobante(id, foto, x.c.id);
         if (e) { toast('✓ Pago reportado, pero la foto no se subió (' + e + '). Toca otra vez para subirla.', true); btn.disabled = false; btn.textContent = 'Subir la foto otra vez'; return; }
         P.fotos[id] = 1; }
     }

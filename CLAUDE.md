@@ -331,6 +331,13 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   y `abrirPagoVarios` lo abren): ¿quién lo mandó? (cliente, busca también por contacto) · monto · cuentas que paga con ＋ Agregar otra cuenta (o todas) ordenadas de la
   MÁS VIEJA y reparto solo (editable) · ¿quién depositó? (notas "Depositó: X") · foto. Botón en Cobranza (arriba) y en el cliente. Un pagosverificar por cuenta
   (id `<grupo>_<cobro>`); reintento no reenvía el pago, solo lo que faltó. Prueba `prueba_v2120_crm_pago_varias.js`.
+- App v2.1.23–v2.1.24 / servidor supabase-2.3 (12 nov, Rafa registró el pago de un cliente desde el CRM con usuario de oficina y "no se dio de alta"):
+  el pagosverificar quedaba con estatus VACÍO (el servidor solo lo ponía a vendedores) → no salía en ningún lado y lo volvió a meter. Ahora la app manda
+  estatus por_verificar y el servidor lo pone si falta (oficina: también reescribe `texto`). La foto desde la oficina fallaba ("Falta el archivo o el cobro"):
+  `subirComprobante(pvId, f, cobroId)` manda cobro_id y ref "… · pv:<id>". **⏳ En espera de confirmación** (solo oficina, aviso en Inicio y Cobranza):
+  `abrirEspera` con 📎 Ver/Subir comprobante, ✅ Confirmar (`confirmarPV`: capturar_pago_cliente + verificado) y ✕ Rechazar. Datos: el pago repetido quedó
+  cancelado (motivo), los dos buenos por_verificar. Cuentas "Calixto diciembre" y "Mercado Pago" desactivadas (no borradas). Pruebas `prueba_v2124_crm_espera.js`,
+  `prueba_servidor_vendedores.js` (pago-oficina).
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

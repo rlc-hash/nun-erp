@@ -138,6 +138,10 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
     edgarNoLoVe: !(await post({ accion: 'erp_listar', tabla: 'pagosverificar', codigo: 'ESTEBAN-1' })).items.length,
     duenoLoVe: (await post({ accion: 'erp_listar', tabla: 'pagosverificar', codigo: D })).items.length };
   ok('pago', r.pago.ok && r.pago.estatus === 'por_verificar' && r.pago.vendedor === 'LUIS' && r.pago.pendiente === 100 && r.pago.edgarNoLoVe && r.pago.duenoLoVe === 1);
+  // supabase-2.3: pago reportado desde la app por la OFICINA sin estatus → queda por verificar (antes en blanco)
+  r.pagoOficinaResp = await post({ accion: 'erp_crear', tabla: 'pagosverificar', item: { id: 'v9', cobro_id: 'k1', cliente: 'Cliente de Luis', monto: 5, fecha: '2026-11-12' }, codigo: D });
+  r.pagoOficina = ((await post({ accion: 'erp_listar', tabla: 'pagosverificar', codigo: D })).items.find(x => x.id === 'v9') || {}).estatus;
+  ok('pago-oficina', r.pagoOficina === 'por_verificar');
   // v4.67 — Rafa cierra la sesión de Edgar: su siguiente movimiento pide volver a entrar; un vendedor no puede cerrar sesiones
   r.cerrar = { vendedorNo: (await post({ accion: 'cerrar_sesiones', codigos: ['LUIS-1'], codigo: 'EDGAR-1' })).ok === false,
     dueno: (await post({ accion: 'cerrar_sesiones', codigos: ['EDGAR-1', 'DUENO-1'], codigo: D })).cerradas };

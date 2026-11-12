@@ -21,7 +21,7 @@ const PV=[],FOTOS=[];
     return {json:async()=>JSON.parse(JSON.stringify(r))}; }; }});
  const w=dom.window,d=dom.window.document; await sleep(400);
  d.getElementById('lgCod').value='edgar-x'; await w.eval('entrar()'); await sleep(400);
- r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(2[2-9])/.test(r.version)) r.fallas.push('version');
+ r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(2[3-9])/.test(r.version)) r.fallas.push('version');
  // 1) desde Cobranza: botón arriba y buscar "quién lo mandó" (también por el contacto)
  w.eval("ir('cobranza')"); await sleep(30);
  r.botonCobranza=!!d.querySelector('button[onclick^="abrirRegistrarPago"]'); if(!r.botonCobranza) r.fallas.push('botón en Cobranza');
@@ -42,6 +42,7 @@ const PV=[],FOTOS=[];
  r.pv=PV.map(p=>p.cobro_id+':'+p.monto); if(JSON.stringify(r.pv)!=='["k1:35800","k2:9492"]') r.fallas.push('dos pagos por verificar');
  r.notas=PV[0]&&PV[0].notas; if(!/Un pago de \$45,292\.00 repartido en 2 cuentas \(1 de 2\) · Depositó: Ingrid/.test(r.notas||'')) r.fallas.push('notas');
  if(FOTOS.length!==2) r.fallas.push('foto en cada pago');
+ if(!PV.every(p=>p.estatus==='por_verificar')) r.fallas.push('siempre por verificar (v2.1.23)');
  // 3) más de lo que deben → no deja
  w.eval("abrirPago('k2')"); const m2=d.getElementById('pgMonto'); m2.value='99999'; m2.dispatchEvent(new w.Event('input')); const n=PV.length; await w.eval('guardarPago()'); r.noDejaDeMas=PV.length===n; if(!r.noDejaDeMas) r.fallas.push('no deja más de lo que deben');
  r.errs=errs.slice(0,3); if(errs.length) r.fallas.push('errores');

@@ -305,6 +305,10 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   y contaba los duplicados como vigentes. Ahora `nunPedidosPorCobrar` (cliente por cliente con `nunPedidosExcelCalc`, cada cobro una vez, en caché) + cobros con
   saldo sin pedido = Por cobrar de Cobranza, con aviso ✓ cuadra / ⚠ diferencia; tarjetas propias (`nunPedidosKpisHTML`: vigentes, vendido, por cobrar, por entregar).
   Prueba `prueba_v491_pedidos_por_cobrar.js`.
+- v4.92 (12 nov, Rafa: "WhatsApp del estado de cuenta no funciona en mi teléfono"): en simulación de teléfono con datos reales sí compartía; en su
+  teléfono algo fallaba sin aviso. Ahora `nunECWhatsApp`: si navigator.share falla (no AbortError) o el navegador no comparte archivos → `nunECPlanB`:
+  baja el PDF, dice el motivo (nombre y mensaje del error) y pone botón "💬 Abrir WhatsApp" (wa.me con teléfono del cliente) para adjuntarlo con 📎.
+  Nombre del PDF sin acentos. Prueba `prueba_v485_estado_cuenta_whatsapp.js` (caso celNoDeja).
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

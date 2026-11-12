@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-2.1'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-2.2'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -215,7 +215,7 @@ async function revisarVend(body: any, se: any, m: Map<string, any>){
     return null;
   }
   if (a === 'erp_upsert_batch'){
-    // solo cancelar una cotización propia que aún no se confirma, o un pago suyo que aún no se verifica
+    // solo cancelar o CORREGIR (v4.91) una cotización propia que aún no se confirma, o cancelar un pago suyo que aún no se verifica
     if (t !== 'cotizaciones' && t !== 'pagosverificar') return 'Eso no está permitido desde la app de vendedores';
     const items = Array.isArray(body.items) ? body.items : [];
     const b = { accion: 'erp_listar', tabla: t, codigo: se.codigo };
@@ -224,7 +224,17 @@ async function revisarVend(body: any, se: any, m: Map<string, any>){
       const r = rows.find((x: any) => String(x.id) === String(it && it.id));
       if (!r || norm(r.vendedor) !== se.vend) return 'Solo puedes cambiar lo tuyo';
       const ks = Object.keys(it).filter(k => k !== 'id');
-      if (t === 'cotizaciones' && (r.estatus !== 'enviada' || it.estatus !== 'cancelada' || ks.some(k => !['estatus', 'notas'].includes(k)))) return 'Solo puedes cancelar una cotización que aún no se confirma';
+      // v4.91 (Rafa 12 nov) — el vendedor puede CORREGIR su cotización mientras no se confirme (productos, cantidades, precios, cliente, envío, notas).
+      // El servidor (Codigo.gs v0.9.20) libera lo apartado viejo y aparta lo nuevo. Nunca cambia folio, fecha, vendedor ni estatus.
+      const EDITABLE = ['cliente', 'subtotal', 'iva', 'total', 'sin_iva', 'envio', 'items_json', 'notas'];
+      if (t === 'cotizaciones' && r.estatus !== 'enviada') return 'Esa cotización ya se confirmó o se canceló: ya no se puede cambiar';
+      if (t === 'cotizaciones' && it.estatus !== undefined && (it.estatus !== 'cancelada' || ks.some(k => !['estatus', 'notas'].includes(k)))) return 'Solo puedes cancelar una cotización que aún no se confirma';
+      if (t === 'cotizaciones' && it.estatus === undefined){
+        if (!ks.length || ks.some(k => !EDITABLE.includes(k))) return 'Eso no se puede cambiar desde la app';
+        if (it.items_json !== undefined){ let l: any; try { l = JSON.parse(String(it.items_json)); } catch(e){}
+          if (!Array.isArray(l) || !l.length || l.some((x: any) => !x || !x.sku || !(+x.cantidad > 0) || !(+x.precio_unitario >= 0))) return 'Revisa los productos de la cotización'; }
+        if (it.cliente !== undefined && !se.todos && nCli(it.cliente) !== nCli(r.cliente) && !(await misClientes(se, m)).some((c: any) => nCli(c.razon_social) === nCli(it.cliente))) return 'Ese cliente no es tuyo';
+      }
       if (t === 'pagosverificar' && (r.estatus !== 'por_verificar' || it.estatus !== 'cancelado' || ks.some(k => !['estatus', 'motivo'].includes(k)))) return 'Solo puedes cancelar un pago que aún no se verifica';
     }
     return null;
@@ -423,11 +433,16 @@ async function atenderPeticion(req: Request) {
       const j = JSON.parse(out); ok = !!j.ok; if (!ok) err = String(j.error || '').substring(0, 200);
       // cotización cancelada por el vendedor: se libera lo que apartó (una sola vez: ya no está "enviada")
       if (j.ok && body.accion === 'erp_upsert_batch' && body.tabla === 'cotizaciones')
-        for (const it of body.items || []){ const b = { accion: 'cotizacion_liberar', id: it.id, codigo: se.codigo }; try { await ejecutar('post', JSON.stringify(b), b, m, true); } catch(e){} }
+        for (const it of (body.items || []).filter((i: any) => /cancel/i.test(String(i && i.estatus || '')))){ /* v4.91 solo al cancelar (corregir ya ajusta lo apartado en Codigo.gs) */ const b = { accion: 'cotizacion_liberar', id: it.id, codigo: se.codigo }; try { await ejecutar('post', JSON.stringify(b), b, m, true); } catch(e){} }
       if (body.accion === 'erp_listar' && j.ok && Array.isArray(j.items)) j.items = await filtrarVend(String(body.tabla), j.items, se, m);
       // v4.65 — aviso a la oficina (sin esperar: el vendedor no se queda esperando)
       if (j.ok && !j.ya_existia && body.accion === 'erp_crear' && body.tabla === 'cotizaciones'){ const it = j.item || body.item;
         enSegundoPlano(avisar({ titulo: '🧾 Cotización nueva ' + (it.folio || '') + ' · ' + se.vend, cuerpo: (it.cliente || '') + ' · ' + pesos(it.total) + ' · tócala para confirmarla', url: './?ir=cotizaciones&id=' + encodeURIComponent(String(it.id || '')), tag: 'cot_' + it.id })); }
+      // v4.91 — el vendedor corrigió su cotización: aviso a la oficina con liga a esa cotización
+      if (j.ok && se.rol === 'vendedor' && body.accion === 'erp_upsert_batch' && body.tabla === 'cotizaciones')
+        for (const it of (body.items || []).filter((i: any) => i && i.estatus === undefined))
+          enSegundoPlano(avisar({ titulo: '✏️ ' + se.vend + ' corrigió una cotización', cuerpo: (it.cliente ? it.cliente + ' · ' : '') + (it.total !== undefined ? pesos(it.total) + ' · ' : '') + 'tócala para revisarla',
+            url: './?ir=cotizaciones&id=' + encodeURIComponent(String(it.id || '')), tag: 'cot_' + it.id }));
       if (j.ok && !j.ya_existia && body.accion === 'erp_crear' && body.tabla === 'pagosverificar'){ const it = j.item || body.item;
         enSegundoPlano(avisar({ titulo: '💵 ' + se.vend + ' reportó un pago' + ((body.item || {}).con_comprobante ? ' 📎' : ''), cuerpo: (it.cliente || '') + ' · ' + pesos(it.monto) + ' · por verificar' + ((body.item || {}).con_comprobante ? ' · con foto del comprobante' : ''), url: './?ir=cobranza&pv=' + encodeURIComponent(String(it.id || '')), tag: 'pv_' + it.id })); }
       return json(j);

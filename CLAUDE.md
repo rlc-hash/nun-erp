@@ -296,6 +296,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - v4.90 (12 nov, Rafa: seguía en el Inicio): sw.js solo manda mensaje si una ventana del ERP está A LA VISTA (visibilityState visible); si la app está
   en segundo plano o cerrada abre la LIGA del aviso con openWindow (Android/iPhone abren la app instalada ahí). Antes el mensaje iba a una ventana escondida
   (a veces una pestaña de Chrome) y al frente quedaba la app en el Inicio. Revisado en Chrome real (Playwright, liga y mensaje).
+- App v2.1.19 / servidor supabase-2.2 (12 nov, Rafa): el vendedor **✏️ Edita su cotización** mientras está por confirmar (`editarCot` la carga en Cotizar;
+  `guardarEdicionCot` manda erp_upsert_batch con SOLO cliente/subtotal/iva/total/sin_iva/envio/items_json/notas; mismo id y folio). El servidor (`revisarVend`)
+  solo deja corregir la SUYA en estatus enviada, con productos válidos y cliente suyo (si no ve a todos); cotizacion_liberar ahora solo corre al CANCELAR
+  (al corregir, Codigo.gs v0.9.20 ya ajusta lo apartado). Aviso a la oficina "✏️ X corrigió una cotización" con liga a ella.
+  Pruebas `prueba_servidor_vendedores.js` (editar-cotizacion) y `prueba_v2119_crm_editar_cotizacion.js`.
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

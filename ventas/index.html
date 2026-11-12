@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.18';
+const VERSION = 'v2.1.19';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -426,7 +426,7 @@ function abrirDoc(tabla, id){
       ${tabla === 'facturas' && d.uuid_sat ? `<button class="btn" onclick="xmlDoc('${esc(d.uuid_sat)}','${esc(d.folio)}')">📃 XML</button>` : ''}
       <button class="btn" onclick="enviarWA('${tabla}','${esc(d.id)}')">💬 Enviar por WhatsApp</button>
       ${c && (+c.pendiente || 0) >= 1 ? `<button class="btn p" onclick="abrirPago('${esc(c.id)}')">💵 Registrar pago</button>` : ''}
-      ${tabla === 'cotizaciones' && d.estatus === 'enviada' && (!esVendedor() || norm(d.vendedor) === miVendedor()) ? `<button class="btn" style="color:var(--bad)" onclick="cancelarCot('${esc(d.id)}')">Cancelar cotización</button>` : ''}
+      ${tabla === 'cotizaciones' && d.estatus === 'enviada' && (!esVendedor() || norm(d.vendedor) === miVendedor()) ? `<button class="btn p" onclick="editarCot('${esc(d.id)}')">✏️ Editar cotización</button><button class="btn" style="color:var(--bad)" onclick="cancelarCot('${esc(d.id)}')">Cancelar cotización</button>` : ''}
     </div>`);
 }
 function textoDoc(tabla, id){
@@ -516,6 +516,21 @@ async function enviarWAYa(tabla, id){
   toast('Se bajaron los archivos: adjúntalos en WhatsApp');
   window.open('https://wa.me/' + telCliente(d.cliente) + (texto ? '?text=' + encodeURIComponent(texto) : ''), '_blank');
 }
+// v2.1.19 (Rafa 12 nov) — EDITAR la cotización mientras no se confirme: se carga en Cotizar con sus productos y al guardar se corrige la misma
+// (mismo folio; el servidor ajusta lo apartado). Así no se sube otra igual del mismo cliente.
+function editarCot(id){
+  const d = (S.d.cotizaciones || []).find(x => String(x.id) === String(id)); if (!d) return;
+  if (d.estatus !== 'enviada') { toast('Esa cotización ya se confirmó o se canceló', true); return; }
+  let its = []; try { its = JSON.parse(d.items_json || '[]'); } catch(e){}
+  const conIva = its.some(i => +i.iva_pct > 0) || (!d.sin_iva && +d.iva > 0);
+  const lineas = its.map(i => { const p = (S.d.productos || []).find(x => x.sku === i.sku) || {}; const pz = +i.cantidad || 0;
+    return { sku: i.sku, desc: String(i.descripcion || p.descripcion || '').replace(/ · \d+ cajas? de \d+ pz$/, ''), cantidad: pz, precio: +i.precio_unitario || 0,
+      disp: disponible(p) + pz, ps: 1, modo: 'pz', s3: esSet3(p) }; }); // lo que ya aparta esta cotización cuenta como disponible
+  const notas = String(d.notas || '').replace(/ ?·? ?Cotización desde la app de vendedores$/, '').replace(/ ?·? ?SIN IVA$/, '').replace(/ · $/, '').trim();
+  S.cot = { editId: d.id, folio: d.folio || '', cliente: d.cliente || '', lineas, conIva, notas, nuevo: false, tel: '', envio: d.envio || '' };
+  S.qProd = ''; cerrarHoja(); ir('cotizar');
+}
+function salirEdicion(){ S.cot = { cliente: '', lineas: [], conIva: false, notas: '', nuevo: false, tel: '', envio: '' }; pintar(); }
 async function cancelarCot(id){
   if (!confirm('¿Cancelar esta cotización? Se libera lo que apartó.')) return;
   try { const j = await api({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id, estatus: 'cancelada' }] });
@@ -653,7 +668,7 @@ S.cot = { cliente: '', lineas: [], conIva: false, notas: '', nuevo: false, tel: 
 function vCotizar(){
   if (!puedeCotizar()) return '<h2>Cotizar</h2><div class="card vacio">Tu usuario todavía no puede subir cotizaciones.<br>Pídeselo a Rafa.</div>';
   const C = S.cot, its = C.lineas.map(l => ({ cantidad: l.cantidad, precio_unitario: l.precio })), t = calcDoc(its, !C.conIva);
-  return `<h2>Nueva cotización</h2>
+  return `<h2>${C.editId ? 'Editar cotización ' + esc(C.folio || '') : 'Nueva cotización'}</h2>${C.editId ? `<div class="sub" style="margin:-4px 0 10px">Corriges la misma cotización (no se sube otra). <a href="#" onclick="salirEdicion();return false">Salir sin guardar</a></div>` : ''}
   <div class="card">
     <label class="l" style="margin-top:0">Cliente</label>
     ${C.cliente && !C.nuevo ? `<div style="display:flex;gap:8px;align-items:center"><b style="flex:1">${esc(C.cliente)}</b><button class="btn s" onclick="S.cot.cliente='';pintar()">Cambiar</button></div>`
@@ -675,7 +690,7 @@ function vCotizar(){
     <label class="l">Notas (opcional)</label><input class="in" value="${esc(C.notas)}" oninput="S.cot.notas=this.value">
   </div>
   <div class="card" id="ctTot">${htmlTot(t)}</div>
-  <button class="btn p w" id="ctBtn" onclick="subirCot()">Subir cotización</button>
+  <button class="btn p w" id="ctBtn" onclick="subirCot()">${C.editId ? 'Guardar cambios' : 'Subir cotización'}</button>
   <div class="sub" style="margin-top:8px;text-align:center">Rafa o Yazmín la confirman y se vuelve pedido.</div>`;
 }
 function htmlTot(t){ return `<div class="tot"><span>Subtotal</span><span>${$$(t.subtotal)}</span></div><div class="tot"><span>IVA</span><span>${$$(t.iva)}</span></div><div class="tot g"><span>Total</span><span>${$$(t.total)}</span></div>`; }
@@ -720,7 +735,8 @@ async function subirCot(){
   const mal = C.lineas.find(l => !(+l.cantidad > 0) || !(+l.precio > 0)); if (mal) { toast('Revisa cantidad y precio de ' + mal.sku + ' (deben ser mayores a 0)', true); return; }
   const sinExist = C.lineas.filter(l => pzLinea(l) > l.disp);
   if (sinExist.length && !confirm('No hay suficientes piezas disponibles de: ' + sinExist.map(l => l.sku + ' (' + ((l.ps || 1) > 1 ? Math.floor(l.disp / l.ps) + ' cajas' : l.disp) + ')').join(', ') + '. ¿Subirla de todos modos?')) return;
-  const btn = $('ctBtn'); btn.disabled = true; btn.textContent = 'Subiendo…';
+  const btn = $('ctBtn'); btn.disabled = true; btn.textContent = C.editId ? 'Guardando…' : 'Subiendo…';
+  if (C.editId) return guardarEdicionCot(C, cliente, btn);
   C.id = C.id || ('app_cot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)); // reintento = mismo id, no se duplica
   try {
     if (C.nuevo && !(S.d.clientes || []).some(c => norm(c.razon_social) === norm(cliente))) {
@@ -743,6 +759,23 @@ async function subirCot(){
     S.tab = 'pedidos'; S.filtroPed = 'pend'; await cargar(true);
     const nueva = (S.d.cotizaciones || []).find(x => String(x.id) === String(item.id)); if (nueva) abrirDoc('cotizaciones', nueva.id);
   } catch(e){ toast('✗ No se subió: ' + e.message + ' · puedes reintentar, no se duplica', true); btn.disabled = false; btn.textContent = 'Subir cotización'; }
+}
+
+// v2.1.19 — guarda la corrección de una cotización por confirmar (solo lo que se puede cambiar)
+function itemsDeCot(C){ return C.lineas.map(l => ({ sku: l.sku, descripcion: l.desc || l.sku, cantidad: pzLinea(l), precio_unitario: +l.precio, descuento_pct: 0, iva_pct: C.conIva ? 16 : 0 })); }
+async function guardarEdicionCot(C, cliente, btn){
+  try {
+    const items = itemsDeCot(C), t = calcDoc(items, !C.conIva);
+    const it = { id: C.editId, cliente, subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: !C.conIva, envio: String(C.envio || '').trim(), items_json: JSON.stringify(items),
+      notas: (C.notas ? C.notas + ' · ' : '') + (C.conIva ? '' : 'SIN IVA · ') + 'Cotización desde la app de vendedores' };
+    const j = await api({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [it] });
+    if (!j.ok) throw new Error(j.error || 'no se guardó');
+    const id = C.editId, folio = C.folio;
+    S.cot = { cliente: '', lineas: [], conIva: false, notas: '', nuevo: false, tel: '', envio: '' };
+    toast('✓ Cotización ' + folio + ' corregida');
+    S.tab = 'pedidos'; S.filtroPed = 'pend'; await cargar(true);
+    if ((S.d.cotizaciones || []).some(x => String(x.id) === String(id))) abrirDoc('cotizaciones', id);
+  } catch(e){ toast('✗ No se guardó: ' + e.message, true); btn.disabled = false; btn.textContent = 'Guardar cambios'; }
 }
 
 // ---------- arranque ----------

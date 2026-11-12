@@ -104,7 +104,8 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
     esteban: (await post({ accion: 'erp_crear', tabla: 'cotizaciones', item: { id: 'q2', cliente: 'x', total: 1 }, codigo: 'ESTEBAN-1' })).ok,
     pedidoDirecto: (await post({ accion: 'erp_crear', tabla: 'pedidos', item: { id: 'x1', cliente: 'x', total: 1 }, codigo: 'LUIS-1' })).ok,
     cancelarAjena: (await post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q1', estatus: 'cancelada' }], codigo: 'EDGAR-1' })).ok,
-    cambiarTotal: (await post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q1', total: 1 }], codigo: 'LUIS-1' })).ok,
+    cambiarTotal: (await post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q1', total: 1 }], codigo: 'EDGAR-1' })).ok, // v4.91 la de otro no
+    cambiarEstatus: (await post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q1', estatus: 'convertida' }], codigo: 'LUIS-1' })).ok,
     apartadoAntes: +(await post({ accion: 'erp_listar', tabla: 'productos', codigo: D })).items[0].stock_comprometido,
     cancelarPropia: (await post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q1', estatus: 'cancelada', notas: 'ya no' }], codigo: 'LUIS-1' })).ok,
     cancelarOtraVez: (await post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q1', estatus: 'cancelada' }], codigo: 'LUIS-1' })).ok };
@@ -114,7 +115,22 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
   r.push.viejaMarcada = JSON.parse([...PROPS].find(([k, v]) => k.startsWith('push:') && /vieja/.test(v))[1]).activo === false;
   ok('push-cotizacion', r.push.alSubir === 'rafa,vieja' && r.push.cabeceras && r.push.viejaMarcada);
   r.cot.apartadoDespues = +(await post({ accion: 'erp_listar', tabla: 'productos', codigo: D })).items[0].stock_comprometido;
-  ok('cotizacion', r.cot.ok && r.cot.folio === 'C0001' && r.cot.vendedor === 'LUIS' && r.cot.estatus === 'enviada' && !r.cot.esteban && !r.cot.pedidoDirecto && !r.cot.cancelarAjena && !r.cot.cambiarTotal && r.cot.cancelarPropia && !r.cot.cancelarOtraVez && r.cot.apartadoAntes === 2 && r.cot.apartadoDespues === 0);
+  ok('cotizacion', r.cot.ok && r.cot.folio === 'C0001' && r.cot.vendedor === 'LUIS' && r.cot.estatus === 'enviada' && !r.cot.esteban && !r.cot.pedidoDirecto && !r.cot.cancelarAjena && !r.cot.cambiarTotal && !r.cot.cambiarEstatus && r.cot.cancelarPropia && !r.cot.cancelarOtraVez && r.cot.apartadoAntes === 2 && r.cot.apartadoDespues === 0);
+  // v4.91 (Rafa 12 nov) — el vendedor CORRIGE su cotización por confirmar: lo apartado se ajusta, la oficina recibe aviso; no la de otro, ni folio/estatus, ni cliente ajeno
+  const apt = async () => +(await post({ accion: 'erp_listar', tabla: 'productos', codigo: D })).items[0].stock_comprometido;
+  const q3 = await post({ accion: 'erp_crear', tabla: 'cotizaciones', item: { id: 'q3', folio: '', cliente: 'Cliente de Luis', total: 2200, items_json: JSON.stringify([{ sku: 'RL001', cantidad: 2, precio_unitario: 1100 }]) }, codigo: 'LUIS-1' });
+  const edt = (it, c) => post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q3', ...it }], codigo: c || 'LUIS-1' }).then(x => x.ok);
+  const nPush = PUSH.length;
+  r.editar = { creada: q3.ok, antes: await apt(),
+    ok: await edt({ items_json: JSON.stringify([{ sku: 'RL001', cantidad: 5, precio_unitario: 1000 }]), subtotal: 5000, iva: 0, total: 5000, envio: 'Fletera X', notas: 'corregida' }) };
+  r.editar.despues = await apt(); await new Promise(z => setTimeout(z, 300)); r.editar.aviso = PUSH.length > nPush;
+  const fila = (await post({ accion: 'erp_listar', tabla: 'cotizaciones', codigo: D })).items.find(x => x.id === 'q3');
+  r.editar.guardado = fila.total == 5000 && fila.envio === 'Fletera X' && fila.estatus === 'enviada' && fila.vendedor === 'LUIS' && fila.folio === q3.item.folio;
+  Object.assign(r.editar, { folio: await edt({ folio: 'X1' }), convertir: await edt({ estatus: 'convertida' }), clienteAjeno: await edt({ cliente: 'Cliente de Edgar' }),
+    deOtro: await edt({ total: 1 }, 'EDGAR-1'), sinProductos: await edt({ items_json: '[]' }) });
+  r.editar.cancelar = await edt({ estatus: 'cancelada' }); r.editar.alCancelar = await apt(); r.editar.yaCancelada = await edt({ total: 3 });
+  ok('editar-cotizacion', r.editar.creada && r.editar.antes === 2 && r.editar.ok && r.editar.despues === 5 && r.editar.aviso && r.editar.guardado && !r.editar.folio && !r.editar.convertir &&
+    !r.editar.clienteAjeno && !r.editar.deOtro && !r.editar.sinProductos && r.editar.cancelar && r.editar.alCancelar === 0 && !r.editar.yaCancelada);
   // Pago reportado: queda por verificar y NO toca Cobranza
   const pv = await post({ accion: 'erp_crear', tabla: 'pagosverificar', item: { id: 'v1', cobro_id: 'k1', cliente: 'Cliente de Luis', monto: 40, estatus: 'verificado', fecha: '2026-11-03', cuenta: 'BBVA' }, codigo: 'LUIS-1' });
   const k1 = (await post({ accion: 'erp_listar', tabla: 'cobranza', codigo: D })).items.find(x => x.id === 'k1');

@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.92 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.93 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4176,6 +4176,14 @@ function nunPedidosExcelCalc(cli){
   const cobs = State.data.cobranza || [];
   const docs = [];
   [['remisiones','R'],['facturas','F']].forEach(([t, L]) => (State.data[t]||[]).forEach(d => { if (es(d.cliente) && !/cancel|borrador/i.test(String(d.estatus||''))) docs.push({ t, L, d, peds: String(d.pedido_origen||'').split(/[,;]/).map(x => x.trim().replace(/^REM\s+/, '')).filter(Boolean) }); }));
+  // v4.93 (Rafa 12 nov: "cuadra todo") — factura/remisión hecha a PÚBLICO EN GENERAL por una venta de este cliente (ej. 1079/1081 de un pedido 1138):
+  // cuenta en su pedido si su pedido_origen es el folio de un pedido de este cliente y ese folio no se repite en otro pedido vivo.
+  const _pub = n => /^PUBLICO ?EN ?GENERAL/.test(nunCliNorm(n));
+  if (!_pub(nom)) { const misK = new Set((State.data.pedidos||[]).filter(p => es(p.cliente) && !/cancel|duplic|borrador/i.test(String(p.estatus||''))).map(p => String(p.folio||'').trim()).filter(Boolean));
+    const vecesK = k => (State.data.pedidos||[]).filter(p => !/cancel|duplic/i.test(String(p.estatus||'')) && String(p.folio||'').trim() === k).length;
+    [['remisiones','R'],['facturas','F']].forEach(([t, L]) => (State.data[t]||[]).forEach(d => { if (!_pub(d.cliente) || /cancel|borrador/i.test(String(d.estatus||''))) return;
+      const ks = String(d.pedido_origen||'').split(/[,;]/).map(x => x.trim().replace(/^REM\s+/, '')).filter(Boolean);
+      if (ks.length && misK.has(ks[0]) && vecesK(ks[0]) === 1) docs.push({ t, L, d, peds: ks, pub: true }); })); }
   // v4.60 — factura de remisiones (ej. FT0014/FT0016 = "R0023, R0024, REM 262"): se ve también en el pedido de cada remisión (solo para mostrar:
   // su dinero ya se cobra en el cobro de cada remisión). Si está en borrador también se muestra, marcada.
   const _rems = State.data.remisiones || [];
@@ -4187,7 +4195,7 @@ function nunPedidosExcelCalc(cli){
     const ks = nunPedClaves(p);
     const mis = docs.filter(x => x.peds.some(k => ks.includes(k)));
     const cs = new Map();
-    mis.forEach(x => { if (x.soloVer || (x.peds.length > 1 && !ks.includes(x.peds[0]))) return; let c = null; try { c = nunCobroDeDoc(x.t, x.d); } catch(e){} if (c && es(c.cliente) && !/cancel/i.test(String(c.estatus||''))) cs.set(c.id, c); });
+    mis.forEach(x => { if (x.soloVer || (x.peds.length > 1 && !ks.includes(x.peds[0]))) return; let c = null; try { c = nunCobroDeDoc(x.t, x.d); } catch(e){} if (c && (es(c.cliente) || (x.pub && (_pub(c.cliente) || es(c.cliente)))) && !/cancel/i.test(String(c.estatus||''))) cs.set(c.id, c); });
     cobs.forEach(c => { if (!/cancel/i.test(String(c.estatus||'')) && (String(c.factura_origen) === String(p.id) || ks.some(k => String(c.descripcion||'').toUpperCase().includes('[PEDIDO ' + String(k).toUpperCase() + ']')))) cs.set(c.id, c); });
     const total = +p.total || 0, falta = Math.max(0, nunR2([...cs.values()].reduce((a, c) => a + Math.max(0, +c.pendiente||0), 0)));
     return { p, total, falta, pagado: nunR2(total - falta), cobs: [...cs.values()], docs: mis.map(x => ({ L: x.L, folio: nunFolioStr(x.d), fecha: x.d.fecha, comparte: !x.soloVer && x.peds.length > 1 ? x.peds.filter(k => !ks.includes(k)) : [], bor: !!x.bor })) };
@@ -5074,6 +5082,7 @@ function renderCobranza(params) {
       </div>
       <div class="actions">
         <button class="btn btn-secondary" onclick="nunEstadoCuentaAbrir()">📄 Estado de cuenta</button>
+        <button class="btn btn-secondary" onclick="nunCuadreGeneralAbrir()">⚖️ Cuadre general</button>
         <button class="btn btn-secondary" onclick="navegar('cobranza',{vista:'hoy'})">📞 Vista Hoy</button>
         <button class="btn btn-secondary" onclick="exportarTabla('cobranza')">Exportar</button>
         <button class="btn btn-primary" onclick="abrirNuevoPedido()">+ Capturar pedido</button>
@@ -7802,12 +7811,73 @@ function nunPedidosPorCobrar(){
   _nunPCcache = { firma, falta: nunR2(falta), sueltos, sueltosTotal: nunR2(sueltos.reduce((a, c) => a + Math.max(0, +c.pendiente || 0), 0)), cobranza, porCli: porCli.sort((a, b) => b.falta - a.falta) };
   return _nunPCcache;
 }
+// v4.93 — CUADRE GENERAL (Rafa 12 nov: "que todo esté al mismo nivel… facturado contra remisiones"): cada cobro vivo de Cobranza pertenece a UN pedido
+// (como la ficha) o queda "sin pedido". Vendido (pedidos) vs Cobranza: la diferencia sale pedido por pedido. El dinero de Cobranza se reparte en
+// Facturado (cobro de factura o de remisión ya facturada) · Solo remisión (sin factura) · Pedido sin documento (pedido nuevo con su propio cobro).
+let _nunCGcache = null;
+function nunCuadreGeneral(){
+  const pc = nunPedidosPorCobrar(); if (_nunCGcache && _nunCGcache.firma === pc.firma) return _nunCGcache;
+  const D = State.data, viv = r => !/cancel|duplic/i.test(String(r.estatus||'')), R2 = nunR2, C = (D.cobranza||[]).filter(viv);
+  const dueno = new Map(), peds = [], vistos = new Set();
+  (D.clientes||[]).forEach(cl => { let L = []; try { L = nunPedidosExcelCalc(cl); } catch(e){} L.forEach(x => { if (vistos.has(x.p.id)) return; vistos.add(x.p.id); peds.push(x); (x.cobs||[]).forEach(c => { if (!dueno.has(c.id)) dueno.set(c.id, x); }); }); });
+  const difs = []; let vendido = 0, enCob = 0;
+  peds.forEach(x => { const mios = (x.cobs||[]).filter(c => dueno.get(c.id) === x), t = mios.reduce((a, c) => a + (+c.total||0), 0); vendido += +x.p.total||0; enCob += t;
+    const d = R2((+x.p.total||0) - t); if (Math.abs(d) >= 1) difs.push({ p: x.p, enCob: R2(t), dif: d, docs: x.docs.map(z => z.L + ' ' + z.folio).join(', '), sinCobro: !mios.length }); });
+  const netoCli = new Map(); difs.forEach(x => { const k = nunCliNorm(x.p.cliente); netoCli.set(k, (netoCli.get(k) || 0) + x.dif); });
+  difs.forEach(x => { x.compensa = Math.abs(netoCli.get(nunCliNorm(x.p.cliente))) < 1; }); // v4.93 se compensa con otros pedidos del mismo cliente (factura compartida)
+  const sueltos = C.filter(c => !dueno.has(c.id));
+  const facs = (D.facturas||[]).filter(f => viv(f) && !/borrador/i.test(String(f.estatus||'')));
+  const remFact = r => r.estatus === 'facturada' || facs.some(f => nunCliExacto(f.cliente, r.cliente) && String(f.pedido_origen||'').split(/[,;]/).map(x => x.trim().replace(/^REM\s+/, '')).includes(nunFolioStr(r)));
+  const g = { facturado: [0, 0], remision: [0, 0], pedido: [0, 0] };
+  C.forEach(c => { let k = 'facturado'; if (/pedido/i.test(c.tipo||'')) k = 'pedido';
+    else if (/remisi/i.test(c.tipo||'')) { const r = (D.remisiones||[]).find(r => String(r.id) === String(c.factura_origen)) || (D.remisiones||[]).find(r => nunCliExacto(r.cliente, c.cliente) && [nunFolioStr(r), 'V01' + nunFolioStr(r)].includes(String(c.numero||'').trim())); k = r && remFact(r) ? 'facturado' : 'remision'; }
+    g[k][0] += +c.total||0; g[k][1] += Math.max(0, +c.pendiente||0); });
+  Object.keys(g).forEach(k => g[k] = g[k].map(R2));
+  const cobTotal = R2(C.reduce((a, c) => a + (+c.total||0), 0));
+  _nunCGcache = { firma: pc.firma, vendido: R2(vendido), nPed: peds.length, enCob: R2(enCob), cobTotal, cobPend: pc.cobranza, g, difs: difs.sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif)), sueltos,
+    sueltosTotal: R2(sueltos.reduce((a, c) => a + (+c.total||0), 0)), cuadranPed: peds.length - difs.length };
+  return _nunCGcache;
+}
+function nunCuadreGeneralAbrir(){
+  const G = nunCuadreGeneral(), e = escapeHTML, F = fmtFull, fila = (t, a, b, neg) => `<tr${neg ? ' style="font-weight:600"' : ''}><td>${t}</td><td class="right mono">${F(a)}</td><td class="right mono">${b == null ? '' : F(b)}</td></tr>`;
+  const difTot = nunR2(G.vendido - G.cobTotal);
+  const html = `<div style="font-size:13px">
+    <table class="dt" style="font-size:12.5px;margin-bottom:12px"><thead><tr><th>Dinero de las ventas (Cobranza)</th><th class="right">Total</th><th class="right">Falta cobrar</th></tr></thead><tbody>
+      ${fila('🧾 Facturado (factura, o remisión que ya se facturó)', G.g.facturado[0], G.g.facturado[1])}
+      ${fila('📦 Solo remisión (sin factura)', G.g.remision[0], G.g.remision[1])}
+      ${fila('📝 Pedido sin remisión ni factura todavía', G.g.pedido[0], G.g.pedido[1])}
+      ${fila('Total en Cobranza', G.cobTotal, G.cobPend, true)}</tbody></table>
+    <table class="dt" style="font-size:12.5px;margin-bottom:12px"><tbody>
+      ${fila('Vendido: ' + G.nPed + ' pedidos vigentes', G.vendido)}
+      ${fila('Cobranza total', G.cobTotal)}
+      ${fila(Math.abs(difTot) < 1 ? '✓ Cuadra' : 'Diferencia', difTot, null, true)}</tbody></table>
+    <div style="margin-bottom:6px">${G.cuadranPed} de ${G.nPed} pedidos cuadran exacto con sus cobros.${Math.abs(difTot) >= 1 ? ' La diferencia sale de:' : ''}</div>
+    ${(() => { const tabla = (L, abierto, titulo, nota) => L.length ? `<details ${abierto ? 'open' : ''} style="margin-top:8px"><summary style="cursor:pointer;font-weight:600">${titulo}</summary>
+      <div style="font-size:11.5px;color:var(--mute);margin:4px 0">${nota}</div>
+      <table class="dt" style="font-size:12px"><thead><tr><th>Pedido</th><th>Cliente</th><th class="right">Pedido</th><th class="right">En Cobranza</th><th class="right">Diferencia</th><th>Documentos</th></tr></thead><tbody>
+      ${L.map(x => `<tr style="cursor:pointer" onclick="nunCerrarModalCG();abrirDoc('pedidos',${e(JSON.stringify(String(x.p.id)))})"><td class="mono"><b>${e(nunFolioStr(x.p))}</b></td><td>${e(String(x.p.cliente||'').slice(0, 34))}</td><td class="right mono">${F(+x.p.total||0)}</td><td class="right mono">${F(x.enCob)}</td><td class="right mono" style="color:${x.dif > 0 ? 'var(--bad,#c33)' : 'var(--amber,#b45309)'}">${F(x.dif)}</td><td style="font-size:11px">${x.sinCobro ? '<b>sin cobro</b> ' : ''}${e(x.docs || '—')}</td></tr>`).join('')}
+      </tbody></table></details>` : '';
+      const reales = G.difs.filter(x => !x.compensa), comp = G.difs.filter(x => x.compensa);
+      return tabla(reales, true, '⚠ ' + reales.length + ' pedidos que no cuadran (suman ' + F(nunR2(reales.reduce((a, x) => a + x.dif, 0))) + ')', 'Positivo = el pedido es mayor que lo que está en Cobranza (falta documento o cobro). Negativo = se facturó o remisionó más que el pedido.')
+        + tabla(comp, false, '↔ ' + comp.length + ' pedidos que se compensan entre sí (mismo cliente, factura compartida): el cliente sí cuadra', 'Una factura cubre parte de dos pedidos: uno sale de más y otro de menos, pero el total del cliente es igual.'); })()}
+    ${G.sueltos.length ? `<details open style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">📄 ${G.sueltos.length} cobros que no son de ningún pedido (suman ${F(G.sueltosTotal)})</summary>
+      <table class="dt" style="font-size:12px"><thead><tr><th>Documento</th><th>Cliente</th><th class="right">Total</th><th class="right">Falta</th></tr></thead><tbody>
+      ${G.sueltos.map(c => `<tr style="cursor:pointer" onclick="nunCerrarModalCG();abrirDrawerCobranza(${e(JSON.stringify(String(c.id)))})"><td class="mono">${e(String(c.tipo||'') + ' ' + String(c.numero||''))}</td><td>${e(String(c.cliente||'').slice(0, 34))}</td><td class="right mono">${F(+c.total||0)}</td><td class="right mono">${F(Math.max(0, +c.pendiente||0))}</td></tr>`).join('')}
+      </tbody></table></details>` : ''}
+  </div>`;
+  nunCerrarModalCG();
+  document.body.insertAdjacentHTML('beforeend', `<div id="modalCG" class="modal-backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9000;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px" onclick="if(event.target===this)nunCerrarModalCG()">
+    <div style="background:var(--bg-2,#fff);color:var(--text,#111);border-radius:10px;max-width:880px;width:100%;padding:16px;margin:auto 0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b style="font-size:16px">⚖️ Cuadre general · pedidos, facturas, remisiones y Cobranza</b><button class="btn btn-secondary btn-sm" onclick="nunCerrarModalCG()">✕</button></div>${html}</div></div>`);
+}
+function nunCerrarModalCG(){ const m = document.getElementById('modalCG'); if (m) m.remove(); }
+window.nunCuadreGeneralAbrir = nunCuadreGeneralAbrir; window.nunCerrarModalCG = nunCerrarModalCG;
 function nunPedidosKpisHTML(vig, total, pc){
   const conf = vig.filter(r => /confirmado|en_produccion/i.test(r.estatus || ''));
   const dif = nunR2(pc.cobranza - pc.falta - pc.sueltosTotal), cuadra = Math.abs(dif) < 1;
   return `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
       <div class="kpi"><div class="kpi-label">Pedidos vigentes</div><div class="kpi-value">${vig.length}</div><div class="kpi-sub">sin cancelados ni duplicados</div></div>
-      <div class="kpi"><div class="kpi-label">Vendido (todos los pedidos)</div><div class="kpi-value">${fmt(total)}</div><div class="kpi-sub">desde que empezó el sistema</div></div>
+      ${(() => { const G = nunCuadreGeneral(), d = nunR2(G.vendido - G.cobTotal); return `<div class="kpi" style="cursor:pointer" onclick="nunCuadreGeneralAbrir()" title="Ver el cuadre completo"><div class="kpi-label">Vendido (todos los pedidos)</div><div class="kpi-value">${fmt(total)}</div><div class="kpi-sub">🧾 Facturado ${fmt(G.g.facturado[0])} · 📦 Solo remisión ${fmt(G.g.remision[0])} · 📝 Sin documento ${fmt(G.g.pedido[0])}<br>${Math.abs(d) < 1 ? '✓ igual a Cobranza' : '⚖️ vs Cobranza: ' + fmt(d) + ' · toca para ver'}</div></div>`; })()}
       <div class="kpi" style="cursor:pointer" onclick="navegar('cobranza')" title="Cliente por cliente: lo que falta de sus pedidos"><div class="kpi-label">Por cobrar de pedidos</div><div class="kpi-value red">${fmt(pc.falta)}</div>
         <div class="kpi-sub">${pc.porCli.length === 1 ? '1 cliente debe' : pc.porCli.length + ' clientes deben'}${pc.sueltos.length ? ' · + ' + fmt(pc.sueltosTotal) + ' en ' + pc.sueltos.length + ' doc. sin pedido' : ''}<br>${cuadra ? '✓ cuadra con Cobranza (' + fmt(pc.cobranza) + ')' : '⚠ Cobranza dice ' + fmt(pc.cobranza) + ' (diferencia ' + fmt(dif) + ')'}</div></div>
       <div class="kpi"><div class="kpi-label">Por entregar</div><div class="kpi-value">${conf.length}</div><div class="kpi-sub">confirmados · ${fmt(conf.reduce((a, r) => a + (+r.total || 0), 0))}</div></div>
@@ -7856,6 +7926,7 @@ function renderDocOperativo(tabla) {
         ${(tabla === 'remisiones' || tabla === 'facturas') && nunEsAdmin() && nunFoliosServidor(tabla).length ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunRevisarFoliosServidor('${tabla}')">🧹 Folios REM/FAC (${nunFoliosServidor(tabla).length})</button>` : ''}
         ${tabla === 'remisiones' && nunEsAdmin() ? `<button class="btn btn-secondary" onclick="nunRemMarcarFacturadas()" title="Remisiones canceladas en Bind que sí se facturaron">🔎 Canceladas que se facturaron</button>` : ''}
         ${nunEsAdmin() && (() => { try { return rows.some(r => !/cancel/i.test(r.estatus||'') && String(r.cliente||'').trim() && !NUN_VENDEDORES_VALIDOS.includes(String(r.vendedor||'').toUpperCase().trim())); } catch(e){ return false; } })() ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunVendedoresACorregir()" title="Documentos con YASMIN, sin vendedor u otro que no es vendedor">👤 Vendedores a corregir</button>` : ''}
+        ${tabla === 'pedidos' ? `<button class="btn btn-secondary" onclick="nunCuadreGeneralAbrir()">⚖️ Cuadre general</button>` : ''}
         ${tabla === 'pedidos' && nunPuedeLigar() ? `<button class="btn btn-primary" onclick="nunCuadrarClientes()" title="Pedidos que no cuadran y sus remisiones/facturas sueltas, cliente por cliente">🧩 Cuadrar por cliente</button>` : ''}
         ${tabla === 'pedidos' && nunPuedeLigar() ? `<button class="btn btn-secondary" onclick="nunRelacionesModal()" title="Clientes que facturan a nombre de otra persona o empresa">👥 A nombre de quién factura</button>` : ''}
         ${tabla === 'pedidos' && nunPuedeLigar() ? `<button class="btn btn-secondary" onclick="nunAuditoriaPedidos()" title="Revisa que cada remisión y factura ligada a un pedido sea del mismo cliente y de esos productos">🔎 Auditoría de ligas</button>` : ''}

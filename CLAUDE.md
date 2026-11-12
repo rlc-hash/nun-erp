@@ -309,6 +309,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   teléfono algo fallaba sin aviso. Ahora `nunECWhatsApp`: si navigator.share falla (no AbortError) o el navegador no comparte archivos → `nunECPlanB`:
   baja el PDF, dice el motivo (nombre y mensaje del error) y pone botón "💬 Abrir WhatsApp" (wa.me con teléfono del cliente) para adjuntarlo con 📎.
   Nombre del PDF sin acentos. Prueba `prueba_v485_estado_cuenta_whatsapp.js` (caso celNoDeja).
+- v4.93 (12 nov, Rafa: "cuadra todo… facturado contra remisiones"): **⚖️ Cuadre general** (Pedidos y Cobranza; `nunCuadreGeneral`/`nunCuadreGeneralAbrir`):
+  cada cobro vivo pertenece a UN pedido (como la ficha) o queda "sin pedido"; Vendido vs Cobranza con lista de pedidos que no cuadran (los que se compensan entre
+  pedidos del mismo cliente por factura compartida van aparte) y cobros sin pedido; reparto del dinero de Cobranza: Facturado (factura o remisión ya facturada) /
+  Solo remisión / Pedido sin documento. `nunPedidosExcelCalc`: factura/remisión a PÚBLICO EN GENERAL con pedido_origen = folio (único) de un pedido del cliente cuenta
+  en ese pedido. Dato: R0005 borrador → entregada (pagada; su pedido P0034 no la contaba). Prueba `prueba_v493_cuadre_general.js`.
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

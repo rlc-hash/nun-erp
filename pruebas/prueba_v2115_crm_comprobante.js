@@ -36,7 +36,7 @@ const SUB=[]; let FALLA_FOTO=1;
  r.primerIntento={pv:SUB.filter(x=>x[0]==='pv').length,boton:d.getElementById('pgBtn')&&d.getElementById('pgBtn').textContent}; if(!(r.primerIntento.pv===1&&/otra vez/.test(r.primerIntento.boton))) r.fallas.push('si falla la foto el pago queda y deja reintentar');
  await w.eval("guardarPago('k1')"); await sleep(300);
  const pvs=SUB.filter(x=>x[0]==='pv'), fotos=SUB.filter(x=>x[0]==='foto');
- r.mismoPago=pvs.length===2&&pvs[0][1].id===pvs[1][1].id&&pvs[0][1].con_comprobante===true; if(!r.mismoPago) r.fallas.push('reintento = mismo pago');
+ r.mismoPago=pvs.length>=1&&pvs.every(x=>x[1].id===pvs[0][1].id)&&pvs[0][1].con_comprobante===true; // v2.1.22: el reintento ya no reenvía el pago, solo la foto if(!r.mismoPago) r.fallas.push('reintento = mismo pago');
  r.foto=fotos[1]&&{pv:fotos[1][1].pv_id===pvs[0][1].id,id:fotos[1][1].id,mime:fotos[1][1].mime,nombre:fotos[1][1].nombre}; if(!(r.foto&&r.foto.pv&&r.foto.mime==='application/pdf'&&r.foto.id==='cmp_'+pvs[0][1].id)) r.fallas.push('foto ligada');
  r.cerro=!d.getElementById('hoja'); if(!r.cerro) r.fallas.push('cierra al terminar');
  r.errs=errs.slice(0,3); if(errs.length) r.fallas.push('errores');

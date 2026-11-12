@@ -10,7 +10,7 @@ def bloque(ini):
     return '\n'.join(L[i:j + 1])
 cab = open(os.path.join(R, 'nun-pdf.js'), encoding='utf-8').read().split('// ============================================================\n', 2)
 encabezado = '// ============================================================\n' + cab[1] + '// ============================================================\n'
-open(os.path.join(R, 'nun-pdf.js'), 'w', encoding='utf-8').write(encabezado + bloque('const fmtFechaLarga = (f) => {') + '\n' + bloque('function numeroALetras(num) {') + '\n' + bloque('function nunLineaCaja(it){') + '\n' + bloque('function imprimirDocumento(tipo, idDoc) {') + '\n'
+open(os.path.join(R, 'nun-pdf.js'), 'w', encoding='utf-8').write(encabezado + bloque('const fmtFechaLarga = (f) => {') + '\n' + bloque('function numeroALetras(num) {') + '\n' + bloque('function nunLineaCaja(it){') + '\n' + bloque('function imprimirDocumento(tipo, idDoc, soloHTML) {') + '\n'
     # v2.1.5 — timbre de la factura (QR del SAT y sellos), igual que en el ERP
     + bloque('function nunLogoPDF(){') + '\n' + bloque('function nunECHTMLDe(D){') + '\n' # v4.84 estado de cuenta en la app
     + linea('function cfdiGetTimbres(){') + '\n' + linea('function cfdiSetTimbres(s){') + '\n'

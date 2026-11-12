@@ -21,7 +21,7 @@ const sleep=t=>new Promise(z=>setTimeout(z,t));
  r.caja=L(its[0]); if(!(r.caja.cant===18&&r.caja.unidad==='pieza'&&r.caja.pu===550&&r.caja.desc==='CARRY ON PP RL010CO NEGRO')) r.fallas.push('por pieza');
  r.sinSets=L(its[1]).desc; if(L(its[1]).cant!==6||L(its[1]).pu!==510) r.fallas.push('pieza a 510');
  r.noCompleta=L(its[2]); if(!(r.noCompleta.cant===4&&r.noCompleta.pu===550&&r.noCompleta.unidad==='pieza')) r.fallas.push('incompleta queda en piezas');
- r.set3=L(its[3]); if(!(r.set3.cant===2&&r.set3.unidad==='juego')) r.fallas.push('set de 3 igual');
+ r.set3=L(its[3]); if(!(r.set3.cant===2&&r.set3.unidad==='set')) r.fallas.push('set de 3 igual');
  // PDF completo
  let html=''; w.eval(`State.data.cotizaciones=[${JSON.stringify(cot)}]; State.data.clientes=[{id:'c',razon_social:'CLIENTE X'}];`);
  w.URL.createObjectURL=b=>{ html=b; return 'blob:x'; }; w.open=()=>({print(){}});

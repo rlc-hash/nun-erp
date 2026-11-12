@@ -322,6 +322,15 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   mano; pide confirmación y registra capturar_pago_cliente por cobro (notas "Un pago de $X repartido en N cuentas (k de N)"), comprobante a cada cobro; si falla a la
   mitad lo hecho queda marcado y no se repite. App: `abrirPagoVarios`/`guardarPagoVarios` reporta un pagosverificar por cuenta (ids `<grupo>_<n>`, misma foto;
   reintento no duplica). Pruebas `prueba_v495_pago_varias_cuentas.js`, `prueba_v2120_crm_pago_varias.js`.
+- v4.96 / app v2.1.21 (12 nov, Rafa): PDF de documentos TODO BLANCO (sin encabezado/barra/total negros; solo líneas negras separan, logo negro: `logoNegro`);
+  unidad "juego" se ve como **set** (`nunLineaCaja`; si el renglón no trae unidad usa la del producto). `imprimirDocumento(tipo, id, soloHTML)` regresa el HTML.
+  **💬 WhatsApp** en la ficha de cotizaciones/pedidos/remisiones/facturas (`nunDocWhatsApp`/`nunDocWAEnviar`: hace el PDF, botón Enviar = toque nuevo; plan B si no
+  deja compartir). copiar_pdf.py busca `imprimirDocumento(tipo, idDoc, soloHTML)` (⚠ abre nun-pdf.js antes de armarlo: si truena, `git checkout nun-pdf.js`).
+  Pruebas `prueba_v496_doc_whatsapp.js`, `prueba_v478_carry_on_caja.js` (set).
+- App v2.1.22 (12 nov, Rafa: "uno solo para registrar pago, quién lo mandó y agregar cuentas"): UN formulario 💵 Registrar pago (`abrirRegistrarPago`; `abrirPago(cobroId)`
+  y `abrirPagoVarios` lo abren): ¿quién lo mandó? (cliente, busca también por contacto) · monto · cuentas que paga con ＋ Agregar otra cuenta (o todas) ordenadas de la
+  MÁS VIEJA y reparto solo (editable) · ¿quién depositó? (notas "Depositó: X") · foto. Botón en Cobranza (arriba) y en el cliente. Un pagosverificar por cuenta
+  (id `<grupo>_<cobro>`); reintento no reenvía el pago, solo lo que faltó. Prueba `prueba_v2120_crm_pago_varias.js`.
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

@@ -48,9 +48,12 @@ function nunLineaCaja(it){
     const pzu = Math.round(pu * 100) / 100;
     return { cant: Math.round(cant / pz), unidad: Math.round(cant / pz) === 1 ? 'caja' : 'cajas', pu: Math.round(pu * pz * 10000) / 10000, desc: base + ' · caja de ' + pz + ' pz (pieza ' + fmtFull(pzu) + ')' };
   }
-  return { cant, unidad: it.unidad || 'pieza', pu, desc: it.descripcion || '' };
+  // v4.96 (Rafa 12 nov: "en vez de juego pon set") — la unidad del renglón o la del producto; "juego" se muestra como "set"
+  let _u = it.unidad; if (!_u) { try { const _ps = (typeof State !== 'undefined' && State.data && State.data.productos) || (typeof S !== 'undefined' && S && S.d && S.d.productos) || []; const _p = _ps.find(x => String(x.sku||'').trim().toUpperCase() === String(it.sku||'').trim().toUpperCase()); _u = _p && _p.unidad; } catch(e){} }
+  _u = String(_u || 'pieza'); if (/^juegos?$/i.test(_u.trim())) _u = 'set';
+  return { cant, unidad: _u, pu, desc: it.descripcion || '' };
 }
-function imprimirDocumento(tipo, idDoc) {
+function imprimirDocumento(tipo, idDoc, soloHTML) {
   // v3.0 — PDF profesional con logo, datos fiscales, tabla de items, totales en letras
   const doc = (State.data[tipo]||[]).find(c => c.id === idDoc);
   if (!doc) return;
@@ -75,48 +78,48 @@ function imprimirDocumento(tipo, idDoc) {
     * { box-sizing:border-box; }
     body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color:#0a0c0f; padding:0; margin:0; font-size:10.5px; line-height:1.45; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     /* === HEADER === */
-    .head { display:flex; justify-content:space-between; align-items:flex-start; padding:18px 22px; background:#0a0c0f; color:#fff; border-radius:10px; margin-bottom:8px; }
+    .head { display:flex; justify-content:space-between; align-items:flex-start; padding:4px 2px 14px; background:#fff; color:#0a0c0f; border-bottom:2px solid #0a0c0f; margin-bottom:8px; } /* v4.96 todo blanco: solo una línea separa */
     .head-left { flex:1; }
     .logo-svg { width:78px; height:40px; display:block; margin-bottom:10px; }
     .emp-name { font-size:13px; font-weight:700; letter-spacing:-0.01em; margin-bottom:3px; }
-    .emp-data { font-size:9px; color:rgba(255,255,255,0.75); line-height:1.55; }
+    .emp-data { font-size:9px; color:#555; line-height:1.55; }
     .doc-title { text-align:right; min-width:200px; }
-    .doc-title-lbl { font-size:9px; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.16em; margin-bottom:2px; }
+    .doc-title-lbl { font-size:9px; color:#8a8d94; text-transform:uppercase; letter-spacing:0.16em; margin-bottom:2px; }
     .doc-title-folio { font-family:'Courier New',monospace; font-size:30px; font-weight:700; letter-spacing:-0.02em; line-height:1; }
-    .doc-title-meta { font-size:9.5px; color:rgba(255,255,255,0.75); margin-top:8px; line-height:1.5; }
-    .stamp { display:inline-block; padding:3px 10px; background:rgba(255,255,255,0.1); border:1px solid; border-radius:100px; font-size:8.5px; text-transform:uppercase; letter-spacing:0.08em; font-weight:700; margin-top:6px; }
-    .stamp.green { color:#34d399; border-color:#34d399; } .stamp.amber { color:#fbbf24; border-color:#fbbf24; } .stamp.red { color:#fb7185; border-color:#fb7185; }
+    .doc-title-meta { font-size:9.5px; color:#555; margin-top:8px; line-height:1.5; }
+    .stamp { display:inline-block; padding:3px 10px; background:#fff; border:1px solid; border-radius:100px; font-size:8.5px; text-transform:uppercase; letter-spacing:0.08em; font-weight:700; margin-top:6px; }
+    .stamp.green { color:#047857; border-color:#047857; } .stamp.amber { color:#b45309; border-color:#b45309; } .stamp.red { color:#be123c; border-color:#be123c; }
     /* === PARTIES === */
     .parties { display:grid; grid-template-columns:1.4fr 1fr; gap:8px; margin:12px 0; }
-    .party { padding:11px 14px; background:#f5f6f8; border-radius:8px; border:1px solid #e9ecef; }
+    .party { padding:11px 14px; background:#fff; border-radius:8px; border:1px solid #e3e6ea; }
     .party .lbl { font-size:8.5px; color:#8a8d94; text-transform:uppercase; letter-spacing:0.12em; margin-bottom:4px; font-weight:700; }
     .party .name { font-size:12px; font-weight:700; color:#0a0c0f; }
     .party .info { font-size:9.5px; color:#555; line-height:1.55; margin-top:3px; }
     /* === ITEMS TABLE === */
     table.items { width:100%; border-collapse:collapse; margin-top:4px; font-size:10px; border-radius:8px; overflow:hidden; }
-    table.items thead { background:#0a0c0f; }
-    table.items th { background:#0a0c0f; color:#fff; padding:9px 10px; text-align:left; text-transform:uppercase; font-size:8.5px; letter-spacing:0.1em; font-weight:700; }
+    table.items thead { background:#fff; }
+    table.items th { background:#fff; color:#0a0c0f; border-top:1px solid #0a0c0f; border-bottom:2px solid #0a0c0f; padding:9px 10px; text-align:left; text-transform:uppercase; font-size:8.5px; letter-spacing:0.1em; font-weight:700; }
     table.items th.right { text-align:right; }
     table.items td { padding:8px 10px; border-bottom:1px solid #eef0f3; vertical-align:top; }
-    table.items tbody tr:nth-child(even) { background:#f9fafc; }
+    table.items tbody tr:nth-child(even) { background:#fff; }
     table.items tbody tr:last-child td { border-bottom:none; }
     table.items td.right { text-align:right; font-family:'Courier New',monospace; }
     table.items td.sku { font-family:'Courier New',monospace; font-size:9.5px; color:#555; font-weight:600; }
     table.items td.desc { font-size:10.5px; line-height:1.4; }
     /* === TOTALES === */
     .totales-wrap { display:grid; grid-template-columns:1fr 280px; gap:10px; margin-top:10px; }
-    .total-letras { padding:11px 14px; background:linear-gradient(135deg,#f5f6f8 0%,#eef0f3 100%); border-radius:8px; border-left:3px solid #0a0c0f; font-size:9.5px; color:#555; line-height:1.6; }
+    .total-letras { padding:11px 14px; background:#fff; border:1px solid #e3e6ea; border-radius:8px; border-left:3px solid #0a0c0f; font-size:9.5px; color:#555; line-height:1.6; }
     .total-letras .lbl { font-size:8.5px; color:#8a8d94; text-transform:uppercase; letter-spacing:0.12em; font-weight:700; margin-bottom:3px; display:block; }
     .total-letras .letras { font-size:10.5px; color:#0a0c0f; font-weight:600; }
     .total-cifras { border-radius:8px; overflow:hidden; }
-    .total-cifras .row { display:flex; justify-content:space-between; padding:7px 14px; font-size:10.5px; background:#fafbfc; border-bottom:1px solid #eef0f3; }
-    .total-cifras .row.gran { background:linear-gradient(135deg,#0a0c0f 0%,#1d2025 100%); color:#fff; font-weight:700; font-size:14px; padding:11px 14px; border:none; }
+    .total-cifras .row { display:flex; justify-content:space-between; padding:7px 14px; font-size:10.5px; background:#fff; border-bottom:1px solid #eef0f3; }
+    .total-cifras .row.gran { background:#fff; color:#0a0c0f; font-weight:700; font-size:14px; padding:11px 14px; border:none; border-top:2px solid #0a0c0f; }
     .total-cifras .row.gran .lbl { letter-spacing:0.08em; }
     .total-cifras .mono { font-family:'Courier New',monospace; font-weight:600; }
     /* === EXTRAS === */
-    .notas { margin-top:12px; padding:11px 14px; background:linear-gradient(90deg,#fff8e6 0%,#fffbf2 100%); border-left:3px solid #e6a100; font-size:9.5px; color:#5a4500; border-radius:0 8px 8px 0; line-height:1.55; }
+    .notas { margin-top:12px; padding:11px 14px; background:#fff; border-left:3px solid #e6a100; font-size:9.5px; color:#5a4500; border-radius:0 8px 8px 0; line-height:1.55; }
     .notas strong { color:#3a2900; }
-    .cfdi-info { margin-top:14px; padding:11px 14px; background:linear-gradient(90deg,#f0f4ff 0%,#f7faff 100%); border-left:3px solid #2467e5; border-radius:0 8px 8px 0; font-size:9.5px; color:#234; line-height:1.55; }
+    .cfdi-info { margin-top:14px; padding:11px 14px; background:#fff; border-left:3px solid #2467e5; border-radius:0 8px 8px 0; font-size:9.5px; color:#234; line-height:1.55; }
     .cfdi-uuid { font-family:'Courier New',monospace; font-size:9px; color:#345; margin-top:4px; word-break:break-all; }
     .footer { margin-top:24px; padding-top:14px; border-top:1px solid #e9ecef; font-size:8.5px; color:#8a8d94; text-align:center; letter-spacing:0.04em; }
     .footer .brand { color:#0a0c0f; font-weight:700; letter-spacing:-0.01em; }
@@ -130,6 +133,7 @@ function imprimirDocumento(tipo, idDoc) {
     : `<svg class="logo-svg" viewBox="-2 170 599 309" xmlns="http://www.w3.org/2000/svg">
     <path fill="#fff" fill-rule="evenodd" d="M 283.5 475.9 C 264.3 473.4 246.5 466.0 230.0 453.6 C 226.1 450.7 186.8 412.3 142.7 368.4 C 98.6 324.5 61.5 287.6 60.2 286.5 C 58.2 284.9 57.7 284.8 57.0 286.0 C 56.4 286.9 56.0 311.3 56.0 344.2 C 56.0 388.9 55.7 401.0 54.8 401.1 C 48.3 401.4 2.6 400.9 1.9 400.4 C 0.5 399.6 0.7 189.9 2.1 184.4 C 4.4 175.6 15.1 169.9 23.1 173.3 C 25.3 174.2 54.7 202.9 104.2 252.4 C 146.9 295.1 182.3 330.0 182.9 330.0 C 183.5 330.0 184.0 328.8 184.0 327.2 C 184.0 325.7 184.0 298.5 184.0 266.6 C 184.0 224.3 184.2 208.4 185.1 207.4 C 186.7 205.5 236.9 205.3 238.8 207.2 C 239.7 208.1 240.0 227.5 240.0 288.5 C 240.0 341.0 240.4 370.7 241.1 374.6 C 241.7 377.8 244.0 384.3 246.2 388.9 C 259.0 415.6 290.1 428.1 318.8 418.0 C 336.4 411.8 349.1 397.5 355.8 376.5 C 357.2 372.1 357.5 360.1 357.9 283.5 C 358.3 219.5 358.8 195.0 359.7 193.5 C 363.3 187.2 371.7 183.9 378.3 186.2 C 381.2 187.2 399.5 204.9 459.9 265.2 C 502.8 308.0 538.3 343.0 538.9 343.0 C 539.7 343.0 540.1 324.8 540.2 281.2 L 540.5 219.5 L 567.5 219.5 L 594.5 219.5 L 594.8 330.5 C 595.1 453.0 595.4 446.7 588.9 451.9 C 585.6 454.5 578.2 455.8 573.3 454.5 C 571.4 454.1 546.4 429.6 492.9 375.8 C 446.1 328.8 414.7 297.9 413.9 298.2 C 412.8 298.6 412.4 305.8 411.9 337.6 C 411.3 378.3 411.0 382.1 406.3 396.5 C 388.8 450.6 338.8 482.9 283.5 475.9 Z"/>
   </svg>`;
+  const logoNegro = logoSVG.replace(/fill="(#fff|#ffffff|white)"/gi, 'fill="#0a0c0f"').replace(/fill:\s*(#fff|#ffffff|white)\b/gi, 'fill:#0a0c0f'); // v4.96 logo negro sobre blanco
   const itemsHTML = items.length === 0
     ? `<tr><td colspan="6" style="padding:20px;text-align:center;color:#aaa">Sin productos en el documento</td></tr>`
     : items.map(it => {
@@ -157,7 +161,7 @@ function imprimirDocumento(tipo, idDoc) {
   const partsHTML = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHTML(tipoLabel)} ${escapeHTML(String(doc.folio||doc.numero||''))}</title><style>${css}</style></head><body>
     <div class="head">
       <div class="head-left">
-        ${logoSVG}
+        ${logoNegro}
         <div class="emp-name">${escapeHTML(emp.razon_social||'Comercializadora Casraf SA de CV')}</div>
         <div class="emp-data">
           ${emp.rfc?'RFC: '+escapeHTML(emp.rfc):''}${emp.regimen_fiscal?' · Régimen: '+escapeHTML(emp.regimen_fiscal):''}<br>
@@ -256,6 +260,7 @@ function imprimirDocumento(tipo, idDoc) {
     </div>
   </body></html>`;
 
+  if (soloHTML) return partsHTML; // v4.96 para compartir el PDF por WhatsApp
   // v3.10.1 — Robust to popup blocker: usa blob URL en browser; legacy en test
   try {
     if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function' && typeof Blob === 'function') {

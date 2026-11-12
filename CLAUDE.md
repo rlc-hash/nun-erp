@@ -317,6 +317,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - v4.94 (12 nov, Rafa: "Yazmín ya las confirmó y siguen en por confirmar"): cargarTabla bajaba la lista nueva (cada minuto con nunAvisosRevisar) pero no
   redibujaba. Ahora si cambió (`nunFirmaLista`) y estás en esa pantalla sin ficha/modal abierto ni escribiendo (`nunPuedeRedibujar`) se redibuja sola.
   Guardar una cotización ya no espera nunSyncCobranzaDoc + bajar Cobranza (era lo lento de "Guardando…"). Prueba `prueba_v494_lista_al_dia.js`.
+- v4.95 / app v2.1.20 (12 nov, Rafa: "un depósito que paga dos cuentas"): **💵 Un pago a varias cuentas**. ERP (Cobranza y ficha del cliente si tiene 2+ cuentas):
+  `nunPagoVariosAbrir` busca cliente (incluye su grupo), lista sus cobros con saldo de la MÁS VIEJA a la más nueva, reparte solo (`nunPV2Repartir`) y se puede cambiar a
+  mano; pide confirmación y registra capturar_pago_cliente por cobro (notas "Un pago de $X repartido en N cuentas (k de N)"), comprobante a cada cobro; si falla a la
+  mitad lo hecho queda marcado y no se repite. App: `abrirPagoVarios`/`guardarPagoVarios` reporta un pagosverificar por cuenta (ids `<grupo>_<n>`, misma foto;
+  reintento no duplica). Pruebas `prueba_v495_pago_varias_cuentas.js`, `prueba_v2120_crm_pago_varias.js`.
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

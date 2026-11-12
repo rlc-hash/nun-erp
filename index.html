@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.94 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.95 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3908,7 +3908,7 @@ function abrirDetalleCliente(id, _opts) {
 
   // v4.39 — cliente de factura (ej. MARKET ARS de RAMIRO): sus montos cuentan SOLO en la ficha del cliente principal, aquí no se suman otra vez
   let _cuentaEn = ''; try { const _g = nunGrupoDe(cli.razon_social||''); if (_g && !nunCliExacto(_g.principal, cli.razon_social||'') && !_nunEsPublico(cli.razon_social||'')) _cuentaEn = _g.principal; } catch(e){}
-  const tabResumen = `<div style="display:flex;justify-content:flex-end;margin:-2px 0 10px"><button class="btn btn-primary btn-sm" onclick="nunEstadoCuentaAbrir(${escapeHTML(JSON.stringify(String(id)))})">📄 Estado de cuenta</button></div><div class="nunCuadrePendMount" data-id="${escapeHTML(String(id))}">${nunCuadrePendHTML(cli)}</div>${_miembros.length ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">Los montos incluyen lo facturado a nombre de: <b>${_miembros.map(escapeHTML).join('</b>, <b>')}</b></div>` : ''}${_ncMonto > 0 ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">"Facturado" ya tiene restadas ${_ncCli.length} nota(s) de crédito por ${fmtFull(_ncMonto)}</div>` : ''}
+  const tabResumen = `<div style="display:flex;justify-content:flex-end;margin:-2px 0 10px"><button class="btn btn-primary btn-sm" onclick="nunEstadoCuentaAbrir(${escapeHTML(JSON.stringify(String(id)))})">📄 Estado de cuenta</button>${nunPV2Cuentas(cli.razon_social||'').length > 1 ? `<button class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="nunPagoVariosAbrir(${escapeHTML(JSON.stringify(String(cli.razon_social||'')))})">💵 Un pago a varias cuentas</button>` : ''}</div><div class="nunCuadrePendMount" data-id="${escapeHTML(String(id))}">${nunCuadrePendHTML(cli)}</div>${_miembros.length ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">Los montos incluyen lo facturado a nombre de: <b>${_miembros.map(escapeHTML).join('</b>, <b>')}</b></div>` : ''}${_ncMonto > 0 ? `<div style="font-size:12px;color:var(--ink-3);margin:-4px 0 10px">"Facturado" ya tiene restadas ${_ncCli.length} nota(s) de crédito por ${fmtFull(_ncMonto)}</div>` : ''}
     ${_cuentaEn ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
       <div class="kpi" style="padding:12px"><div class="kpi-label">Facturado</div><div class="kpi-value" style="font-size:18px;color:var(--ink-3)">—</div><div class="kpi-sub" style="font-size:11.5px">${fmt(facturado)} a su nombre · cuenta en ${escapeHTML(_cuentaEn)}</div></div>
       <div class="kpi" style="padding:12px"><div class="kpi-label">Pendiente</div><div class="kpi-value" style="font-size:18px;color:var(--ink-3)">—</div><div class="kpi-sub" style="font-size:11.5px">${fmt(pendiente)} · se cobra en la ficha de ${escapeHTML(_cuentaEn)}</div></div>
@@ -5083,6 +5083,7 @@ function renderCobranza(params) {
       <div class="actions">
         <button class="btn btn-secondary" onclick="nunEstadoCuentaAbrir()">📄 Estado de cuenta</button>
         <button class="btn btn-secondary" onclick="nunCuadreGeneralAbrir()">⚖️ Cuadre general</button>
+        <button class="btn btn-secondary" onclick="nunPagoVariosAbrir()">💵 Un pago a varias cuentas</button>
         <button class="btn btn-secondary" onclick="navegar('cobranza',{vista:'hoy'})">📞 Vista Hoy</button>
         <button class="btn btn-secondary" onclick="exportarTabla('cobranza')">Exportar</button>
         <button class="btn btn-primary" onclick="abrirNuevoPedido()">+ Capturar pedido</button>
@@ -5234,6 +5235,81 @@ async function nunPVComprobantes(m){
     sp.innerHTML = xs.length ? xs.map(x => `<button class="btn btn-sm" style="background:#fff7e0" onclick="nunCompVer('${escapeHTML(x.id)}')">📎 Ver comprobante</button>`).join(' ') : 'sin foto del comprobante';
   }
 }
+// v4.95 (Rafa 12 nov: "me depositó 45,292 que equivalen a las dos cuentas que tiene pendientes") — UN pago repartido en varias cuentas del cliente:
+// se llena solo empezando por la MÁS VIEJA (se puede cambiar a mano) y se registra con capturar_pago_cliente en cada cobro (igual que Capturar pago).
+// El comprobante se guarda en cada cobro. Si algo falla a la mitad, lo ya registrado se marca y no se repite.
+const _nunPV2 = {};
+function nunPV2Cuentas(nombre){ const mi = nunMiembrosDe(nombre), es = n => nunCliExacto(n, nombre) || mi.some(m => nunCliExacto(m, n));
+  return (State.data.cobranza || []).filter(c => !/cancel|duplic/i.test(String(c.estatus || '')) && es(c.cliente) && (+c.pendiente || 0) >= 0.01)
+    .sort((a, b) => String(a.fecha_emision || a.fecha_entrega || '').slice(0, 10).localeCompare(String(b.fecha_emision || b.fecha_entrega || '').slice(0, 10)) || String(a.numero).localeCompare(String(b.numero))); }
+function nunPV2Repartir(monto, faltas){ let r = nunR2(monto); return faltas.map(f => { const m = nunR2(Math.min(f, Math.max(0, r))); r = nunR2(r - m); return m; }); }
+function nunPagoVariosAbrir(nombre){
+  nunCuentasSiFaltan();
+  const e = escapeHTML; let m = document.getElementById('modalPV2'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'modalPV2'; m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,10,.5);z-index:150;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow:auto';
+  m.onclick = ev => { if (ev.target === m) m.remove(); }; document.body.appendChild(m);
+  Object.keys(_nunPV2).forEach(k => delete _nunPV2[k]); _nunPV2.nombre = nombre || '';
+  const pintar = () => {
+    const nom = _nunPV2.nombre, L = nom ? nunPV2Cuentas(nom) : []; _nunPV2.L = L; _nunPV2.hechos = _nunPV2.hechos || {};
+    const total = nunR2(L.reduce((a, c) => a + (+c.pendiente || 0), 0)), ctas = (State.data.cuentas || []).filter(c => c.activa !== false && c.activa !== 'false').map(c => c.nombre);
+    m.innerHTML = `<div style="background:var(--bg-2,#fff);color:var(--text,#111);border-radius:12px;max-width:640px;width:100%;padding:16px;margin:auto 0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b style="font-size:16px">💵 Un pago a varias cuentas</b><button class="btn btn-secondary btn-sm" onclick="document.getElementById('modalPV2').remove()">✕</button></div>
+      ${!nom ? `<label style="font-size:12.5px">Cliente</label><input id="pv2Q" class="input" placeholder="Escribe parte del nombre" oninput="nunPV2Buscar(this.value)" autocomplete="off"><div id="pv2Res" style="margin-top:6px"></div>` : `
+      <div style="font-size:13px;margin-bottom:8px"><b>${e(nom)}</b> · debe ${fmtFull(total)} en ${L.length} ${L.length === 1 ? 'cuenta' : 'cuentas'} <a href="#" onclick="_nunPV2.nombre='';_nunPV2.re();return false" style="font-size:12px">cambiar</a></div>
+      ${L.length ? `<div style="font-size:12px;color:var(--mute);margin-bottom:6px">Escribe lo que depositó: se reparte solo empezando por la cuenta <b>más vieja</b>. Puedes cambiar cada monto a mano.</div>
+      <label style="font-size:12.5px">Monto que depositó</label><input id="pv2Monto" class="input" type="number" step="0.01" value="${total}" oninput="nunPV2Llenar()">
+      <table class="dt" style="font-size:12.5px;margin-top:8px"><thead><tr><th>Cuenta</th><th>Fecha</th><th class="right">Debe</th><th class="right">Se aplica</th></tr></thead><tbody>
+      ${L.map((c, i) => `<tr><td class="mono">${e(String(c.tipo || '') + ' ' + String(c.numero || ''))}${_nunPV2.hechos[c.id] ? ' <span class="tag green">✓ registrado</span>' : ''}</td><td>${fmtFecha(c.fecha_emision || c.fecha_entrega)}</td><td class="right mono">${fmtFull(+c.pendiente || 0)}</td>
+        <td class="right"><input id="pv2M${i}" class="input" style="width:120px;text-align:right" type="number" step="0.01" value="${nunR2(+c.pendiente || 0)}" oninput="nunPV2Suma()" ${_nunPV2.hechos[c.id] ? 'disabled' : ''}></td></tr>`).join('')}</tbody></table>
+      <div id="pv2Suma" style="font-size:12.5px;margin:6px 0"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><label style="font-size:12.5px">Fecha del pago</label><input id="pv2Fecha" class="input" type="date" value="${nunHoy()}"></div>
+        <div><label style="font-size:12.5px">Cuenta donde entró</label><select id="pv2Cuenta" class="input"><option value="">— Selecciona —</option>${ctas.map(x => `<option>${e(x)}</option>`).join('')}</select></div></div>
+      <label style="font-size:12.5px">Notas (opcional)</label><input id="pv2Notas" class="input" placeholder="ej. transferencia, referencia">
+      <label style="font-size:12.5px">📎 Comprobante (opcional)</label><input id="pv2Comp" class="input" type="file" accept="image/*,application/pdf">
+      <div style="text-align:right;margin-top:12px"><button class="btn btn-primary" id="pv2Btn" onclick="nunPV2Guardar()">Registrar pago</button></div>` : '<div style="font-size:13px">No tiene cuentas con saldo.</div>'}`}
+    </div>`;
+    if (nom && L.length) nunPV2Suma();
+  };
+  _nunPV2.re = pintar; pintar();
+}
+function nunPV2Buscar(q){ const box = document.getElementById('pv2Res'); if (!box) return; const n = nunCliNorm(q); if (n.length < 3) { box.innerHTML = ''; return; }
+  const deben = new Set((State.data.cobranza || []).filter(c => !/cancel/i.test(String(c.estatus || '')) && (+c.pendiente || 0) >= 1).map(c => nunCliNorm(c.cliente)));
+  const L = (State.data.clientes || []).filter(c => nunCliNorm(c.razon_social + ' ' + (c.nombre_comercial || '') + ' ' + (c.contacto || '')).includes(n)).slice(0, 12);
+  box.innerHTML = L.map(c => `<div style="padding:8px;border:1px solid var(--line);border-radius:8px;margin-bottom:4px;cursor:pointer" onclick="_nunPV2.nombre=${escapeHTML(JSON.stringify(c.razon_social))};_nunPV2.re()"><b>${escapeHTML(c.razon_social)}</b>${deben.has(nunCliNorm(c.razon_social)) ? '' : ' <span style="font-size:11px;color:var(--mute)">(sin saldo)</span>'}</div>`).join('') || '<div style="font-size:12.5px;color:var(--mute)">No encontré ese cliente.</div>'; }
+function nunPV2Montos(){ return (_nunPV2.L || []).map((c, i) => nunR2(+((document.getElementById('pv2M' + i) || {}).value) || 0)); }
+function nunPV2Llenar(){ const L = _nunPV2.L || [], ms = nunPV2Repartir(+document.getElementById('pv2Monto').value || 0, L.map(c => _nunPV2.hechos[c.id] ? 0 : nunR2(+c.pendiente || 0)));
+  ms.forEach((x, i) => { const el = document.getElementById('pv2M' + i); if (el && !el.disabled) el.value = x || ''; }); nunPV2Suma(); }
+function nunPV2Suma(){ const ms = nunPV2Montos(), s = nunR2(ms.reduce((a, x) => a + x, 0)), t = nunR2(+((document.getElementById('pv2Monto') || {}).value) || 0), el = document.getElementById('pv2Suma'); if (!el) return;
+  el.innerHTML = Math.abs(s - t) < 0.01 ? '✓ Se reparte completo: ' + fmtFull(s) : '<span style="color:var(--bad,#c33)">⚠ Repartido ' + fmtFull(s) + ' de ' + fmtFull(t) + ' (diferencia ' + fmtFull(nunR2(t - s)) + ')</span>'; }
+async function nunPV2Guardar(){
+  if (_nunPV2.ocupado) return;
+  const L = _nunPV2.L || [], ms = nunPV2Montos(), total = nunR2(+document.getElementById('pv2Monto').value || 0), s = nunR2(ms.reduce((a, x) => a + x, 0));
+  const fecha = document.getElementById('pv2Fecha').value, cuenta = document.getElementById('pv2Cuenta').value, notasU = document.getElementById('pv2Notas').value.trim();
+  if (!(total > 0)) { toast('Escribe el monto', { type:'error' }); return; }
+  if (Math.abs(s - total) >= 0.01) { toast('Lo repartido (' + fmtFull(s) + ') no es igual al pago (' + fmtFull(total) + ')', { type:'error' }); return; }
+  const mal = L.findIndex((c, i) => ms[i] > nunR2(+c.pendiente || 0) + 0.01); if (mal >= 0) { toast('En ' + L[mal].numero + ' pusiste más de lo que debe', { type:'error' }); return; }
+  if (!fecha || !cuenta) { toast('Pon la fecha y la cuenta donde entró el dinero', { type:'error' }); return; }
+  const usar = L.map((c, i) => ({ c, m: ms[i] })).filter(o => o.m > 0 && !_nunPV2.hechos[o.c.id]);
+  if (!(await confirmDialog({ title: '¿Registrar este pago?', message: fmtFull(total) + ' de ' + _nunPV2.nombre + ' a ' + cuenta + ' el ' + fecha + ' → ' + usar.map(o => (o.c.tipo || '') + ' ' + o.c.numero + ': ' + fmtFull(o.m)).join(' · ') + '. Se registra en Cobranza y en Ingresos.', ok: 'Sí, registrar' }))) return;
+  const f = (document.getElementById('pv2Comp') || {}).files, btn = document.getElementById('pv2Btn'); _nunPV2.ocupado = true; if (btn) btn.disabled = true;
+  const nota = 'Un pago de ' + fmtFull(total) + ' repartido en ' + usar.length + ' cuentas' + (notasU ? ' · ' + notasU : '');
+  let malComp = 0;
+  try {
+    for (const [k, o] of usar.entries()) {
+      if (btn) btn.textContent = 'Registrando ' + (k + 1) + ' de ' + usar.length + '…';
+      const r = await api({ accion:'capturar_pago_cliente', id_doc: o.c.id, monto: o.m, fecha, cuenta, notas: nota + ' (' + (k + 1) + ' de ' + usar.length + ')', usuario: State.sesion.usuario.nombre, codigo_usuario: State.sesion.codigo });
+      if (!r || !r.ok) throw new Error((o.c.numero || '') + ': ' + ((r && r.error) || 'no se registró'));
+      _nunPV2.hechos[o.c.id] = true;
+      if (f && f[0] && !(await nunCompSubir(o.c.id, f[0], 'Pago ' + fmtFull(o.m) + ' (de ' + fmtFull(total) + ') · ' + fecha + ' · ' + cuenta))) malComp++;
+    }
+    await Promise.all([cargarTabla('cobranza', { ttl: 1 }), cargarTabla('ingresos', { ttl: 1 }), cargarTabla('pagosclientes', { ttl: 1 })]);
+    toast('✓ Pago de ' + fmtFull(total) + ' registrado en ' + usar.length + ' cuentas'); if (malComp) toast('⚠ El pago SÍ quedó, pero el comprobante no se subió en ' + malComp + ' cuenta(s): súbelo desde 📎 Comprobantes', { type:'error', duration:10000 });
+    const mm = document.getElementById('modalPV2'); if (mm) mm.remove(); renderCurrent();
+  } catch(e){ toast('✗ ' + e.message + '. Lo ya registrado quedó marcado ✓ y no se repite.', { type:'error', duration:10000 }); await cargarTabla('cobranza', { ttl: 1 }).catch(() => {}); _nunPV2.re(); }
+  finally { _nunPV2.ocupado = false; }
+}
+window.nunPagoVariosAbrir = nunPagoVariosAbrir; window.nunPV2Buscar = nunPV2Buscar; window.nunPV2Llenar = nunPV2Llenar; window.nunPV2Suma = nunPV2Suma; window.nunPV2Guardar = nunPV2Guardar;
 async function nunPVVerificar(id){
   if (window._nunPVok) return;
   const p = nunPVPendientes().find(x => String(x.id) === String(id)); if (!p) return;

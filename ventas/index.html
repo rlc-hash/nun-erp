@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.19';
+const VERSION = 'v2.1.20';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -594,7 +594,8 @@ function abrirCliente(nombre){
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 4px">
       ${tel ? `<a class="btn s" href="https://wa.me/${tel.length === 10 ? '52' + tel : tel}" target="_blank" style="text-decoration:none">💬 WhatsApp</a><a class="btn s" href="tel:${tel}" style="text-decoration:none">📞 Llamar</a>` : ''}
       ${puedeCotizar() ? `<button class="btn s p" onclick="cerrarHoja();S.cot.cliente=${esc(JSON.stringify(cl.razon_social))};ir('cotizar')">➕ Cotizar</button>` : ''}
-      <button class="btn s" onclick="estadoCuenta(${esc(JSON.stringify(cl.razon_social))})">📄 Estado de cuenta</button></div>
+      <button class="btn s" onclick="estadoCuenta(${esc(JSON.stringify(cl.razon_social))})">📄 Estado de cuenta</button>
+      ${deben.length > 1 ? `<button class="btn s p" onclick="abrirPagoVarios(${esc(JSON.stringify(cl.razon_social))})">💵 Un pago a varias cuentas</button>` : ''}</div>
     <h3>Lo que debe</h3><div class="card">${deben.length ? deben.map(c => `<div class="row" onclick="abrirPago('${esc(c.id)}')"><div class="m"><b>${esc(c.tipo || 'Documento')} ${esc(c.numero)}</b><span>${fmtF(c.fecha_emision)} · total ${$$(c.total)}${verificandoDe(c.id) ? ' · ' + $$(verificandoDe(c.id)) + ' por verificar' : ''}</span></div><div class="r"><b>${$$(c.pendiente)}</b><span>💵 registrar pago</span></div></div>`).join('') : '<div class="vacio">No debe nada</div>'}</div>
     ${pv.length ? `<h3>Pagos por verificar</h3><div class="card">${pv.map(p => `<div class="row" style="cursor:default"><div class="m"><b>${$$(p.monto)}</b><span>${esc(p.documento || '')} · ${fmtF(p.fecha)} · ${esc(p.cuenta || '')} ${esc(p.forma || '')}</span></div><div class="r"><span class="tag t-warn">por verificar</span>${(!esVendedor() || norm(p.vendedor) === miVendedor()) ? `<button class="btn s" style="margin-top:4px" onclick="cancelarPago('${esc(p.id)}')">Cancelar</button>` : ''}</div></div>`).join('')}</div>` : ''}
     ${rech.length ? `<h3>Pagos rechazados</h3><div class="card">${rech.map(p => `<div class="row" style="cursor:default"><div class="m"><b>${$$(p.monto)}</b><span>${esc(p.documento || '')} · ${fmtF(p.fecha)} · ${esc(p.motivo || '')}</span></div><div class="r"><span class="tag t-bad">rechazado</span></div></div>`).join('')}</div>` : ''}
@@ -641,6 +642,56 @@ function abrirPago(cobroId){
     <label class="l">Notas (opcional)</label><input id="pgNotas" class="in">
     <label class="l">📎 Foto del comprobante (recomendado)</label><input id="pgFoto" class="in" type="file" accept="image/*,application/pdf" onchange="$('pgFotoInfo').textContent=this.files[0]?'✓ '+this.files[0].name:''"><div id="pgFotoInfo" class="sub"></div>
     <button class="btn p w" id="pgBtn" style="margin-top:16px" onclick="guardarPago('${esc(c.id)}')">Reportar pago</button>`);
+}
+// v2.1.20 (Rafa 12 nov: "me depositó 45,292 que equivalen a las dos cuentas") — UN pago que se reparte en varias cuentas del cliente:
+// se llena solo empezando por la MÁS VIEJA (se puede cambiar a mano). Se reporta un pago por verificar por cada cuenta (mismo grupo, misma foto).
+function cuentasConSaldo(nombre){ const n = norm(nombre);
+  return cobrosVivos().filter(c => norm(c.cliente) === n).map(c => ({ c, falta: r2(Math.max(0, (+c.pendiente || 0) - verificandoDe(c.id))) })).filter(x => x.falta >= 0.01)
+    .sort((a, b) => fecha10(a.c.fecha_emision || a.c.fecha_entrega).localeCompare(fecha10(b.c.fecha_emision || b.c.fecha_entrega)) || String(a.c.numero).localeCompare(String(b.c.numero))); }
+function repartir(monto, faltas){ let r = r2(monto); return faltas.map(f => { const m = r2(Math.min(f, Math.max(0, r))); r = r2(r - m); return m; }); }
+function abrirPagoVarios(nombre){
+  const L = cuentasConSaldo(nombre); S.pv2 = { nombre, L, grupo: '' };
+  const total = r2(L.reduce((a, x) => a + x.falta, 0)), ctas = S.cuentas.length ? S.cuentas : ['BBVA', 'Efectivo Transferencia', 'Efectivo'];
+  hoja('💵 Un pago a varias cuentas', `<div class="sub">${esc(nombre)} · debe ${$$(total)} en ${L.length} cuentas</div>
+    <div class="aviso" style="margin-top:10px">Escribe lo que depositó: se reparte solo empezando por la cuenta <b>más vieja</b>. Puedes cambiar cada monto a mano. Queda <b>por verificar</b>.</div>
+    <label class="l">Monto que depositó</label><input id="p2Monto" class="in" type="number" inputmode="decimal" step="0.01" value="${total}" oninput="p2Repartir()">
+    <div class="card" style="margin-top:8px">${L.map((x, i) => `<div class="row" style="cursor:default"><div class="m"><b>${esc(x.c.tipo || 'Documento')} ${esc(x.c.numero)}</b><span>${fmtF(x.c.fecha_emision || x.c.fecha_entrega)} · debe ${$$(x.falta)}</span></div>
+      <div class="r"><input id="p2M${i}" class="in" style="width:120px;text-align:right" type="number" inputmode="decimal" step="0.01" value="${x.falta}" oninput="p2Suma()"></div></div>`).join('')}</div>
+    <div id="p2Suma" class="sub" style="margin-top:6px"></div>
+    <label class="l">Fecha del pago</label><input id="p2Fecha" class="in" type="date" value="${hoy()}" max="${hoy()}">
+    <label class="l">¿Cómo pagó?</label><select id="p2Forma" class="in"><option>Transferencia</option><option>Efectivo</option><option>Depósito</option><option>Cheque</option><option>Tarjeta</option></select>
+    <label class="l">¿A qué cuenta?</label><select id="p2Cuenta" class="in">${ctas.map(x => `<option>${esc(x)}</option>`).join('')}<option value="">No sé</option></select>
+    <label class="l">Referencia o folio del comprobante (opcional)</label><input id="p2Ref" class="in">
+    <label class="l">📎 Foto del comprobante (recomendado)</label><input id="p2Foto" class="in" type="file" accept="image/*,application/pdf">
+    <button class="btn p w" id="p2Btn" style="margin-top:16px" onclick="guardarPagoVarios()">Reportar pago</button>`);
+  p2Suma();
+}
+function p2Repartir(){ const L = (S.pv2 || {}).L || [], ms = repartir(+$('p2Monto').value || 0, L.map(x => x.falta)); ms.forEach((m, i) => { const e = $('p2M' + i); if (e) e.value = m || ''; }); p2Suma(); }
+function p2Montos(){ return ((S.pv2 || {}).L || []).map((x, i) => r2(+(($('p2M' + i) || {}).value) || 0)); }
+function p2Suma(){ const ms = p2Montos(), s = r2(ms.reduce((a, m) => a + m, 0)), t = r2(+$('p2Monto').value || 0), el = $('p2Suma'); if (!el) return;
+  el.innerHTML = Math.abs(s - t) < 0.01 ? '✓ Se reparte completo: ' + $$(s) : '⚠ Repartido ' + $$(s) + ' de ' + $$(t) + ' (falta ' + $$(r2(t - s)) + ')'; }
+async function guardarPagoVarios(){
+  const P = S.pv2; if (!P) return; const ms = p2Montos(), total = r2(+$('p2Monto').value || 0), s = r2(ms.reduce((a, m) => a + m, 0));
+  if (!(total > 0)) { toast('Escribe el monto', true); return; }
+  if (Math.abs(s - total) >= 0.01) { toast('Lo repartido (' + $$(s) + ') no es igual al depósito (' + $$(total) + ')', true); return; }
+  const mal = P.L.findIndex((x, i) => ms[i] > x.falta + 0.01); if (mal >= 0) { toast('En ' + P.L[mal].c.numero + ' pusiste más de lo que debe (' + $$(P.L[mal].falta) + ')', true); return; }
+  if (!$('p2Fecha').value) { toast('Falta la fecha', true); return; }
+  const btn = $('p2Btn'); btn.disabled = true; btn.textContent = 'Enviando…';
+  P.grupo = P.grupo || ('pv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)); // reintento = mismos ids, no se duplica
+  const foto = ($('p2Foto') || {}).files && $('p2Foto').files[0], usados = P.L.map((x, i) => ({ x, m: ms[i], i })).filter(o => o.m > 0);
+  const nota = 'Un pago de ' + $$(total) + ' repartido en ' + usados.length + ' cuentas';
+  try {
+    for (const [k, o] of usados.entries()) {
+      const id = P.grupo + '_' + (o.i + 1); btn.textContent = 'Enviando ' + (k + 1) + ' de ' + usados.length + '…';
+      const item = { id, fecha: $('p2Fecha').value, creado: new Date().toISOString(), cliente: o.x.c.cliente, cobro_id: o.x.c.id, documento: (o.x.c.tipo ? o.x.c.tipo + ' ' : '') + o.x.c.numero,
+        monto: o.m, cuenta: $('p2Cuenta').value, forma: $('p2Forma').value, referencia: $('p2Ref').value.trim(), notas: nota + ' (' + (k + 1) + ' de ' + usados.length + ')' };
+      if (foto) item.con_comprobante = true;
+      const j = await api({ accion: 'erp_crear', tabla: 'pagosverificar', item });
+      if (!j.ok && !j.ya_existia) throw new Error(o.x.c.numero + ': ' + (j.error || 'no se guardó'));
+      if (foto && !(P.fotos || {})[id]) { const e = await subirComprobante(id, foto); if (e) throw new Error('la foto de ' + o.x.c.numero + ' no se subió (' + e + ')'); P.fotos = P.fotos || {}; P.fotos[id] = 1; }
+    }
+    toast('✓ Pago de ' + $$(total) + ' reportado en ' + usados.length + ' cuentas: queda por verificar'); S.pv2 = null; cerrarHoja(); cargar(true);
+  } catch(e){ toast('✗ ' + e.message + ' · toca otra vez: lo que ya se envió no se duplica', true); btn.disabled = false; btn.textContent = 'Reportar pago'; }
 }
 async function guardarPago(cobroId){
   const c = (S.d.cobranza || []).find(x => String(x.id) === String(cobroId)); if (!c) return;

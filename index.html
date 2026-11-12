@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.90 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.91 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -7771,6 +7771,33 @@ const MODULOS = {
 /* ============================================================
    DOCS OPERATIVOS (cotizaciones, pedidos, remisiones, facturas, NC, OC, recepciones, importaciones)
    ============================================================ */
+// v4.91 (Rafa 12 nov: "en Pedidos aparece por cobrar 1.2 y deben más") — antes solo sumaba los pedidos nuevos que tienen su propio cobro;
+// los pedidos cuyo saldo está en sus remisiones/facturas no contaban. Ahora: cliente por cliente lo que FALTA de sus pedidos (lo mismo que
+// "Pedidos y saldo" de la ficha, cada cobro una sola vez) + cobros con saldo que no son de ningún pedido = Por cobrar de Cobranza.
+let _nunPCcache = null;
+function nunPedidosPorCobrar(){
+  const D = State.data, firma = ['pedidos','cobranza','remisiones','facturas','clientes'].map(t => { const a = D[t] || []; return a.length + ':' + a.reduce((x, r) => x + (+r.pendiente || +r.total || 0), 0).toFixed(2) + ':' + a.map(r => r.estatus || '').join('').length; }).join('|') + '|' + JSON.stringify((State.kv || {}).nun_relaciones_clientes || '').length;
+  if (_nunPCcache && _nunPCcache.firma === firma) return _nunPCcache;
+  const viv = c => !/cancel|duplic/i.test(String(c.estatus || '')), usados = new Set(); let falta = 0; const porCli = [];
+  (D.clientes || []).forEach(cl => { let R = []; try { R = nunPedidosExcelCalc(cl); } catch(e){} let f = 0;
+    R.forEach(x => (x.cobs || []).forEach(c => { if (usados.has(c.id)) return; usados.add(c.id); f += Math.max(0, +c.pendiente || 0); }));
+    if (f >= 1) porCli.push({ cliente: cl.razon_social, falta: nunR2(f) }); falta += f; });
+  const sueltos = (D.cobranza || []).filter(c => viv(c) && !usados.has(c.id) && Math.max(0, +c.pendiente || 0) >= 0.01);
+  const cobranza = nunR2((D.cobranza || []).filter(c => viv(c) && !c.sin_entregar).reduce((a, c) => a + Math.max(0, +c.pendiente || 0), 0));
+  _nunPCcache = { firma, falta: nunR2(falta), sueltos, sueltosTotal: nunR2(sueltos.reduce((a, c) => a + Math.max(0, +c.pendiente || 0), 0)), cobranza, porCli: porCli.sort((a, b) => b.falta - a.falta) };
+  return _nunPCcache;
+}
+function nunPedidosKpisHTML(vig, total, pc){
+  const conf = vig.filter(r => /confirmado|en_produccion/i.test(r.estatus || ''));
+  const dif = nunR2(pc.cobranza - pc.falta - pc.sueltosTotal), cuadra = Math.abs(dif) < 1;
+  return `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+      <div class="kpi"><div class="kpi-label">Pedidos vigentes</div><div class="kpi-value">${vig.length}</div><div class="kpi-sub">sin cancelados ni duplicados</div></div>
+      <div class="kpi"><div class="kpi-label">Vendido (todos los pedidos)</div><div class="kpi-value">${fmt(total)}</div><div class="kpi-sub">desde que empezó el sistema</div></div>
+      <div class="kpi" style="cursor:pointer" onclick="navegar('cobranza')" title="Cliente por cliente: lo que falta de sus pedidos"><div class="kpi-label">Por cobrar de pedidos</div><div class="kpi-value red">${fmt(pc.falta)}</div>
+        <div class="kpi-sub">${pc.porCli.length === 1 ? '1 cliente debe' : pc.porCli.length + ' clientes deben'}${pc.sueltos.length ? ' · + ' + fmt(pc.sueltosTotal) + ' en ' + pc.sueltos.length + ' doc. sin pedido' : ''}<br>${cuadra ? '✓ cuadra con Cobranza (' + fmt(pc.cobranza) + ')' : '⚠ Cobranza dice ' + fmt(pc.cobranza) + ' (diferencia ' + fmt(dif) + ')'}</div></div>
+      <div class="kpi"><div class="kpi-label">Por entregar</div><div class="kpi-value">${conf.length}</div><div class="kpi-sub">confirmados · ${fmt(conf.reduce((a, r) => a + (+r.total || 0), 0))}</div></div>
+    </div>`;
+}
 const DOC_DEFS = {
   cotizaciones: { label:'Cotizaciones', singular:'cotización', usa:'cliente', estatus:['borrador','enviada','aceptada','rechazada','convertida'], folio_tipo:'cotizacion' },
   pedidos:      { label:'Pedidos',      singular:'pedido',     usa:'cliente', estatus:['borrador','confirmado','en_produccion','entregado','facturado','cancelado'], folio_tipo:'pedido' },
@@ -7788,9 +7815,10 @@ function renderDocOperativo(tabla) {
   const def = DOC_DEFS[tabla];
   const rows = State.data[tabla] || [];
   // KPIs rápidos — v3.72: sin canceladas ni remisiones ya facturadas (la venta no se cuenta dos veces)
-  const _vig = rows.filter(r => !/cancel/i.test(r.estatus||'') && !(tabla === 'remisiones' && r.estatus === 'facturada'));
+  const _vig = rows.filter(r => !/cancel/i.test(r.estatus||'') && !(tabla === 'remisiones' && r.estatus === 'facturada') && !(tabla === 'pedidos' && /duplic/i.test(r.estatus||''))); // v4.91 pedidos duplicados no cuentan
   const total = _vig.reduce((s,r)=>s+(+r.total||0), 0);
-  const saldo = tabla === 'pedidos' ? _vig.reduce((a, r) => a + (nunSaldoPedido(r) || 0), 0) : nunSaldoGrupo(_vig, tabla); // v3.92 pedidos: solo anticipos con cobro // v3.80 — varias facturas de una misma remisión: el saldo se cuenta una vez
+  const _pc = tabla === 'pedidos' ? nunPedidosPorCobrar() : null; // v4.91 (Rafa 12 nov) cliente por cliente, igual que la ficha y Cobranza
+  const saldo = tabla === 'pedidos' ? _pc.falta : nunSaldoGrupo(_vig, tabla); // v3.92 pedidos: solo anticipos con cobro // v3.80 — varias facturas de una misma remisión: el saldo se cuenta una vez
   const timbradas = rows.filter(r => r.estatus === 'timbrada').length;
   const canceladas = rows.filter(r => r.estatus === 'cancelada').length;
   const pendientes = rows.filter(r => r.estatus === 'pendiente').length;
@@ -7807,7 +7835,7 @@ function renderDocOperativo(tabla) {
     <div class="page-title">
       <div>
         <h1>${escapeHTML(def.label)}</h1>
-        <div class="sub">${rows.length} documentos · ${fmt(total)} total vigente · ${fmt(saldo)} por cobrar${tabla === 'remisiones' ? ' · ' + rows.filter(r => r.estatus === 'facturada').length + ' ya facturadas (no suman)' : ''}</div>
+        <div class="sub">${tabla === 'pedidos' ? _vig.length + ' pedidos vigentes (' + (rows.length - _vig.length) + ' cancelados o duplicados no cuentan) · ' + fmt(total) + ' vendido · ' + fmt(saldo) + ' por cobrar' : rows.length + ' documentos · ' + fmt(total) + ' total vigente · ' + fmt(saldo) + ' por cobrar'}${tabla === 'remisiones' ? ' · ' + rows.filter(r => r.estatus === 'facturada').length + ' ya facturadas (no suman)' : ''}</div>
       </div>
       <div class="actions">
         ${(tabla === 'remisiones' || tabla === 'facturas') && nunEsAdmin() && nunFoliosServidor(tabla).length ? `<button class="btn btn-secondary" style="color:var(--amber,#b45309)" onclick="nunRevisarFoliosServidor('${tabla}')">🧹 Folios REM/FAC (${nunFoliosServidor(tabla).length})</button>` : ''}
@@ -7821,12 +7849,12 @@ function renderDocOperativo(tabla) {
       </div>
     </div>
 
-    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
+    ${tabla === 'pedidos' ? nunPedidosKpisHTML(_vig, total, _pc) : `<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:14px">
       <div class="kpi"><div class="kpi-label">Total ${def.label.toLowerCase()}</div><div class="kpi-value">${rows.length}</div></div>
       <div class="kpi"><div class="kpi-label">Facturado</div><div class="kpi-value">${fmt(total)}</div></div>
       <div class="kpi"><div class="kpi-label">Por cobrar</div><div class="kpi-value red">${fmt(saldo)}</div></div>
       <div class="kpi"><div class="kpi-label">Timbradas</div><div class="kpi-value green">${timbradas}</div><div class="kpi-sub">${pendientes} pendientes · ${canceladas} canc</div></div>
-    </div>
+    </div>`}
 
     <div class="filter-bar">
       <div class="search-input"><input type="text" placeholder="Buscar folio, cliente, monto..." oninput="dtSearch('dt_${tabla}',this.value)"></div>

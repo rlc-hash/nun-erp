@@ -301,6 +301,10 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   solo deja corregir la SUYA en estatus enviada, con productos válidos y cliente suyo (si no ve a todos); cotizacion_liberar ahora solo corre al CANCELAR
   (al corregir, Codigo.gs v0.9.20 ya ajusta lo apartado). Aviso a la oficina "✏️ X corrigió una cotización" con liga a ella.
   Pruebas `prueba_servidor_vendedores.js` (editar-cotizacion) y `prueba_v2119_crm_editar_cotizacion.js`.
+- v4.91 (12 nov, Rafa: "Pedidos dice por cobrar 1.2 y deben más"): la pantalla Pedidos sumaba solo los pedidos nuevos con cobro propio (`nunSaldoPedido`)
+  y contaba los duplicados como vigentes. Ahora `nunPedidosPorCobrar` (cliente por cliente con `nunPedidosExcelCalc`, cada cobro una vez, en caché) + cobros con
+  saldo sin pedido = Por cobrar de Cobranza, con aviso ✓ cuadra / ⚠ diferencia; tarjetas propias (`nunPedidosKpisHTML`: vigentes, vendido, por cobrar, por entregar).
+  Prueba `prueba_v491_pedidos_por_cobrar.js`.
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

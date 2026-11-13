@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.98 · Sistema NUN ✓</span>
+    <span class="rwd-version">v4.99 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4445,7 +4445,7 @@ async function _nunHtmlAPdf(html, nombre, margen){
     });
     await Promise.all(Array.from(doc.images).map(i => i.complete ? 0 : new Promise(z => { i.onload = i.onerror = z; })));
     const op = w.JSON.parse(JSON.stringify({ margin: margen || [12, 14, 12, 14], image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-      jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'] } }));
+      jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.totales-wrap', '.party', '.notas'] } }));
     const blob = await w.html2pdf().set(op).from(doc.body).outputPdf('blob');
     return new File([blob], nombre, { type: 'application/pdf' });
   } finally { f.remove(); }

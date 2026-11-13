@@ -349,6 +349,7 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   fondo blanco declarado (tarjetas, filas pares, totales). Ahora el HTML del PDF y del estado de cuenta llevan `color-scheme: only light` (meta + html) y las cajas
   van con fondo transparente. Encabezado otra vez NEGRO con el logo NUN blanco (pedido de Rafa); lo demás blanco con letras negras y líneas.
   Revisado con Chromium `--enable-features=WebContentsForceDark` (antes reproduce la falla, ahora no). Prueba `prueba_v496_doc_whatsapp.js`.
+- v4.99 / app v2.1.27 (13 nov): el PDF (html2pdf) partía un renglón entre páginas → `pagebreak.avoid: ['tr', '.totales-wrap', '.party', '.notas']` en nunHtmlAPdf y htmlAPdf.
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 

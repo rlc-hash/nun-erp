@@ -38,8 +38,10 @@ async function correr(b, falla){
     if (!(ok.pedidos.comp && /^Pedido_P0099\.pdf$/.test(ok.pedidos.comp.nombre))) r.fallas.push('compartir pedido');
     if (!(no.cotizaciones.bajo && /^https:\/\/wa\.me\/525512345678\?text=/.test(no.cotizaciones.planB || ''))) r.fallas.push('plan B si el teléfono no deja');
     // colores: sin fondos negros; "juego" → "set" (también si el renglón no trae unidad: la del producto)
+    // v4.98: solo el encabezado va negro (logo blanco); lo demás blanco con líneas, y la hoja se declara "solo clara" (el modo oscuro del teléfono no la oscurece)
     const h = ok.html; r.negros = (h.match(/background:\s*(#0a0c0f|linear-gradient\(135deg,#0a0c0f)/g) || []).length;
-    if (r.negros) r.fallas.push('sin bloques negros');
+    if (r.negros !== 1 || !/\.head \{[^}]*background:#0a0c0f/.test(h)) r.fallas.push('solo el encabezado negro');
+    if (!/<meta name="color-scheme" content="only light">/.test(h)) r.fallas.push('hoja solo clara');
     if (!/>set</.test(h) || />juego</.test(h)) r.fallas.push('juego → set');
     if (ok.errs.length || no.errs.length) r.fallas.push('errores');
   } catch (e) { r.error = String(e.stack).slice(0, 500); }

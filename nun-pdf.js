@@ -78,48 +78,48 @@ function imprimirDocumento(tipo, idDoc, soloHTML) {
     * { box-sizing:border-box; }
     body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color:#0a0c0f; padding:0; margin:0; font-size:10.5px; line-height:1.45; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     /* === HEADER === */
-    .head { display:flex; justify-content:space-between; align-items:flex-start; padding:4px 2px 14px; background:#fff; color:#0a0c0f; border-bottom:2px solid #0a0c0f; margin-bottom:8px; } /* v4.96 todo blanco: solo una línea separa */
+    .head { display:flex; justify-content:space-between; align-items:flex-start; padding:18px 22px; background:#0a0c0f; color:#fff; border-radius:10px; margin-bottom:8px; } /* v4.98 (Rafa): arriba negro con el logo blanco; lo demás blanco con líneas */
     .head-left { flex:1; }
     .logo-svg { width:78px; height:40px; display:block; margin-bottom:10px; }
     .emp-name { font-size:13px; font-weight:700; letter-spacing:-0.01em; margin-bottom:3px; }
-    .emp-data { font-size:9px; color:#555; line-height:1.55; }
+    .emp-data { font-size:9px; color:rgba(255,255,255,0.78); line-height:1.55; }
     .doc-title { text-align:right; min-width:200px; }
-    .doc-title-lbl { font-size:9px; color:#8a8d94; text-transform:uppercase; letter-spacing:0.16em; margin-bottom:2px; }
+    .doc-title-lbl { font-size:9px; color:rgba(255,255,255,0.55); text-transform:uppercase; letter-spacing:0.16em; margin-bottom:2px; }
     .doc-title-folio { font-family:'Courier New',monospace; font-size:30px; font-weight:700; letter-spacing:-0.02em; line-height:1; }
-    .doc-title-meta { font-size:9.5px; color:#555; margin-top:8px; line-height:1.5; }
-    .stamp { display:inline-block; padding:3px 10px; background:#fff; border:1px solid; border-radius:100px; font-size:8.5px; text-transform:uppercase; letter-spacing:0.08em; font-weight:700; margin-top:6px; }
-    .stamp.green { color:#047857; border-color:#047857; } .stamp.amber { color:#b45309; border-color:#b45309; } .stamp.red { color:#be123c; border-color:#be123c; }
+    .doc-title-meta { font-size:9.5px; color:rgba(255,255,255,0.78); margin-top:8px; line-height:1.5; }
+    .stamp { display:inline-block; padding:3px 10px; background:transparent; border:1px solid; border-radius:100px; font-size:8.5px; text-transform:uppercase; letter-spacing:0.08em; font-weight:700; margin-top:6px; }
+    .stamp.green { color:#34d399; border-color:#34d399; } .stamp.amber { color:#fbbf24; border-color:#fbbf24; } .stamp.red { color:#fb7185; border-color:#fb7185; }
     /* === PARTIES === */
     .parties { display:grid; grid-template-columns:1.4fr 1fr; gap:8px; margin:12px 0; }
-    .party { padding:11px 14px; background:#fff; border-radius:8px; border:1px solid #e3e6ea; }
+    .party { padding:11px 14px; background:transparent; border-radius:8px; border:1px solid #e3e6ea; }
     .party .lbl { font-size:8.5px; color:#8a8d94; text-transform:uppercase; letter-spacing:0.12em; margin-bottom:4px; font-weight:700; }
     .party .name { font-size:12px; font-weight:700; color:#0a0c0f; }
     .party .info { font-size:9.5px; color:#555; line-height:1.55; margin-top:3px; }
     /* === ITEMS TABLE === */
     table.items { width:100%; border-collapse:collapse; margin-top:4px; font-size:10px; border-radius:8px; overflow:hidden; }
-    table.items thead { background:#fff; }
-    table.items th { background:#fff; color:#0a0c0f; border-top:1px solid #0a0c0f; border-bottom:2px solid #0a0c0f; padding:9px 10px; text-align:left; text-transform:uppercase; font-size:8.5px; letter-spacing:0.1em; font-weight:700; }
+    table.items thead { background:transparent; }
+    table.items th { background:transparent; color:#0a0c0f; border-top:1px solid #0a0c0f; border-bottom:2px solid #0a0c0f; padding:9px 10px; text-align:left; text-transform:uppercase; font-size:8.5px; letter-spacing:0.1em; font-weight:700; }
     table.items th.right { text-align:right; }
     table.items td { padding:8px 10px; border-bottom:1px solid #eef0f3; vertical-align:top; }
-    table.items tbody tr:nth-child(even) { background:#fff; }
+    table.items tbody tr:nth-child(even) { background:transparent; }
     table.items tbody tr:last-child td { border-bottom:none; }
     table.items td.right { text-align:right; font-family:'Courier New',monospace; }
     table.items td.sku { font-family:'Courier New',monospace; font-size:9.5px; color:#555; font-weight:600; }
     table.items td.desc { font-size:10.5px; line-height:1.4; }
     /* === TOTALES === */
     .totales-wrap { display:grid; grid-template-columns:1fr 280px; gap:10px; margin-top:10px; }
-    .total-letras { padding:11px 14px; background:#fff; border:1px solid #e3e6ea; border-radius:8px; border-left:3px solid #0a0c0f; font-size:9.5px; color:#555; line-height:1.6; }
+    .total-letras { padding:11px 14px; background:transparent; border:1px solid #e3e6ea; border-radius:8px; border-left:3px solid #0a0c0f; font-size:9.5px; color:#555; line-height:1.6; }
     .total-letras .lbl { font-size:8.5px; color:#8a8d94; text-transform:uppercase; letter-spacing:0.12em; font-weight:700; margin-bottom:3px; display:block; }
     .total-letras .letras { font-size:10.5px; color:#0a0c0f; font-weight:600; }
     .total-cifras { border-radius:8px; overflow:hidden; }
-    .total-cifras .row { display:flex; justify-content:space-between; padding:7px 14px; font-size:10.5px; background:#fff; border-bottom:1px solid #eef0f3; }
-    .total-cifras .row.gran { background:#fff; color:#0a0c0f; font-weight:700; font-size:14px; padding:11px 14px; border:none; border-top:2px solid #0a0c0f; }
+    .total-cifras .row { display:flex; justify-content:space-between; padding:7px 14px; font-size:10.5px; background:transparent; border-bottom:1px solid #eef0f3; }
+    .total-cifras .row.gran { background:transparent; color:#0a0c0f; font-weight:700; font-size:14px; padding:11px 14px; border:none; border-top:2px solid #0a0c0f; }
     .total-cifras .row.gran .lbl { letter-spacing:0.08em; }
     .total-cifras .mono { font-family:'Courier New',monospace; font-weight:600; }
     /* === EXTRAS === */
-    .notas { margin-top:12px; padding:11px 14px; background:#fff; border-left:3px solid #e6a100; font-size:9.5px; color:#5a4500; border-radius:0 8px 8px 0; line-height:1.55; }
+    .notas { margin-top:12px; padding:11px 14px; background:transparent; border-left:3px solid #e6a100; font-size:9.5px; color:#5a4500; border-radius:0 8px 8px 0; line-height:1.55; }
     .notas strong { color:#3a2900; }
-    .cfdi-info { margin-top:14px; padding:11px 14px; background:#fff; border-left:3px solid #2467e5; border-radius:0 8px 8px 0; font-size:9.5px; color:#234; line-height:1.55; }
+    .cfdi-info { margin-top:14px; padding:11px 14px; background:transparent; border-left:3px solid #2467e5; border-radius:0 8px 8px 0; font-size:9.5px; color:#234; line-height:1.55; }
     .cfdi-uuid { font-family:'Courier New',monospace; font-size:9px; color:#345; margin-top:4px; word-break:break-all; }
     .footer { margin-top:24px; padding-top:14px; border-top:1px solid #e9ecef; font-size:8.5px; color:#8a8d94; text-align:center; letter-spacing:0.04em; }
     .footer .brand { color:#0a0c0f; font-weight:700; letter-spacing:-0.01em; }
@@ -158,10 +158,10 @@ function imprimirDocumento(tipo, idDoc, soloHTML) {
     else if (doc.estatus === 'cancelada') estatusStamp = '<span class="stamp red">CANCELADA</span>';
   }
 
-  const partsHTML = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHTML(tipoLabel)} ${escapeHTML(String(doc.folio||doc.numero||''))}</title><style>${css}</style></head><body>
+  const partsHTML = `<!doctype html><html style="color-scheme:only light;background:#fff"><head><meta charset="utf-8"><meta name="color-scheme" content="only light"><title>${escapeHTML(tipoLabel)} ${escapeHTML(String(doc.folio||doc.numero||''))}</title><style>${css}</style></head><body>
     <div class="head">
       <div class="head-left">
-        ${logoNegro}
+        ${logoSVG}
         <div class="emp-name">${escapeHTML(emp.razon_social||'Comercializadora Casraf SA de CV')}</div>
         <div class="emp-data">
           ${emp.rfc?'RFC: '+escapeHTML(emp.rfc):''}${emp.regimen_fiscal?' · Régimen: '+escapeHTML(emp.regimen_fiscal):''}<br>
@@ -300,7 +300,7 @@ function nunECHTMLDe(D){
   const totPagos = Math.round(S2.pagos.reduce((a, i) => a + (+i.monto||0), 0) * 100) / 100;
   const logo = (typeof nunLogoPDF === 'function' ? nunLogoPDF() : '').replace('class="logo"', 'class="logo" style="width:92px;height:48px;display:block"');
   const AZ = '#0b1d3a', NA = '#f25a1d', _nunEC = { prod: !!D.conProd, pagos: D.conPagos !== false };
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Estado de cuenta · ${e(cli.razon_social)}</title><style>
+  return `<!doctype html><html style="color-scheme:only light;background:#fff"><head><meta charset="utf-8"><meta name="color-scheme" content="only light"><title>Estado de cuenta · ${e(cli.razon_social)}</title><style>
     @page { size: letter; margin: 0; }
     * { box-sizing:border-box; }
     body { font-family:'Helvetica Neue',Helvetica,Arial,sans-serif; color:#14181f; margin:0; font-size:10px; line-height:1.4; -webkit-print-color-adjust:exact; print-color-adjust:exact; }

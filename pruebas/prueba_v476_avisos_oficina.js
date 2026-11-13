@@ -86,6 +86,8 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
   r.yazReporta = await avisos(() => post({ accion: 'erp_crear', tabla: 'pagosverificar', item: { id: 'pvy', cobro_id: 'k1', cliente: 'Cliente X', monto: 40, documento: 'R0001', fecha: '2026-11-12' }, codigo: 'YAZ-1' })); // supabase-2.4
   r.rafaReporta = await avisos(() => post({ accion: 'erp_crear', tabla: 'pagosverificar', item: { id: 'pvr', cobro_id: 'k1', cliente: 'Cliente X', monto: 1, fecha: '2026-11-12' }, codigo: 'RAFA-1' }));
   r.yazConfirma = await avisos(() => post({ accion: 'capturar_pago_cliente', id_doc: 'k1', monto: 10, cuenta: 'BBVA', fecha: '2026-11-12', notas: 'Reportado por EDGAR en su app · Transferencia', codigo: 'YAZ-1', codigo_usuario: 'YAZ-1' })); // supabase-2.5
+  r.rafaPago = await avisos(() => post({ accion: 'capturar_pago_cliente', id_doc: 'k1', monto: 5, cuenta: 'BBVA', fecha: '2026-11-13', codigo: 'RAFA-1', codigo_usuario: 'RAFA-1' })); // supabase-2.6
+  r.rafaPagoFallido = await avisos(() => post({ accion: 'capturar_pago_cliente', id_doc: 'no-existe', monto: 5, cuenta: 'BBVA', fecha: '2026-11-13', codigo: 'RAFA-1', codigo_usuario: 'RAFA-1' }));
   r.yazRechaza = await avisos(() => post({ accion: 'erp_upsert_batch', tabla: 'pagosverificar', items: [{ id: 'pvy', estatus: 'rechazado', motivo: 'No llegó' }], codigo: 'YAZ-1' }));
   r.yazTimbra = await avisos(() => post({ accion: 'facturama_timbrar', cfdi: { CfdiType: 'I', Serie: 'FT', Folio: '77', Receiver: { Name: 'CLIENTE X' } }, codigo: 'YAZ-1' }));
   r.yazCancela = await avisos(() => post({ accion: 'erp_upsert_batch', tabla: 'remisiones', items: [{ id: 'r1', estatus: 'cancelada' }], codigo: 'YAZ-1' }));
@@ -97,6 +99,7 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
   r.vendedorCot = await avisos(() => post({ accion: 'erp_crear', tabla: 'cotizaciones', item: { id: 'q1', folio: '', cliente: 'Cliente X', total: 10, items_json: '[]' }, codigo: 'EDGAR-1' }));
   ok('oficina-a-rafa', r.yazRemision === 'rafa' && r.yazPago === 'rafa' && r.yazTimbra === 'rafa' && r.yazCancela === 'rafa' && r.yadahCrea === 'rafa');
   ok('pago-reportado-oficina', r.yazReporta === 'rafa' && r.rafaReporta === '');
+  ok('pago-de-rafa-a-la-oficina', r.rafaPago === 'yaz' && r.rafaPagoFallido === '');
   ok('confirma-rechaza', r.yazConfirma === 'rafa' && r.yazRechaza === 'rafa');
   ok('sin-ruido', r.yazCambiaNota === '' && r.yazLee === '' && r.rafaCrea === '' && r.rafaTimbra === '');
   ok('vendedor-igual', r.vendedorCot === 'rafa,yaz');

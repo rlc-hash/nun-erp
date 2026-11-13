@@ -359,6 +359,10 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   🧾 Complementos de pago (de las notas REP; `repsDe`/`repsHTML`) → PDF (`nunHtmlREP`, ahora en nun-pdf.js con nunLeerREP/SAT_FORMA_PAGO) con 💬 Enviar, 📥 PDF y
   📃 XML; aviso al reportar pago de factura PPD; en Pagos por confirmar de la app, liga al sistema para timbrar. El PDF del complemento va solo claro.
   Pruebas `prueba_v500_complemento_vendedor.js`, `prueba_v2128_crm_complementos.js`. (Las pruebas viejas que buscan "v4.xx" en el letrero dan ['version'].)
+- servidor supabase-2.6 (13 nov, Rafa: "una notificación cada vez que se registre un pago"): capturar_pago_cliente de QUIEN SEA (también Rafa) avisa
+  "💵 X registró un pago" a TODOS los equipos de la oficina con avisos prendidos, menos a los de quien lo registró (`avisarTodosMenos`). Lo demás de la oficina
+  sigue yendo solo a Rafa. Prueba `prueba_v476_avisos_oficina.js` (rafaPago). Inventario 13 nov: conteo físico de Rafa (PDF Inventario-2) aplicado; lo que no
+  hay se puso en 0 con salida "ajuste conteo" (registrar_mov_inventario no acepta ajuste a 0).
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

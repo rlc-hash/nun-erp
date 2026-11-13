@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-2.5'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-2.6'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -198,6 +198,13 @@ function avisoOficina(body: any, j: any, quien: string){
 async function avisarRafa(datos: any, quienCodigo: string){
   const h = quienCodigo ? (await sha(norm(quienCodigo))).slice(0, 12) : '';
   const rows = (await sql`select k, v from nun_props where k like 'push:%'`).filter((r: any) => { try { const x = JSON.parse(r.v); return x.dueno === true && x.codigo_h !== h; } catch(e){ return false; } });
+  let n = 0; for (const r of rows) n += await avisar(datos, r.k); return n;
+}
+// supabase-2.6 (Rafa 13 nov: "una notificación cada vez que se registre un pago") — TODO pago registrado (de quien sea, también Rafa)
+// avisa a todos los equipos de la oficina que tengan avisos prendidos, menos a los de quien lo registró.
+async function avisarTodosMenos(datos: any, quienCodigo: string){
+  const h = quienCodigo ? (await sha(norm(quienCodigo))).slice(0, 12) : '';
+  const rows = (await sql`select k, v from nun_props where k like 'push:%'`).filter((r: any) => { try { const x = JSON.parse(r.v); return x.activo !== false && (!h || x.codigo_h !== h); } catch(e){ return false; } });
   let n = 0; for (const r of rows) n += await avisar(datos, r.k); return n;
 }
 function enSegundoPlano(p: Promise<unknown>){ try { (globalThis as any).EdgeRuntime.waitUntil(p.catch(() => {})); } catch(e){ p.catch(() => {}); } }
@@ -472,7 +479,9 @@ async function atenderPeticion(req: Request) {
     const out = A_LECTURA.test(accion) ? await lectura(_f) : await _f(); // v4.64
     if (!A_LECTURA.test(accion)) accion += _det;
     try { const j = JSON.parse(out); ok = !!j.ok; if (!ok) err = String(j.error || '').substring(0, 200);
-      const av = avisoOficina(body, j, quien); if (av) enSegundoPlano(avisarRafa(av, _c)); } catch(e){} // v4.76 aviso a Rafa de lo que hace la oficina
+      const esPago = String(body.accion || '') === 'capturar_pago_cliente'; // supabase-2.6 pagos: a toda la oficina, sea quien sea el que lo registra
+      const av = esPago ? avisoOficina({ ...body, codigo: '', codigo_usuario: '' }, j, quien) : avisoOficina(body, j, quien);
+      if (av) enSegundoPlano(esPago ? avisarTodosMenos(av, _c) : avisarRafa(av, _c)); } catch(e){} // v4.76 aviso a Rafa de lo que hace la oficina
     return json(out);
   } catch(e){
     ok = false; err = String(e).substring(0, 300);

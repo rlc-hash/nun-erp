@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v4.99 · Sistema NUN ✓</span>
+    <span class="rwd-version">v5.00 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -5218,15 +5218,48 @@ function nunPVAbrir(){
         <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><b>${escapeHTML(p.cliente)}</b> · ${escapeHTML(p.documento || '')}<div style="font-size:12.5px;color:var(--mute)">Reportó <b>${escapeHTML(p.vendedor || '')}</b> · pagó el ${fmtFecha(p.fecha)} · ${escapeHTML(p.forma || '')}${p.referencia ? ' · ref ' + escapeHTML(p.referencia) : ''}${p.notas ? ' · ' + escapeHTML(p.notas) : ''}</div>
           <div style="font-size:12.5px;color:var(--mute)">${c ? 'Saldo hoy del documento: ' + fmtFull(saldo) : '<span style="color:var(--red)">No encontré su cobro en Cobranza</span>'}</div></div>
           <div style="font-size:18px;font-weight:600;font-family:'JetBrains Mono',monospace">${fmtFull(p.monto)}</div></div>
+        ${nunPVFacturasPPD(p).length ? `<div style="font-size:12.5px;margin-top:6px;padding:8px 10px;border-radius:8px;background:rgba(37,99,235,0.08)">🧾 Es pago de factura <b>PPD</b> ${nunPVFacturasPPD(p).map(f => escapeHTML(String(f.folio||''))).join(', ')}: al confirmarlo se registra el pago y se timbra su <b>complemento de pago</b> (el vendedor lo ve y lo descarga en su app).</div>` : ''}
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
           <input type="date" id="pvF_${escapeHTML(p.id)}" value="${escapeHTML(String(p.fecha || '').substring(0, 10))}" style="width:auto">
           <select id="pvC_${escapeHTML(p.id)}" style="width:auto"><option value="">— Cuenta —</option>${ctas.map(x => `<option ${x === p.cuenta ? 'selected' : ''}>${escapeHTML(x)}</option>`).join('')}</select>
-          <button class="btn btn-primary btn-sm" ${c && (+p.monto || 0) <= saldo + 0.01 ? '' : 'disabled title="El monto es mayor al saldo o no hay cobro"'} onclick="nunPVVerificar(${escapeHTML(JSON.stringify(String(p.id)))})">✅ Confirmar y registrar</button>
+          ${nunPVFacturasPPD(p).map(f => `<button class="btn btn-primary btn-sm" onclick="nunPVComplemento(${escapeHTML(JSON.stringify(String(p.id)))}, ${escapeHTML(JSON.stringify(String(f.id)))})">🧾 Confirmar y timbrar complemento (${escapeHTML(String(f.folio||''))})</button>`).join('')}
+          <button class="btn ${nunPVFacturasPPD(p).length ? 'btn-secondary' : 'btn-primary'} btn-sm" ${c && (+p.monto || 0) <= saldo + 0.01 ? '' : 'disabled title="El monto es mayor al saldo o no hay cobro"'} onclick="nunPVVerificar(${escapeHTML(JSON.stringify(String(p.id)))})">${nunPVFacturasPPD(p).length ? '✅ Solo registrar (sin complemento)' : '✅ Confirmar y registrar'}</button>
           <button class="btn btn-secondary btn-sm" onclick="nunPVRechazar(${escapeHTML(JSON.stringify(String(p.id)))})">✕ Rechazar</button>
           <span class="pvComp" data-pv="${escapeHTML(String(p.id))}" data-cobro="${escapeHTML(String(p.cobro_id || ''))}" style="font-size:12px;color:var(--mute)"></span></div></div>`; }).join('') || '<div style="padding:30px;text-align:center;color:var(--mute)">No hay pagos por confirmar</div>'}</div></div>`;
   document.body.appendChild(m);
   nunPVComprobantes(m); // v4.80 foto que mandó el vendedor
 }
+// v5.00 (Rafa 13 nov: "que Edgar suba su pago y, si es sobre factura, se haga el complemento de pago; yo nomás lo confirmo") —
+// facturas PPD timbradas (vivas) que se cobran en el cobro del pago reportado (su propio cobro o el del pedido: "Cobro en P… (id cob_…)").
+function nunPVFacturasPPD(p){
+  const cid = String(p.cobro_id || ''); if (!cid) return [];
+  return (State.data.facturas || []).filter(f => f.uuid_sat && String(f.metodo_pago || '') === 'PPD' && !/cancel/i.test(String(f.estatus || ''))
+    && (nunCobroDeDoc('facturas', f) || {}).id === cid);
+}
+const NUN_FORMA_SAT = { TRANSFERENCIA: '03', EFECTIVO: '01', CHEQUE: '02' }; // Depósito y Tarjeta: Rafa elige (puede ser efectivo, cheque, crédito o débito)
+// Abre "Pago y complemento" de la factura con lo que reportó el vendedor (monto, fecha, cuenta, forma, referencia). Al timbrar,
+// nunConfirmarComplementoPago registra el pago en el cobro del pago reportado y lo marca verificado. Antes de timbrar pide confirmación.
+async function nunPVComplemento(pvId, facId){
+  const p = nunPVPendientes().find(x => String(x.id) === String(pvId)); if (!p) return;
+  const fecha = (document.getElementById('pvF_' + pvId) || {}).value || String(p.fecha || '').substring(0, 10), cuenta = (document.getElementById('pvC_' + pvId) || {}).value || p.cuenta || '';
+  await cargarTabla('pagosverificar', { ttl: 1 });
+  const q = (State.data.pagosverificar || []).find(x => String(x.id) === String(pvId));
+  if (!q || q.estatus !== 'por_verificar') { toast('Ese pago ya fue revisado por alguien más', { type:'error' }); nunPVAbrir(); return; }
+  const mpv = document.getElementById('modalPV'); if (mpv) mpv.remove();
+  await nunAbrirComplementoPago(facId);
+  const m = document.getElementById('modalREP'); if (!m) return;
+  m.style.zIndex = 9000;
+  const pon = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; };
+  pon('repMonto', nunR2(+p.monto || 0)); pon('repFecha', fecha); pon('repOperacion', String(p.referencia || '').substring(0, 40));
+  const forma = NUN_FORMA_SAT[nunCliNorm(p.forma || '')]; if (forma) pon('repForma', forma);
+  const sc = document.getElementById('repCuenta'); if (sc && cuenta) { if (![...sc.options].some(o => o.value === cuenta)) sc.insertAdjacentHTML('beforeend', `<option value="${escapeHTML(cuenta)}">${escapeHTML(cuenta)}</option>`); sc.value = cuenta; }
+  const c = (State.data.cobranza || []).find(x => String(x.id) === String(p.cobro_id)); if (c) m._c = c; // el pago va al cobro donde lo reportó el vendedor
+  m._pv = p;
+  const err = document.getElementById('repError');
+  if (err) err.insertAdjacentHTML('beforebegin', `<div style="font-size:12.5px;margin-top:10px;padding:10px;border-radius:8px;background:rgba(245,158,11,0.10)">💵 Pago reportado por <b>${escapeHTML(p.vendedor || '')}</b>: ${fmtFull(p.monto)} · ${escapeHTML(p.forma || '')}${p.referencia ? ' · ref ' + escapeHTML(p.referencia) : ''}. Revisa la forma de pago y la cuenta. Al terminar queda confirmado.</div>`);
+  const b = document.getElementById('repBoton'); if (b) b.textContent = '🧾 Confirmar, registrar y timbrar';
+}
+window.nunPVComplemento = nunPVComplemento;
 // v4.80 — el comprobante que subió el vendedor con su pago (queda ligado al cobro: también sale en 📎 Comprobantes de Cobranza)
 async function nunPVComprobantes(m){
   const spans = [...m.querySelectorAll('.pvComp')]; const porCobro = {};
@@ -9100,6 +9133,13 @@ async function nunConfirmarComplementoPago(idFactura){
   const cli = facturaClienteFiscal(f.cliente);
   if (conTimbre && (!cli.rfc || !cli.cp || !cli.regimen)) e.push('Faltan datos fiscales del cliente (RFC, CP o régimen)');
   if (e.length) { err.textContent = '⚠ ' + e.join('\n⚠ '); return; }
+  const pv = m._pv || null; // v5.00 pago reportado por el vendedor
+  if (pv) {
+    if (!(await confirmDialog({ title: conTimbre ? '¿Timbrar el complemento de pago?' : '¿Registrar este pago?', message: fmtFull(monto) + ' de ' + (f.cliente || '') + ' · factura ' + (f.folio || '') + ' · ' + fecha + ' · ' + cuenta + (conTimbre ? '. Se timbra ante el SAT (no se puede deshacer, solo cancelar).' : '') + ' Reportado por ' + (pv.vendedor || '') + '.', ok: conTimbre ? 'Sí, timbrar' : 'Sí, registrar' }))) return;
+    await cargarTabla('pagosverificar', { ttl: 1 });
+    const q = (State.data.pagosverificar || []).find(x => String(x.id) === String(pv.id));
+    if (!q || q.estatus !== 'por_verificar') { err.textContent = '✗ Ese pago ya fue revisado por alguien más. No se hizo nada.'; return; }
+  }
   btn.disabled = true; btn.textContent = 'Procesando…';
   const hecho = [];
   try {
@@ -9141,10 +9181,15 @@ async function nunConfirmarComplementoPago(idFactura){
     if (conCobro && cc) {
       nunOcupado('Registrando el pago…');
       const d = await api({ accion:'capturar_pago_cliente', id_doc: cc.id, monto, fecha, cuenta,
-        notas: 'Pago factura ' + f.folio + (operacion ? ' · op ' + operacion : '') + (conTimbre ? ' · con complemento' : ''),
+        notas: (pv ? 'Reportado por ' + (pv.vendedor || '') + ' en su app · ' : '') + 'Pago factura ' + f.folio + (operacion ? ' · op ' + operacion : '') + (conTimbre ? ' · con complemento' : ''), // v5.00
         usuario: State.sesion.usuario.nombre, codigo_usuario: State.sesion.codigo });
       if (!(d && d.ok)) throw new Error('No se registró el pago en Cobranza: ' + ((d && d.error) || '?') + (hecho.length ? ' (el ' + hecho.join(', ') + ' sí quedó)' : ''));
       hecho.push('pago de ' + fmtFull(monto) + ' registrado en Cobranza e Ingresos');
+    }
+    if (pv && conCobro) { // v5.00 — el pago reportado queda confirmado
+      const vr = await api({ accion:'erp_upsert_batch', tabla:'pagosverificar', items:[{ id: pv.id, estatus:'verificado', cuenta, verificado_por: (State.sesion.usuario || {}).nombre || '', verificado_fecha: new Date().toISOString() }] });
+      if (vr && vr.ok) hecho.push('pago reportado confirmado'); else toast('⚠ El pago sí quedó, pero no se marcó como confirmado en "Pagos por confirmar": márcalo con ✕/✅ ahí.', { type:'error', duration:12000 });
+      cargarTabla('pagosverificar', { ttl: 1 }).then(() => { try { nunPVPintarBanner(); if (nunPVPendientes().length) nunPVAbrir(); } catch(e4){} }).catch(() => {});
     }
     nunOcupado(''); m.remove();
     toast('✓ ' + hecho.join(' · '), { type:'success', duration:9000 });
@@ -9944,7 +9989,7 @@ function nunHtmlREP(xml){
     .tot{display:flex;justify-content:space-between;margin-top:10px;padding:11px 14px;background:#0a0c0f;color:#fff;border-radius:8px;font-weight:700;font-size:13px}
     .letras{margin-top:8px;padding:9px 14px;background:#f5f6f8;border-left:3px solid #0a0c0f;border-radius:0 8px 8px 0;font-size:10px}
     .pie{margin-top:20px;padding-top:12px;border-top:1px solid #e9ecef;font-size:8.5px;color:#8a8d94;text-align:center}`;
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Complemento de pago ${e(R.serie + R.folio)}</title><style>${css}</style></head><body>
+  return `<!doctype html><html style="color-scheme:only light;background:#fff"><head><meta charset="utf-8"><meta name="color-scheme" content="only light"><title>Complemento de pago ${e(R.serie + R.folio)}</title><style>${css}</style></head><body>
     <div class="head"><div>${nunLogoPDF()}<div class="emp">${e(R.emisor.nombre || emp.razon_social || '')}</div>
       <div class="emp-d">RFC: ${e(R.emisor.rfc)} · Régimen: ${e(R.emisor.regimen)}<br>Lugar de expedición: CP ${e(R.lugar)}</div></div>
       <div class="tit"><div class="l">Complemento de pago</div><div class="f">${e(R.serie + R.folio)}</div>

@@ -424,3 +424,66 @@ function cfdiTimbreHTML(doc, totalNum){
     +   '<div style="margin-top:8px;font-size:7px;color:#9aa0ac;text-align:center;border-top:1px solid #e8edf7;padding-top:6px">Este documento es una representación impresa de un CFDI · Verifica en verificacfdi.facturaelectronica.sat.gob.mx</div>'
     + '</div>';
 }
+const SAT_FORMA_PAGO = [['01','Efectivo'],['02','Cheque nominativo'],['03','Transferencia electrónica'],['04','Tarjeta de crédito'],['28','Tarjeta de débito'],['99','Por definir']];
+function nunLeerREP(xml){
+  const x = new DOMParser().parseFromString(xml, 'text/xml');
+  const all = Array.from(x.getElementsByTagName('*'));
+  const uno = ln => all.find(n => n.localName === ln);
+  const todos = ln => all.filter(n => n.localName === ln);
+  const at = (n, a) => n ? (n.getAttribute(a) || '') : '';
+  const comp = x.documentElement, emi = uno('Emisor'), rec = uno('Receptor'), tfd = uno('TimbreFiscalDigital');
+  const pagos = todos('Pago').map(p => ({
+    fecha: at(p,'FechaPago'), forma: at(p,'FormaDePagoP'), moneda: at(p,'MonedaP'), monto: +at(p,'Monto') || 0, operacion: at(p,'NumOperacion'),
+    docs: Array.from(p.getElementsByTagName('*')).filter(n => n.localName === 'DoctoRelacionado').map(d => ({
+      uuid: at(d,'IdDocumento'), serie: at(d,'Serie'), folio: at(d,'Folio'), parc: at(d,'NumParcialidad'),
+      ant: +at(d,'ImpSaldoAnt') || 0, pagado: +at(d,'ImpPagado') || 0, insoluto: +at(d,'ImpSaldoInsoluto') || 0, objeto: at(d,'ObjetoImpDR') }))
+  }));
+  return {
+    serie: at(comp,'Serie'), folio: at(comp,'Folio'), fecha: at(comp,'Fecha'), lugar: at(comp,'LugarExpedicion'),
+    emisor: { rfc: at(emi,'Rfc'), nombre: at(emi,'Nombre'), regimen: at(emi,'RegimenFiscal') },
+    receptor: { rfc: at(rec,'Rfc'), nombre: at(rec,'Nombre'), cp: at(rec,'DomicilioFiscalReceptor'), regimen: at(rec,'RegimenFiscalReceptor'), uso: at(rec,'UsoCFDI') },
+    uuid: at(tfd,'UUID'), pagos, total: pagos.reduce((s, p) => s + p.monto, 0)
+  };
+}
+function nunHtmlREP(xml){
+  const R = nunLeerREP(xml);
+  const emp = State.data.empresa || {};
+  const forma = k => { const f = (typeof SAT_FORMA_PAGO !== 'undefined' ? SAT_FORMA_PAGO : []).find(([c]) => c === k); return k + (f ? ' · ' + f[1] : ''); };
+  const e = escapeHTML, m = n => fmtFull(n);
+  const fechaL = s => { try { return fmtFechaLarga(String(s).substring(0,10)); } catch(x){ return s; } };
+  const td = cfdiTimbreData(xml); if (td && R.uuid) { const tm = cfdiGetTimbres(); if (!tm[R.uuid]) { tm[R.uuid] = td; cfdiSetTimbres(tm); } }
+  const timbre = R.uuid ? cfdiTimbreHTML({ uuid_sat: R.uuid }, 0) : '';
+  const filasDocs = R.pagos.map(p => p.docs.map(d => `<tr>
+      <td class="mono">${e((d.serie||'') + (d.folio||''))}</td><td class="mono" style="font-size:8.5px">${e(d.uuid)}</td>
+      <td class="r">${e(d.parc)}</td><td class="r">${m(d.ant)}</td><td class="r"><b>${m(d.pagado)}</b></td><td class="r">${m(d.insoluto)}</td></tr>`).join('')).join('');
+  const bloquesPago = R.pagos.map(p => `<div class="caja"><div class="lbl">Pago recibido</div>
+      <div class="g4"><div><span>Fecha de pago</span><b>${e(fechaL(p.fecha))}</b></div><div><span>Forma de pago</span><b>${e(forma(p.forma))}</b></div>
+      <div><span>Monto</span><b>${m(p.monto)} ${e(p.moneda||'MXN')}</b></div><div><span>Núm. de operación</span><b>${e(p.operacion||'—')}</b></div></div></div>`).join('');
+  const css = `@page{size:letter;margin:12mm 14mm}*{box-sizing:border-box}body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#0a0c0f;margin:0;font-size:10.5px;line-height:1.45;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .head{display:flex;justify-content:space-between;padding:18px 22px;background:#0a0c0f;color:#fff;border-radius:10px}.logo{width:78px;height:40px;display:block;margin-bottom:10px}
+    .emp{font-size:13px;font-weight:700}.emp-d{font-size:9px;color:rgba(255,255,255,.75);line-height:1.55}.tit{text-align:right}.tit .l{font-size:9px;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.16em}
+    .tit .f{font-family:'Courier New',monospace;font-size:28px;font-weight:700;line-height:1.1}.tit .x{font-size:9.5px;color:rgba(255,255,255,.75);margin-top:6px}
+    .dos{display:grid;grid-template-columns:1.3fr 1fr;gap:8px;margin:12px 0}.caja{padding:11px 14px;background:#f5f6f8;border:1px solid #e9ecef;border-radius:8px;margin-bottom:8px}
+    .lbl{font-size:8.5px;color:#8a8d94;text-transform:uppercase;letter-spacing:.12em;font-weight:700;margin-bottom:4px}.nom{font-size:12px;font-weight:700}.inf{font-size:9.5px;color:#555;margin-top:2px}
+    .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.g4 span{display:block;font-size:8.5px;color:#8a8d94}.g4 b{font-size:11px}
+    table{width:100%;border-collapse:collapse;font-size:10px;margin-top:4px}th{background:#0a0c0f;color:#fff;padding:8px 9px;text-align:left;font-size:8.5px;text-transform:uppercase;letter-spacing:.08em}
+    td{padding:8px 9px;border-bottom:1px solid #eef0f3}.r{text-align:right;font-family:'Courier New',monospace}.mono{font-family:'Courier New',monospace}
+    .tot{display:flex;justify-content:space-between;margin-top:10px;padding:11px 14px;background:#0a0c0f;color:#fff;border-radius:8px;font-weight:700;font-size:13px}
+    .letras{margin-top:8px;padding:9px 14px;background:#f5f6f8;border-left:3px solid #0a0c0f;border-radius:0 8px 8px 0;font-size:10px}
+    .pie{margin-top:20px;padding-top:12px;border-top:1px solid #e9ecef;font-size:8.5px;color:#8a8d94;text-align:center}`;
+  return `<!doctype html><html style="color-scheme:only light;background:#fff"><head><meta charset="utf-8"><meta name="color-scheme" content="only light"><title>Complemento de pago ${e(R.serie + R.folio)}</title><style>${css}</style></head><body>
+    <div class="head"><div>${nunLogoPDF()}<div class="emp">${e(R.emisor.nombre || emp.razon_social || '')}</div>
+      <div class="emp-d">RFC: ${e(R.emisor.rfc)} · Régimen: ${e(R.emisor.regimen)}<br>Lugar de expedición: CP ${e(R.lugar)}</div></div>
+      <div class="tit"><div class="l">Complemento de pago</div><div class="f">${e(R.serie + R.folio)}</div>
+      <div class="x">Emitido: <b>${e(fechaL(R.fecha))}</b><br>CFDI tipo P · Pagos 2.0</div></div></div>
+    <div class="dos"><div class="caja" style="margin:0"><div class="lbl">Cliente</div><div class="nom">${e(R.receptor.nombre)}</div>
+      <div class="inf"><b>RFC:</b> ${e(R.receptor.rfc)} · <b>CP:</b> ${e(R.receptor.cp)}</div><div class="inf"><b>Régimen:</b> ${e(R.receptor.regimen)} · <b>Uso CFDI:</b> ${e(R.receptor.uso)}</div></div>
+      <div class="caja" style="margin:0"><div class="lbl">Concepto</div><div class="inf">84111506 · Pago · Unidad ACT · Importe $0.00</div><div class="inf">Moneda del comprobante: XXX</div></div></div>
+    ${bloquesPago}
+    <div class="lbl" style="margin-top:6px">Factura(s) que se pagan</div>
+    <table><thead><tr><th>Factura</th><th>Folio fiscal (UUID)</th><th class="r">Parcialidad</th><th class="r">Saldo anterior</th><th class="r">Pagado</th><th class="r">Saldo pendiente</th></tr></thead><tbody>${filasDocs}</tbody></table>
+    <div class="tot"><span>TOTAL PAGADO</span><span class="mono">${m(R.total)}</span></div>
+    <div class="letras"><b>Con letra:</b> ${e(numeroALetras(R.total))} M.N.</div>
+    ${timbre}
+    <div class="pie">Generado por <b>NUN ERP</b> · ${new Date().toLocaleString('es-MX',{dateStyle:'long',timeStyle:'short'})}</div></body></html>`;
+}

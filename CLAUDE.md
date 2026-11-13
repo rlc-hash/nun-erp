@@ -351,6 +351,14 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   Revisado con Chromium `--enable-features=WebContentsForceDark` (antes reproduce la falla, ahora no). Prueba `prueba_v496_doc_whatsapp.js`.
 - v4.99 / app v2.1.27 (13 nov): el PDF (html2pdf) partía un renglón entre páginas → `pagebreak.avoid: ['tr', '.totales-wrap', '.party', '.notas']` en nunHtmlAPdf y htmlAPdf.
   (11 nov) Las publicaciones de Pages de v4.87 y v4.88 fallaron "at startup" (GitHub): se arregla con un push nuevo.
+- **v5.00 / app v2.1.28 (13 nov, Rafa: "que Edgar suba su pago y, si es sobre factura, se timbre el complemento; yo nomás lo confirmo")**: en ⏳ Pagos por
+  confirmar, si el cobro del pago reportado es de una factura PPD timbrada (`nunPVFacturasPPD`: su cobro propio o el del pedido "Cobro en P… (id cob_…)") sale
+  **🧾 Confirmar y timbrar complemento (FT…)** (`nunPVComplemento`): abre "Pago y complemento" (nunAbrirComplementoPago) con monto/fecha/cuenta/referencia y
+  forma (Transferencia 03, Efectivo 01, Cheque 02; Depósito/Tarjeta las elige Rafa); pide confirmación antes de timbrar; el pago va al cobro del pago reportado con
+  notas "Reportado por X en su app · Pago factura…" y el pago queda verificado. "Solo registrar (sin complemento)" sigue. App: la factura (y su pedido) muestran
+  🧾 Complementos de pago (de las notas REP; `repsDe`/`repsHTML`) → PDF (`nunHtmlREP`, ahora en nun-pdf.js con nunLeerREP/SAT_FORMA_PAGO) con 💬 Enviar, 📥 PDF y
+  📃 XML; aviso al reportar pago de factura PPD; en Pagos por confirmar de la app, liga al sistema para timbrar. El PDF del complemento va solo claro.
+  Pruebas `prueba_v500_complemento_vendedor.js`, `prueba_v2128_crm_complementos.js`. (Las pruebas viejas que buscan "v4.xx" en el letrero dan ['version'].)
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

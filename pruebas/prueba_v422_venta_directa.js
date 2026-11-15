@@ -61,7 +61,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(r.items.length!==1||r.items[0].pedido||+r.items[0].cantidad!==2) r.fallas.push('items');
   if(r.cobros!==1||!r.stockIgual) r.fallas.push('sin-cobro-ni-inventario');
   if(r.botones!==1||r.botonesDespues!==0) r.fallas.push('boton');
-  if(!/v4\.(2[2-9]|[3-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:2[2-9]|[3-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

@@ -29,7 +29,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   r.cssBind=[...d.querySelectorAll('style')].some(s=>s.textContent.includes('button[onclick*="Bind"]'));
   if(!r.cssBind) r.fallas.push('bind');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(5[7-9]|[6-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:5[7-9]|[6-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

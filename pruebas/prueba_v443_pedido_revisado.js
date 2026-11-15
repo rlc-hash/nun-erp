@@ -44,7 +44,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(!/^cerrado ✓.*revisado/.test(r.sit)) r.fallas.push('chip');
   if(!/Cerrado \(revisado\).*SALDADO: lo que falta se cobró en otra factura/.test(r.panel)||/por documentar y cobrar/.test(r.panel)) r.fallas.push('panel');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(4[3-9]|[5-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:4[3-9]|[5-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

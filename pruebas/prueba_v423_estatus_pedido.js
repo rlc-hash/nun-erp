@@ -55,7 +55,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(r.cobro.pend!==0||r.cobro.dias!==0) r.fallas.push('centavos');
   if(r.reps!=='BIND-145 2000 2000') r.fallas.push('rep-bind');
   if(r.sigCP!=='CP0004') r.fallas.push('folio-cp');
-  if(!/v4\.(2[3-9]|[3-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:2[3-9]|[3-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

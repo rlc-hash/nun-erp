@@ -90,7 +90,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   r.calc=txt(d.getElementById('cotCalcRes')).slice(0,260);
   if(!/30\.4%/.test(r.calc)||!/40\.0%/.test(r.calc)||!/\$580\.00/.test(r.calc)) r.fallas.push('calc');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(49|[5-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:49|[5-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

@@ -61,7 +61,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   const cfg2=JSON.parse(w.localStorage.getItem('nun_adquisicion')||'{}'); r.hist=cfg2.historial.map(h=>h.estatus);
   if(r.hist.join()!=='cancelada') r.fallas.push('cancelar');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(5[7-9]|[6-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:5[7-9]|[6-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

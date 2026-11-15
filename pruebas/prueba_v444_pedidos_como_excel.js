@@ -48,7 +48,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   r.tabla=txt(d.querySelector('.drawer details'));
   if(!/Pedidos (\(como tu Excel\)|y saldo)/.test(r.tabla)||!/comparte factura con 1194/.test(r.tabla)||!/Total\$296,900\.00\$274,605\.00\$22,295\.00/.test(r.tabla.replace(/\s/g,''))) r.fallas.push('tabla');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(4[4-9]|[5-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:4[4-9]|[5-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

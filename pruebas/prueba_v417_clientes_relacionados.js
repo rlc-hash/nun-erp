@@ -58,7 +58,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(r.opciones.join('|')!=='CARLOS ALARCON VELEZ|CINTHYA KALID ALARCON HERNANDEZ|Público en General|__otro') r.fallas.push('opciones');
   if(!r.factura||r.factura.cliente!=='CINTHYA KALID ALARCON HERNANDEZ'||!r.factura.nota) r.fallas.push('factura');
   if(r.auditoria!==0||!r.candidatos.includes('1088')||r.candadoPregunto||!/OTRO cliente/.test(r.candadoOtro)) r.fallas.push('ligas');
-  if(!/v4\.(1[7-9]|[2-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:1[7-9]|[2-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

@@ -48,7 +48,7 @@ setTimeout(async()=>{const r={fallas:[]};try{
  r.candado={pregunto:/OTRO cliente/.test(w._preg||'')&&/1109 es de JOSE LUIS/.test(w._preg||''), bloqueo:/otro cliente/.test(err), noGuardo:DB.facturas.find(x=>x.id==='f1078').pedido_origen===''};
  w.eval("window._preg=''"); await w.eval("api({accion:'erp_upsert_batch',tabla:'facturas',items:[{id:'f1078',pedido_origen:'1336'}]})");
  r.candado.mismoClienteSinPreguntar=!w._preg && DB.facturas.find(x=>x.id==='f1078').pedido_origen==='1336';
- if(!/v4\.(1\d|[2-9]\d)/.test(r.version)) r.fallas.push('version');
+ if(!/v(?:5\.\d\d|4\.(?:1\d|[2-9]\d))/.test(r.version)) r.fallas.push('version');
  if(!r.mismo.nombreCorto||!r.mismo.acentos||r.mismo.distinto||r.mismo.familia) r.fallas.push('mismoCliente');
  if(r.calc.otro.join()!=='1109<1078'||r.calc.demas.join()!=='1200'||r.calc.productos.join()!=='R0005:RL001A') r.fallas.push('calculo');
  if(!r.boton||!r.ventana.otro||!r.ventana.surtidoDeMas||!r.ventana.productos) r.fallas.push('ventana');

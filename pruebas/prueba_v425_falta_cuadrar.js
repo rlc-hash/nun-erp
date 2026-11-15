@@ -60,7 +60,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(!R.acentos||!R.sa||!R.letra||!R.cortado||!R.vacio) r.fallas.push('mismo-cliente');
   if(r.pedidos!=='1301,1302') r.fallas.push('ficha');
   if(!/GONZALES MEDRANO.*1305/.test(r.aviso)||/1303|1304/.test(r.aviso)) r.fallas.push('aviso-letra');
-  if(!/v4\.(2[5-9]|[3-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:2[5-9]|[3-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

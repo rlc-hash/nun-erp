@@ -29,7 +29,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   w.eval("nunCambiarModo()"); await sleep(300);
   if(!d.body.classList.contains('modo-cel')) r.fallas.push('regresa');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(59|[6-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:59|[6-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

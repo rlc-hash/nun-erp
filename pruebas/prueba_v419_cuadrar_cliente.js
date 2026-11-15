@@ -59,7 +59,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(r.ligado!=='1501') r.fallas.push('ligar');
   if(r.resultado.p1502!=='confirmado'||r.resultado.p1503!=='cancelado true'||r.resultado.p1504!=='cancelado true'||!r.resultado.f1601||r.resultado.noSeBorro!==7) r.fallas.push('acciones');
   if(r.restante.join()!=='') r.fallas.push('restante');
-  if(!/v4\.(19|[2-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:19|[2-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

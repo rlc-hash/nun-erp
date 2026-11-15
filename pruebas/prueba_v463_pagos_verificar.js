@@ -43,7 +43,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   await w.eval("nunPVRechazar('v2')"); await sleep(300);
   r.v2=[T.pagosverificar[1].estatus,T.pagosverificar[1].motivo]; if(r.v2[0]!=='rechazado'||r.v2[1]!=='No llegó el depósito') r.fallas.push('rechazar');
   r.borrados=llamadas.filter(b=>/borrar|eliminar/.test(b.accion)).length; if(r.borrados) r.fallas.push('borrado');
-  r.version=txt(d.querySelector('.rwd-version')); if(!/v4\.(6[3-9]|[7-9]\d)/.test(r.version)) r.fallas.push('version');
+  r.version=txt(d.querySelector('.rwd-version')); if(!/v(?:5\.\d\d|4\.(?:6[3-9]|[7-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

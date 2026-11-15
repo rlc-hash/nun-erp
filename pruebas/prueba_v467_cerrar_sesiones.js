@@ -30,7 +30,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   await w.eval("nunCerrarSesionesTodos()"); await sleep(300);
   const cs=llamadas.find(b=>b.accion==='cerrar_sesiones'); r.todos=cs&&cs.codigos;
   if(!cs||cs.codigos.includes(COD)||cs.codigos.includes('VIEJO-XX3')||!cs.codigos.includes('LUIS-XX2')) r.fallas.push('todos');
-  r.version=txt(d.querySelector('.rwd-version')); if(!/v4\.(6[7-9]|[7-9]\d)/.test(r.version)) r.fallas.push('version');
+  r.version=txt(d.querySelector('.rwd-version')); if(!/v(?:5\.\d\d|4\.(?:6[7-9]|[7-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

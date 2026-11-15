@@ -27,7 +27,7 @@ const XREP=`<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante xmlns:cfdi="
     return {json:async()=>JSON.parse(JSON.stringify(r))}; }; }});
  const w=dom.window,d=dom.window.document; await sleep(400);
  d.getElementById('lgCod').value='rafa-x'; await w.eval('entrar()'); await sleep(500);
- r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(2[8-9])/.test(r.version)) r.fallas.push('version');
+ r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(?:2[8-9]|[3-9]\d)/.test(r.version)) r.fallas.push('version');
  r.reps=w.eval("JSON.stringify(repsDe(S.d.facturas[0]))"); if(!/"folio":"CP0001".*"monto":600.*"parc":1/.test(r.reps)) r.fallas.push('lee complementos');
  r.ppd=w.eval("JSON.stringify([facPPDDeCobro('cob_p1').map(f=>f.folio), facPPDDeCobro('cob_f2').map(f=>f.folio)])"); if(r.ppd!=='[["FT0010"],[]]') r.fallas.push('factura PPD del cobro');
  // hoja de la factura: complementos + aviso PPD

@@ -371,6 +371,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   App: `ligaDe`/`abrirWA` en enviarWA/enviarWAYa (compartirWA = el viejo), estadoCuenta/ecEnviar y abrirREP/enviarREP.
   Pruebas `prueba_v501_pdf_liga.js` (servidor), `prueba_v485_estado_cuenta_whatsapp.js` y `prueba_v496_doc_whatsapp.js` (Playwright), `prueba_v215_crm_xml_qr.js`,
   `prueba_v2117_crm_estado_cuenta.js`, `prueba_v2128_crm_complementos.js`. SQL de la tabla en `supabase/nun_compartidos.sql`.
+- App v2.1.30 (15 nov, auditoría de Edgar): el estado de cuenta de la app contaba DOS veces una factura que está en 2 pedidos (pedido_origen "1171, 1338");
+  ahora `datosEC` la cuenta en el pedido más viejo y el otro dice "comparte factura: el saldo de X va en Y" (igual que el sistema). Prueba `prueba_v2130_crm_ec_factura_compartida.js`.
+  Las pruebas viejas aceptan ya v5.xx y v2.1.3x en el letrero.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

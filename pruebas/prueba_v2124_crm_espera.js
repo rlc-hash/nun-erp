@@ -22,7 +22,7 @@ const sleep=t=>new Promise(z=>setTimeout(z,t));
     return {json:async()=>JSON.parse(JSON.stringify(r))}; }; }});
  const w=dom.window,d=dom.window.document; await sleep(400);
  d.getElementById('lgCod').value='rafa-x'; await w.eval('entrar()'); await sleep(500);
- r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(2[4-9])/.test(r.version)) r.fallas.push('version');
+ r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(?:2[4-9]|[3-9]\d)/.test(r.version)) r.fallas.push('version');
  r.aviso=(d.querySelector('.aviso')||{}).textContent||''; if(!/2 pagos por confirmar/.test(r.aviso)) r.fallas.push('aviso en Inicio');
  w.eval("ir('cobranza')"); await sleep(30); if(!d.querySelector('[onclick="abrirEspera()"]')) r.fallas.push('aviso en Cobranza');
  w.eval('abrirEspera()'); await sleep(100);

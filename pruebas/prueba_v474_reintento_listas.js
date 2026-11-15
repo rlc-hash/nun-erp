@@ -21,6 +21,6 @@ const sleep=t=>new Promise(z=>setTimeout(z,t));
  fallaCobranza=false; await w.eval('nunReintentarListas(true)');
  r.avisoDespues=!!d.getElementById('nunAvisoCopia'); r.cobranza=w.eval('(State.data.cobranza||[]).length'); r.timerDespues=w.eval('!!_nunReintento.timer');
  if(r.avisoDespues||r.cobranza!==1||r.timerDespues) r.fallas.push('reintento');
- r.version=(d.querySelector('.rwd-version')||{}).textContent; if(!/v4\.(7[4-9]|[89]\d)/.test(r.version||'')) r.fallas.push('version');
+ r.version=(d.querySelector('.rwd-version')||{}).textContent; if(!/v(?:5\.\d\d|4\.(?:7[4-9]|[89]\d))/.test(r.version||'')) r.fallas.push('version');
 }catch(e){r.error=String(e.stack).slice(0,400);}
 console.log(JSON.stringify(r,null,1)); process.exit(r.error||r.fallas.length?1:0);})();

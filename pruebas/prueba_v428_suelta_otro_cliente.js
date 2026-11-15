@@ -49,7 +49,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(r.cq!=='CECILIA PRUEBA NAVA:1282|1166') r.fallas.push('cuadrar');
   if(!r.botonCQ) r.fallas.push('boton-cq');
   if(r.ligado!=='1282 facturado') r.fallas.push('ligar');
-  if(!/v4\.(2[8-9]|[3-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:2[8-9]|[3-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

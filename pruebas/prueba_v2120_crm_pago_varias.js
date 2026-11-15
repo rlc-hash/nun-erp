@@ -21,7 +21,7 @@ const PV=[],FOTOS=[];
     return {json:async()=>JSON.parse(JSON.stringify(r))}; }; }});
  const w=dom.window,d=dom.window.document; await sleep(400);
  d.getElementById('lgCod').value='edgar-x'; await w.eval('entrar()'); await sleep(400);
- r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(2[3-9])/.test(r.version)) r.fallas.push('version');
+ r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(?:2[3-9]|[3-9]\d)/.test(r.version)) r.fallas.push('version');
  // 1) desde Cobranza: botón arriba y buscar "quién lo mandó" (también por el contacto)
  w.eval("ir('cobranza')"); await sleep(30);
  r.botonCobranza=!!d.querySelector('button[onclick^="abrirRegistrarPago"]'); if(!r.botonCobranza) r.fallas.push('botón en Cobranza');

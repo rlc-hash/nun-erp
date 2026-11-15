@@ -58,7 +58,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(!/Cliente de factura de DIONICIO PRUEBA LIRA/.test(r.despues)||!/Todo cuadrado/.test(r.despues)) r.fallas.push('despues');
   if(!/También se le factura a nombre de: CARLOS PRUEBA TOVAR/.test(r.dionicio)) r.fallas.push('dionicio');
   if(r.cuadreDionicio!==0) r.fallas.push('cuadrar-sigue');
-  if(!/v4\.(2[6-9]|[3-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:2[6-9]|[3-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

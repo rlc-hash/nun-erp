@@ -61,7 +61,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(!r.factura.folio||r.factura.cobrosNuevos!==0||r.factura.cobroQueUsa!=='cob_'+ped.id) r.fallas.push('factura');
   if(r.tablero.join()!=='3480') r.fallas.push('tablero');
   if(r.cancelarConFactura!==false||r.cancelar!==true||r.trasCancelar.stock!=='10/0'||r.trasCancelar.cobro!=='cancelado') r.fallas.push('cancelar');
-  if(!/v4\.(1[4-9]|[2-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:1[4-9]|[2-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

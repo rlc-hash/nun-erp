@@ -53,7 +53,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   r.dup=w.eval("(()=>{const x=document.createElement('div');x.innerHTML=nunSituacionHTML('pedidos',State.data.pedidos.find(p=>p.id==='ped_dup'));return x.textContent})()");
   if(!/^duplicado/.test(r.dup)) r.fallas.push('duplicado');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(4[5-9]|[5-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:4[5-9]|[5-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

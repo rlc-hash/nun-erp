@@ -52,7 +52,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(/vigente pero/.test(r.despues)) r.fallas.push('sigue-aviso');
   if(!/Facturado\$39,400/.test(r.kDespues[0])||!/Pendiente\$38,400/.test(r.kDespues[1])) r.fallas.push('montos');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(4[2-9]|[5-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:4[2-9]|[5-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

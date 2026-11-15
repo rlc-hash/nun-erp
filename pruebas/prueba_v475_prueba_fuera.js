@@ -16,7 +16,7 @@ const datos=t=>JSON.parse(JSON.stringify(t==='cobranza'?COB:t==='ingresos'?ING:t
    w.HTMLCanvasElement.prototype.getContext=()=>new Proxy({}, {get:()=>()=>({})}); }});
  const w=dom.window; await sleep(3000); for(const t of ['cobranza','ingresos','clientes']) await w.eval(`cargarTabla('${t}')`);
  for(const base of ['doc','pago']){ w.eval(`_comBase='${base}'`); const c=w.eval(`calcularComisiones('todos')`); r['edgar_'+base]=c.EDGAR&&c.EDGAR.cobrado; if(!c.EDGAR||c.EDGAR.cobrado!==1000) r.fallas.push('erp_'+base); }
- r.version=(w.document.querySelector('.rwd-version')||{}).textContent; if(!/v4\.(7[5-9]|[89]\d)/.test(r.version||'')) r.fallas.push('version'); w.close();
+ r.version=(w.document.querySelector('.rwd-version')||{}).textContent; if(!/v(?:5\.\d\d|4\.(?:7[5-9]|[89]\d))/.test(r.version||'')) r.fallas.push('version'); w.close();
  const HTML=fs.readFileSync(path.join(__dirname,'..','ventas','index.html'),'utf8').replace(/<script src="\.\.\/nun-pdf\.js[^"]*"><\/script>/,'');
  const d2=new JSDOM(HTML,{runScripts:'dangerously',pretendToBeVisual:true,url:'https://rlc-hash.github.io/nun-erp/ventas/',
   beforeParse(w){ w.scrollTo=()=>{}; w.fetch=async(u,o)=>{ const b=JSON.parse(o.body); let x={ok:true};

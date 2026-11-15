@@ -11,6 +11,6 @@ try{
  if(/data:application\/json;base64/.test(html)) r.fallas.push('manifest-viejo');
  const sw=fs.readFileSync(path.join(raiz,'sw.js'),'utf8'); if(/caches\./.test(sw)) r.fallas.push('sw-con-cache');
  r.version=(html.match(/v4\.\d+ · Sistema NUN/)||[''])[0];
- if(!/v4\.(5[8-9]|[6-9]\d)/.test(r.version)) r.fallas.push('version');
+ if(!/v(?:5\.\d\d|4\.(?:5[8-9]|[6-9]\d))/.test(r.version)) r.fallas.push('version');
 }catch(e){r.error=String(e.stack).slice(0,500)}
 console.log(JSON.stringify(r,null,1));

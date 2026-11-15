@@ -57,7 +57,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(r.facturas.length!==2||!r.facturas.every(x=>/^Factura/.test(x))) r.fallas.push('filtro-facturas');
   if(r.pedidosConCanc.length!==3) r.fallas.push('ver-cancelados');
   if(!/sin pedido/.test(r.ligaF1080)) r.fallas.push('liga');
-  if(!/v4\.(2\d|[3-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:2\d|[3-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

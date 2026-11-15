@@ -25,7 +25,7 @@ const UPS=[],CRE=[];
     return {json:async()=>JSON.parse(JSON.stringify(r))}; }; }});
  const w=dom.window,d=dom.window.document; await sleep(400);
  d.getElementById('lgCod').value='edgar-x'; await w.eval('entrar()'); await sleep(300);
- r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(19|[2-9]\d)/.test(r.version)) r.fallas.push('version');
+ r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(?:19|[2-9]\d|[3-9]\d)/.test(r.version)) r.fallas.push('version');
  const boton=id=>{ w.eval(`abrirDoc('cotizaciones','${id}')`); return !!d.querySelector('button[onclick^="editarCot(\'' + id + '\'"]'); };
  r.botonSuya=boton('q1'); w.eval('cerrarHoja()'); r.botonDeOtro=boton('q2'); w.eval('cerrarHoja()'); r.botonConfirmada=boton('q3'); w.eval('cerrarHoja()');
  if(!r.botonSuya||r.botonDeOtro||r.botonConfirmada) r.fallas.push('botón solo en la suya por confirmar');

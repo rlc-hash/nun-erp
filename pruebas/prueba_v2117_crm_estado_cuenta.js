@@ -28,7 +28,7 @@ const sleep=t=>new Promise(z=>setTimeout(z,t));
     return {json:async()=>JSON.parse(JSON.stringify(r))}; }; }});
  const w=dom.window,d=dom.window.document; await sleep(400);
  d.getElementById('lgCod').value='edgar-x'; await w.eval('entrar()'); await sleep(300);
- r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(1[7-9]|[2-9]\d)/.test(r.version)) r.fallas.push('version');
+ r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(?:1[7-9]|[2-9]\d|[3-9]\d)/.test(r.version)) r.fallas.push('version');
  await w.eval("abrirCliente('CLIENTE UNO')"); await sleep(30);
  r.boton=/📄 Estado de cuenta/.test(d.getElementById('hojaC').textContent); if(!r.boton) r.fallas.push('botón en el cliente');
  const D=JSON.parse(w.eval("JSON.stringify(datosEC('CLIENTE UNO'))"));

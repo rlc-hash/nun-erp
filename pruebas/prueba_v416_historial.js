@@ -20,5 +20,5 @@ setTimeout(async()=>{const r={fallas:[]};try{
  const m=txt(d.getElementById('modalHIS')); r.ventana={hora:/2026-10-07 13:35:03\s*Se guardó \/ cambió\s*Yazmín/.test(m),creado:/Se creó\s*—/.test(m)};
  r.version=txt(d.querySelector('.rwd-version'));
  if(!r.mandaNombre) r.fallas.push('nombre'); if(!r.boton) r.fallas.push('boton'); if(!r.ventana.hora||!r.ventana.creado) r.fallas.push('ventana');
- if(!/v4\.(1[6-9]|[2-9]\d)/.test(r.version)) r.fallas.push('version');
+ if(!/v(?:5\.\d\d|4\.(?:1[6-9]|[2-9]\d))/.test(r.version)) r.fallas.push('version');
 }catch(e){r.error=String(e.stack).slice(0,600)} r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();},3500);

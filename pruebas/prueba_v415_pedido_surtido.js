@@ -45,7 +45,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   r.version=txt(d.querySelector('.rwd-version'));
   if(+r.quitar.total!==8250||r.quitar.renglones!==3||!r.quitar.aviso) r.fallas.push('candado');
   if(+r.notas.total!==8250||!r.notas.notas) r.fallas.push('notas');
-  if(!/v4\.(1[5-9]|[2-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:1[5-9]|[2-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

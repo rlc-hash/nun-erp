@@ -19,7 +19,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');
   fallarCuentas=false; await w.eval("abrirDrawerCobranza('k1')"); await sleep(600);
   const sel=d.getElementById('pcCuenta'); r.opciones=sel?[...sel.options].map(o=>o.value).filter(Boolean):null;
   if(!r.opciones||r.opciones.join(',')!=='BBVA,Efectivo Transferencia,Mercado Pago') r.fallas.push('se-llena-sola');
-  r.version=d.querySelector('.rwd-version').textContent; if(!/v4\.(69|[7-9]\d)/.test(r.version)) r.fallas.push('version');
+  r.version=d.querySelector('.rwd-version').textContent; if(!/v(?:5\.\d\d|4\.(?:69|[7-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

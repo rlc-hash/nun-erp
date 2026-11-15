@@ -59,7 +59,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   // ficha del cliente también tiene el botón
   w.eval("document.getElementById('modalEC').remove(); abrirDetalleCliente('ce')"); await sleep(300);
   r.ficha=/Estado de cuenta/.test(txt(d.querySelector('.drawer details'))); if(!r.ficha) r.fallas.push('ficha');
-  r.version=txt(d.querySelector('.rwd-version')); if(!/v4\.(7[1-9]|[89]\d)/.test(r.version)) r.fallas.push('version');
+  r.version=txt(d.querySelector('.rwd-version')); if(!/v(?:5\.\d\d|4\.(?:7[1-9]|[89]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); if(errs.length) r.fallas.push('errores'); console.log(JSON.stringify(r,null,1)); w.close();
 })();

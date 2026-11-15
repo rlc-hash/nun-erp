@@ -24,7 +24,7 @@ const SUB=[];
     return {json:async()=>JSON.parse(JSON.stringify(r))}; }; }});
  const w=dom.window,d=dom.window.document; await sleep(400);
  d.getElementById('lgCod').value='edgar-x'; await w.eval('entrar()'); await sleep(300);
- r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(1[3-9]|[2-9]\d)/.test(r.version)) r.fallas.push('version');
+ r.version=(d.querySelector('.ver')||{}).textContent; if(!/^v2\.1\.(?:1[3-9]|[2-9]\d|[3-9]\d)/.test(r.version)) r.fallas.push('version');
  await w.eval("ir('cotizar')"); await sleep(50);
  const skus=()=>[...d.querySelectorAll('#ctProdRes .res > div b:first-child')].map(b=>b.textContent);
  r.sugiere=[...d.querySelectorAll('#ctEnvioLista option')].map(o=>o.value).join(); if(r.sugiere!=='Paquetexpress') r.fallas.push('sugerencias');

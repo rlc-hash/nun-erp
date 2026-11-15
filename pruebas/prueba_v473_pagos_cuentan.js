@@ -17,7 +17,7 @@ const COB=[{id:'c1',numero:'F1',cliente:'CLIENTE A',total:1000,cobrado:1000,pend
  r.erpVivos=w.eval("(State.data.ingresos||[]).map(i=>i.id).sort().join()");
  const q=w.eval('nunCuadreIngresosCobranza()'); r.erpCuadre=[q.totCob,q.totIng,q.dif];
  if(r.erpVivos!=='ING-CLIENTEA-F2,bind_pag_1'||q.dif!==0) r.fallas.push('erp');
- r.version=(w.document.querySelector('.rwd-version')||{}).textContent; if(!/v4\.(7[3-9]|[89]\d)/.test(r.version||'')) r.fallas.push('version'); w.close();
+ r.version=(w.document.querySelector('.rwd-version')||{}).textContent; if(!/v(?:5\.\d\d|4\.(?:7[3-9]|[89]\d))/.test(r.version||'')) r.fallas.push('version'); w.close();
  const HTML=fs.readFileSync(path.join(__dirname,'..','ventas','index.html'),'utf8').replace(/<script src="\.\.\/nun-pdf\.js[^"]*"><\/script>/,'');
  const d2=new JSDOM(HTML,{runScripts:'dangerously',pretendToBeVisual:true,url:'https://rlc-hash.github.io/nun-erp/ventas/',
   beforeParse(w){ w.scrollTo=()=>{}; w.fetch=async(u,o)=>{ const b=JSON.parse(o.body); let x={ok:true};

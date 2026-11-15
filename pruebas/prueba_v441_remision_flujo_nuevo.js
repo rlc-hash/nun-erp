@@ -55,7 +55,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');const fs=require('fs');const path=
   if(r.stockFin!==r.stockConf) r.fallas.push('inventario-doble');
   if(!/entregado/.test(p2.estatus)) r.fallas.push('estatus-pedido');
   r.version=txt(d.querySelector('.rwd-version'));
-  if(!/v4\.(4[1-9]|[5-9]\d)/.test(r.version)) r.fallas.push('version');
+  if(!/v(?:5\.\d\d|4\.(?:4[1-9]|[5-9]\d))/.test(r.version)) r.fallas.push('version');
  }catch(e){r.error=String(e.stack).slice(0,700)}
  r.errs=errs.slice(0,3); console.log(JSON.stringify(r,null,1)); w.close();
 })();

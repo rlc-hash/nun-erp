@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.29';
+const VERSION = 'v2.1.30';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -654,13 +654,17 @@ async function cancelarCot(id){
 function datosEC(nombre){
   const n = norm(nombre), cl = (S.d.clientes || []).find(c => norm(c.razon_social) === n) || { razon_social: nombre };
   const usados = new Set(), filas = [];
-  (S.d.pedidos || []).filter(p => vivo(p) && !/borrador/i.test(p.estatus || '') && norm(p.cliente) === n).forEach(p => {
-    const cs = cobrosDePedido(p); cs.forEach(c => usados.add(String(c.id)));
+  // v2.1.30 — una factura en 2 pedidos (ej. Efraín: F 1061 en 1171 y 1338) contaba su saldo DOS veces; ahora, como en el sistema, cuenta en el primero
+  const enOtro = {};
+  (S.d.pedidos || []).filter(p => vivo(p) && !/borrador/i.test(p.estatus || '') && norm(p.cliente) === n).sort((a, b) => fecha10(a.fecha).localeCompare(fecha10(b.fecha))).forEach(p => {
+    const todos = cobrosDePedido(p), cs = todos.filter(c => !usados.has(String(c.id)));
+    const yaVan = todos.filter(c => usados.has(String(c.id))).map(c => (c.numero || '') + ' va en ' + (enOtro[c.id] || 'otro pedido'));
+    cs.forEach(c => { usados.add(String(c.id)); enOtro[c.id] = String(p.folio || ''); });
     const f = String(p.folio || '').trim();
     const docs = ['remisiones', 'facturas'].flatMap(t => (S.d[t] || []).filter(d => vivo(d) && String(d.pedido_origen || '').split(',').map(x => x.trim()).includes(f)).map(d => ({ L: t === 'facturas' ? 'F' : 'R', folio: d.folio, fecha: d.fecha })));
     const total = +p.total || 0, falta = r2(cs.reduce((a, c) => a + Math.max(0, +c.pendiente || 0), 0));
     const ds = docs.map(d => fecha10(d.fecha)).filter(Boolean).sort();
-    filas.push({ fecha: p.fecha, folio: String(p.folio || ''), ent: ds[0] || fecha10(p.fecha_entrega), docs: docs.map(d => d.L + ' ' + d.folio).join(' · '), total, pagado: r2(total - falta), falta, prods: [] });
+    filas.push({ fecha: p.fecha, folio: String(p.folio || ''), ent: ds[0] || fecha10(p.fecha_entrega), docs: docs.map(d => d.L + ' ' + d.folio).join(' · ') + (yaVan.length ? ' (comparte factura: el saldo de ' + yaVan.join(', ') + ')' : ''), total, pagado: r2(total - falta), falta, prods: [] });
   });
   cobrosVivos().filter(c => norm(c.cliente) === n && !usados.has(String(c.id)) && (+c.pendiente || 0) >= 1).forEach(c =>
     filas.push({ fecha: c.fecha_emision, folio: '', ent: fecha10(c.fecha_entrega || c.fecha_emision), docs: ((c.tipo || '') + ' ' + (c.numero || '')).trim(), total: +c.total || 0, pagado: +c.cobrado || 0, falta: Math.max(0, +c.pendiente || 0), prods: [] }));

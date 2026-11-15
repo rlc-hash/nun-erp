@@ -22,7 +22,7 @@ const sleep=t=>new Promise(z=>setTimeout(z,t));
  await w.eval("navegar('cotizaciones')"); await sleep(600);
  const t=(d.getElementById('content')||d.body).textContent.replace(/\s+/g,' ');
  r.erp={columna:/Subió/.test(t), valor:/C0101.*EDGAR/.test(t)}; if(!r.erp.columna||!r.erp.valor) r.fallas.push('erpColumna');
- r.version=(d.querySelector('.rwd-version')||{}).textContent; if(!/v4\.(7[2-9]|[89]\d)/.test(r.version||'')) r.fallas.push('version');
+ r.version=(d.querySelector('.rwd-version')||{}).textContent; if(!/v(?:5\.\d\d|4\.(?:7[2-9]|[89]\d))/.test(r.version||'')) r.fallas.push('version');
  w.close();
  // --- CRM ---
  const HTML=fs.readFileSync(path.join(__dirname,'..','ventas','index.html'),'utf8').replace(/<script src="\.\.\/nun-pdf\.js[^"]*"><\/script>/, '<script>'+fs.readFileSync(path.join(__dirname,'..','nun-pdf.js'),'utf8')+'</script>');

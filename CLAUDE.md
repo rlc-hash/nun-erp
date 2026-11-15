@@ -363,6 +363,14 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   "💵 X registró un pago" a TODOS los equipos de la oficina con avisos prendidos, menos a los de quien lo registró (`avisarTodosMenos`). Lo demás de la oficina
   sigue yendo solo a Rafa. Prueba `prueba_v476_avisos_oficina.js` (rafaPago). Inventario 13 nov: conteo físico de Rafa (PDF Inventario-2) aplicado; lo que no
   hay se puso en 0 con salida "ajuste conteo" (registrar_mov_inventario no acepta ajuste a 0).
+- **v5.01 / app v2.1.29 / servidor supabase-2.7 (15 nov, Rafa: "no me deja enviar por WhatsApp", NotAllowedError: Permission denied en ERP y CRM)**:
+  WhatsApp ya NO depende de "compartir" del teléfono. Al hacer el PDF se sube (`compartir_subir`: oficina y vendedor con sesión, solo PDF/XML, tabla
+  `nun_compartidos` fuera de nun_hojas, liga = `…/functions/v1/nun?pdf=<32 hex al azar>`, GET la entrega inline; nunca se borra) y 💬 Enviar por WhatsApp es
+  liga a wa.me (chat del cliente si tiene teléfono) con el mensaje + "📄 PDF: <liga>" (+ "📃 XML: <liga>" en facturas/complementos). 📤 Compartir archivo queda
+  de reserva (si falla: Descargas). ERP: `nunWaPanel(boxId, f, cliente, txt, {xml, botones})` en Estado de cuenta (`ecPdfBox`) y documentos (`docWABox`).
+  App: `ligaDe`/`abrirWA` en enviarWA/enviarWAYa (compartirWA = el viejo), estadoCuenta/ecEnviar y abrirREP/enviarREP.
+  Pruebas `prueba_v501_pdf_liga.js` (servidor), `prueba_v485_estado_cuenta_whatsapp.js` y `prueba_v496_doc_whatsapp.js` (Playwright), `prueba_v215_crm_xml_qr.js`,
+  `prueba_v2117_crm_estado_cuenta.js`, `prueba_v2128_crm_complementos.js`. SQL de la tabla en `supabase/nun_compartidos.sql`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

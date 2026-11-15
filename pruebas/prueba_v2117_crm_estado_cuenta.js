@@ -24,6 +24,7 @@ const sleep=t=>new Promise(z=>setTimeout(z,t));
     if(b.accion==='login') r={ok:true,usuario:{nombre:'Edgar',rol:'vendedor',vendedor_asignado:'Edgar'},permisos:{agregar_pedidos:true,ver_todos_clientes:true}};
     else if(b.accion==='erp_listar') r={ok:true,items:DB[b.tabla]||[]};
     else if(b.accion==='listar_cuentas') r={ok:true,cuentas:[]};
+    else if(b.accion==='compartir_subir') r=/\.pdf$/.test(b.nombre)&&b.datos?{ok:true,url:'https://x/nun?pdf='+'e'.repeat(32)}:{ok:false}; // v2.1.29
     return {json:async()=>JSON.parse(JSON.stringify(r))}; }; }});
  const w=dom.window,d=dom.window.document; await sleep(400);
  d.getElementById('lgCod').value='edgar-x'; await w.eval('entrar()'); await sleep(300);
@@ -37,6 +38,12 @@ const sleep=t=>new Promise(z=>setTimeout(z,t));
  const h=w.eval("nunECHTMLDe(datosEC('CLIENTE UNO'))"), t=h.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ');
  r.pdf={formato:/Estado de cuenta/.test(t)&&/Fecha de corte/.test(t)&&/Detalle de pedidos/.test(t), saldo:/\$10,000\.00/.test(t), pagos:/Historial de pagos/.test(t)&&/Total pagos \(3\) \$6,500\.00/.test(t), logo:/<svg/.test(h), sinOtro:!/P0099/.test(t)};
  if(Object.values(r.pdf).some(v=>!v)) r.fallas.push('pdf');
+ // v2.1.29 — WhatsApp con LIGA (el teléfono de Rafa no dejaba compartir el archivo)
+ w.__ab=[]; w.open=u=>{ w.__ab.push(String(u)); return null; };
+ await w.eval("htmlAPdf=async(h,n)=>new File(['%PDF'],n,{type:'application/pdf'}); estadoCuenta('CLIENTE UNO')"); await sleep(80);
+ r.ecUrl=w.eval('EC.url'); r.ecBoton=!d.getElementById('ecWA').disabled; if(r.ecUrl!=='https://x/nun?pdf='+'e'.repeat(32)||!r.ecBoton) r.fallas.push('liga del estado de cuenta');
+ await w.eval('ecEnviar()'); r.ecWA=decodeURIComponent(w.__ab[0]||'');
+ if(!/^https:\/\/wa\.me\/\d*\?text=Estado de cuenta de CLIENTE UNO al .*saldo pendiente \$10,000\.00\.\n📄 PDF: https:\/\/x\/nun\?pdf=e{32}$/.test(r.ecWA)) r.fallas.push('whatsapp estado de cuenta');
  r.errs=errs.slice(0,3); if(errs.length) r.fallas.push('errores');
 }catch(e){r.error=String(e.stack).slice(0,400);}
 console.log(JSON.stringify(r,null,1)); process.exit(r.error||r.fallas.length?1:0);})();

@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-2.6'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-2.7'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -139,6 +139,7 @@ async function filtrarVend(tabla: string, items: any[], se: any, m: Map<string, 
 // Las suscripciones viven en nun_props ('push:<huella>' → { sub, nombre, equipo, activo }); las llaves VAPID también ('push_vapid').
 // ============================================================
 const CONTACTO_PUSH = 'https://rlc-hash.github.io/nun-erp/';
+const LIGA_PDF = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun'; // supabase-2.7 liga pública de los PDF compartidos
 let _vapid: any = null;
 async function vapid(){
   if (_vapid) return _vapid;
@@ -321,6 +322,16 @@ async function atenderPeticion(req: Request) {
     const url = new URL(req.url);
     if (req.method === 'GET'){
       const p = Object.fromEntries(url.searchParams.entries());
+      // supabase-2.7 (Rafa 15 nov: "no me deja enviar por WhatsApp", NotAllowedError) — el PDF va como LIGA en el mensaje: ?pdf=<k> lo entrega
+      if (p.pdf){ accion = 'GET pdf ' + String(p.pdf).slice(0, 8);
+        const k = String(p.pdf); if (!/^[0-9a-f]{32}$/.test(k)) return new Response('Liga inválida', { status: 404, headers: CORS });
+        const [x] = await sql`select nombre, mime, datos from nun_compartidos where k = ${k}`;
+        if (!x) return new Response('Este documento ya no está disponible', { status: 404, headers: { ...CORS, 'Content-Type': 'text/plain; charset=utf-8' } });
+        sql`update nun_compartidos set vistas = vistas + 1 where k = ${k}`.catch(() => {});
+        const bin = Uint8Array.from(atob(x.datos), (c: string) => c.charCodeAt(0));
+        const nom = String(x.nombre || 'documento.pdf').replace(/[^\w.-]/g, '_');
+        return new Response(bin, { headers: { ...CORS, 'Content-Type': x.mime || 'application/pdf', 'Content-Disposition': 'inline; filename="' + nom + '"', 'Cache-Control': 'private, max-age=3600' } });
+      }
       accion = 'GET ' + (p.tabla || '');
       if (!p.tabla) return json({ ok: true, mensaje: 'NUN ERP backend ' + VERSION, db: MODO_DB });
       const c = norm(p.codigo), m = new Map(); if (c) m.set(c, await conReintento(() => sesion(c, false)));
@@ -449,6 +460,17 @@ async function atenderPeticion(req: Request) {
       if (se.admin !== true) return json({ ok: false, error: 'Solo un administrador cancela comprobantes' });
       const r = await sql`update nun_archivos set cancelado = true where id = ${String(body.id || '')}`; accion += ' ' + String(body.id || '').slice(0, 26);
       return json({ ok: true, cancelados: (r && r.count) || 0 });
+    }
+    // supabase-2.7 — guardar un PDF para mandarlo como liga por WhatsApp (oficina y vendedores con sesión). Regresa la liga.
+    if (accion === 'compartir_subir'){
+      if (!se.ok) return json({ ok: false, error: 'AUTH: vuelve a entrar con tu código', requiere_login: true });
+      const datos = String(body.datos || ''), mime = String(body.mime || 'application/pdf');
+      if (!/^(application\/pdf|application\/xml|text\/xml)$/.test(mime)) return json({ ok: false, error: 'Solo PDF o XML' });
+      if (!datos || datos.length > 12_000_000 || !/^[A-Za-z0-9+/=]+$/.test(datos)) return json({ ok: false, error: 'Archivo inválido o muy grande' });
+      const k = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
+      await sql`insert into nun_compartidos (k, nombre, mime, tam, datos, quien) values (${k}, ${String(body.nombre || 'documento.pdf').slice(0, 120)}, ${mime}, ${Math.round(datos.length * 3 / 4)}, ${datos}, ${se.rol === 'vendedor' ? se.vend : quien})`;
+      accion += ' ' + String(body.nombre || '').slice(0, 40);
+      return json({ ok: true, url: LIGA_PDF + '?pdf=' + k });
     }
     // v2.3 (12 nov) — pago reportado desde la app por alguien de la oficina: si no trae estatus queda "por verificar" (antes quedaba en blanco y no salía en ningún lado)
     if (se.ok && se.rol !== 'vendedor' && accion === 'erp_crear' && body.tabla === 'pagosverificar' && body.item && !body.item.estatus) { body.item = { ...body.item, estatus: 'por_verificar' }; texto = JSON.stringify(body); }

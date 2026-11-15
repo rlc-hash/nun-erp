@@ -17,8 +17,8 @@ function probar(archivo, ver, subir){
   });
 }
 (async()=>{ const r={fallas:[]};
-  const v=fs.readFileSync('index.html','utf8').match(/rwd-version">v4\.(\d+) · Sistema/)[1]; r.subida='v4.'+(+v+1); // la versión que haya
-  r.erp=await probar('index.html','v4.'+v+' · Sistema','v4.'+(+v+1)+' · Sistema');
+  const [,M,v]=fs.readFileSync('index.html','utf8').match(/rwd-version">v(\d+)\.(\d+) · Sistema/); const sig=String(+v+1).padStart(v.length,'0'); r.subida='v'+M+'.'+sig; // la versión que haya (v4.xx o v5.xx)
+  r.erp=await probar('index.html','v'+M+'.'+v+' · Sistema','v'+M+'.'+sig+' · Sistema');
   const va=fs.readFileSync('crm.html','utf8').match(/letter-spacing:0\.05em">v1\.9\.(\d+)<\/span>/)[1]; r.subidaApp='v1.9.'+(+va+1);
   r.app=await probar('crm.html','v1.9.'+va+'</span>','v1.9.'+(+va+1)+'</span>');
   if(!r.erp.mismaVersion||r.erp.aviso.indexOf('versión nueva del sistema ('+r.subida+')')<0) r.fallas.push('erp');

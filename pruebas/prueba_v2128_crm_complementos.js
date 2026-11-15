@@ -16,12 +16,13 @@ const XREP=`<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante xmlns:cfdi="
   pagosverificar:[{id:'pv1',cobro_id:'cob_p1',cliente:'CLIENTE PV',documento:'Pedido P0001',monto:560,fecha:'2026-11-13',estatus:'por_verificar',vendedor:'EDGAR',cuenta:'BBVA',forma:'Transferencia'}]};
  const errs=[];const vc=new VirtualConsole();vc.on('jsdomError',e=>errs.push(String(e.message).slice(0,300)));
  const dom=new JSDOM(HTML,{runScripts:'dangerously',pretendToBeVisual:true,virtualConsole:vc,url:'https://rlc-hash.github.io/nun-erp/ventas/',
-  beforeParse(w){ w.confirm=()=>true; w.scrollTo=()=>{}; w.open=()=>null;
+  beforeParse(w){ w.confirm=()=>true; w.scrollTo=()=>{}; w.__ab=[]; w.open=u=>{ w.__ab.push(String(u)); return null; };
    w.fetch=async(u,o)=>{ await sleep(2); const b=JSON.parse(o.body); LL.push(b); let r={ok:true};
     if(b.accion==='login') r={ok:true,usuario:{nombre:'Rafa',rol:'admin'},permisos:{}};
     else if(b.accion==='erp_listar') r={ok:true,items:DB[b.tabla]||[]};
     else if(b.accion==='listar_cuentas') r={ok:true,cuentas:[{nombre:'BBVA',activa:true}]};
     else if(b.accion==='archivo_listar') r={ok:true,items:[]};
+    else if(b.accion==='compartir_subir') r={ok:true,url:'https://x/nun?pdf='+(/xml$/.test(b.nombre)?'x':'p').repeat(32)}; // v2.1.29
     else if(b.accion==='cfdi_xml_get') r=b.uuid==='cccc-1'?{ok:true,xml:XREP}:{ok:false};
     return {json:async()=>JSON.parse(JSON.stringify(r))}; }; }});
  const w=dom.window,d=dom.window.document; await sleep(400);
@@ -43,6 +44,8 @@ const XREP=`<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante xmlns:cfdi="
  r.repHtml=String(w._repHtml||'').length; const h=String(w._repHtml||'');
  if(!/Complemento de pago/.test(h)||!/CP1/.test(h)||!/600\.00/.test(h)||!/560\.00/.test(h)||!/only light/.test(h)) r.fallas.push('PDF del complemento');
  r.box=(d.getElementById('repBox')||{}).textContent||''; if(!/Enviar por WhatsApp/.test(r.box)||!/Guardar PDF/.test(r.box)||!/XML/.test(r.box)) r.fallas.push('botones');
+ w.navigator.share=async()=>{ r.compartio=true; }; await w.eval('enviarREP()'); r.repWA=decodeURIComponent(w.__ab.slice(-1)[0]||'');
+ if(!/^https:\/\/wa\.me\/\d*\?text=Complemento de pago CP0001 · CLIENTE PV\n📄 PDF: https:\/\/x\/nun\?pdf=p{32}\n📃 XML: https:\/\/x\/nun\?pdf=x{32}$/.test(r.repWA)||r.compartio) r.fallas.push('whatsapp complemento (ligas)');
  r.nombres=w.eval("[REP.pdf.name, REP.xml.name].join(',')"); if(r.nombres!=='Complemento_CP0001.pdf,Complemento_CP0001.xml') r.fallas.push('nombres');
  // reportar pago del cobro del pedido (factura PPD): sale el aviso
  w.eval("abrirPago('cob_p1')"); await sleep(50); if(!/Es de factura PPD/.test(d.body.textContent)) r.fallas.push('aviso al reportar');

@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v5.00 · Sistema NUN ✓</span>
+    <span class="rwd-version">v5.01 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4420,7 +4420,7 @@ async function nunECPdf(){
   try {
     const nombre = 'Estado_de_cuenta_' + String(_nunEC.cli.razon_social || 'cliente').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) + '_' + nunHoy() + '.pdf'; // v4.92 sin acentos
     const f = await nunHtmlAPdf(nunECHTML(), nombre, [6, 6, 8, 6]); window._nunECArchivo = f;
-    if (box) box.innerHTML = `<button class="btn btn-primary" onclick="nunECWhatsApp()">💬 Enviar por WhatsApp</button> <button class="btn btn-secondary" onclick="nunBajarArchivo(window._nunECArchivo)">📥 Guardar PDF</button>${nunEsTelefono() ? '' : ' <button class="btn btn-secondary" onclick="nunAbrirHTML(nunECHTML(), null)">🖨 Imprimir</button>'}`;
+    await nunWaPanel('ecPdfBox', f, (_nunEC.cli || {}).razon_social || '', nunECWaUrl().txt, { botones: nunEsTelefono() ? '' : ' <button class="btn btn-secondary" onclick="nunAbrirHTML(nunECHTML(), null)">🖨 Imprimir</button>' }); // v5.01
   } catch(e){ if (box) box.innerHTML = `<button class="btn btn-primary" onclick="nunECPdf()">📄 Descargar estado de cuenta</button>`; toast('✗ No se pudo hacer el PDF: ' + e.message + '. Se abre para imprimir.', { type:'error', duration:8000 }); nunAbrirHTML(nunECHTML(), null); }
 }
 // v4.82 — PDF de verdad desde el HTML de impresión (igual que la app de vendedores: html2pdf dentro de un iframe oculto)
@@ -4464,6 +4464,39 @@ function nunECPlanB(f, motivo){
   if (box && !document.getElementById('ecWaLink')) box.insertAdjacentHTML('beforeend', `<div id="ecWaLink" style="margin-top:8px;font-size:12.5px">${motivo ? '⚠ ' + escapeHTML(motivo) + '<br>' : ''}El PDF se guardó en Descargas. <a class="btn btn-primary btn-sm" href="${url}" target="_blank" rel="noopener">💬 Abrir WhatsApp</a> y adjúntalo con 📎 → Documento.</div>`);
   toast((motivo ? motivo + ' · ' : '') + 'PDF guardado en Descargas: toca "Abrir WhatsApp" y adjúntalo con 📎', { type: motivo ? 'error' : 'info', duration: 10000 });
 }
+// v5.01 (Rafa 15 nov: "no me deja enviar por WhatsApp" → NotAllowedError: Permission denied al compartir el archivo).
+// Ya no depende de "compartir" del teléfono: al hacer el PDF se sube al servidor (compartir_subir) y 💬 Enviar por WhatsApp es una liga
+// normal a wa.me (chat del cliente) con el mensaje y la liga del PDF (y del XML en facturas). 📤 Compartir archivo queda de reserva.
+function _nunB64(blob){ return new Promise((ok, mal) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => mal(r.error); r.readAsDataURL(blob); }); }
+async function nunLigaArchivo(f){
+  const r = await api({ accion: 'compartir_subir', nombre: f.name, mime: f.type || 'application/pdf', datos: await _nunB64(f) });
+  if (!r || !r.ok || !r.url) throw new Error((r && r.error) || 'no se pudo subir'); return r.url; }
+function nunWaTel(cliente){ const cl = (State.data.clientes || []).find(c => nunCliExacto(c.razon_social, cliente)) || {};
+  let tel = String(cl.telefono || cl.celular || '').replace(/\D/g, ''); if (tel.length === 10) tel = '52' + tel; return tel.length >= 12 ? tel : ''; }
+const _nunWA = {};
+async function nunWaPanel(boxId, f, cliente, txt, extra){
+  const box = document.getElementById(boxId); if (!box) return;
+  const W = _nunWA[boxId] = { f, cliente, txt, tel: nunWaTel(cliente), urls: [], extra: extra || {} };
+  box.innerHTML = '<span style="font-size:12.5px;color:var(--mute)">⏳ Preparando la liga para WhatsApp…</span>';
+  let err = '';
+  try { W.urls.push(['📄 PDF', await nunLigaArchivo(f)]);
+    if (W.extra.xml) { try { W.urls.push(['📃 XML', await nunLigaArchivo(W.extra.xml)]); } catch(e){} } }
+  catch(e){ err = e.message || String(e); }
+  if (_nunWA[boxId] !== W) return; // se abrió otro
+  const msg = W.txt + W.urls.map(([t, u]) => '\n' + t + ': ' + u).join('');
+  W.wa = 'https://wa.me/' + W.tel + '?text=' + encodeURIComponent(msg);
+  let puede = false; try { puede = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [f] })); } catch(e){}
+  const b = document.getElementById(boxId); if (!b) return;
+  b.innerHTML = (W.urls.length ? `<a class="btn btn-primary" style="text-decoration:none" href="${escapeHTML(W.wa)}" target="_blank" rel="noopener" onclick="setTimeout(()=>toast('Se abrió WhatsApp con el mensaje y la liga del PDF'),300)">💬 Enviar por WhatsApp</a>`
+      : `<div style="font-size:12.5px;color:var(--red);margin-bottom:6px">⚠ No se pudo preparar la liga (${escapeHTML(err)}). Revisa la señal y vuelve a abrir, o usa Compartir / Guardar.</div>`)
+    + (puede ? ` <button class="btn btn-secondary" onclick="nunWaCompartir('${boxId}')">📤 Compartir archivo</button>` : '')
+    + ` <button class="btn btn-secondary" onclick="nunBajarArchivo(_nunWA['${boxId}'].f)">📥 Guardar PDF</button>` + (W.extra.botones || '')
+    + (W.urls.length ? `<div style="font-size:12px;color:var(--mute);margin-top:8px">WhatsApp se abre ${W.tel ? 'en el chat de <b>' + escapeHTML(cliente || '') + '</b>' : 'para que elijas el chat (el cliente no tiene teléfono guardado)'} con el mensaje y la liga para ver el PDF.</div>` : '');
+}
+async function nunWaCompartir(boxId){ const W = _nunWA[boxId]; if (!W) return;
+  try { await navigator.share({ files: [W.f], text: W.txt }); }
+  catch(e){ if (e && e.name === 'AbortError') return; nunBajarArchivo(W.f); toast('Tu teléfono no dejó compartir el archivo (' + ((e && e.name) || e) + '). Se guardó en Descargas; usa 💬 Enviar por WhatsApp.', { type:'error', duration:9000 }); } }
+window.nunWaCompartir = nunWaCompartir; window.nunWaPanel = nunWaPanel;
 async function nunECWhatsApp(){
   const f = window._nunECArchivo;
   if (!f) { toast('Primero toca 📄 Descargar estado de cuenta (todavía no está el PDF)', { type:'error' }); return; }
@@ -10030,7 +10063,8 @@ async function nunDocWhatsApp(tabla, id){
     const html = imprimirDocumento(tabla, doc.id, true);
     const f = await nunHtmlAPdf(html, nombreDoc + '_' + folio.replace(/[^\w-]/g, '') + '.pdf', [8, 8, 10, 8]);
     window._nunDocWA = { f, tabla, id: doc.id, txt: nombreDoc.replace('Cotizacion', 'Cotización').replace('Remision', 'Remisión') + ' ' + folio + ' de ' + (doc.cliente||'') + ' por ' + fmtFull(+doc.total||0) + '.', cliente: doc.cliente };
-    const box = document.getElementById('docWABox'); if (box) box.innerHTML = `<button class="btn btn-primary" onclick="nunDocWAEnviar()">💬 Enviar por WhatsApp</button> <button class="btn btn-secondary" onclick="nunBajarArchivo(window._nunDocWA.f)">📥 Guardar PDF</button>`;
+    let xml = null; if (tabla === 'facturas' && doc.uuid_sat) { try { const x = nunXmlCache(doc.uuid_sat) || await nunXmlDe(doc.uuid_sat); if (x) xml = new File([x], 'Factura_' + folio.replace(/[^\w-]/g, '') + '.xml', { type: 'application/xml' }); } catch(e){} }
+    await nunWaPanel('docWABox', f, doc.cliente || '', window._nunDocWA.txt, { xml }); // v5.01
   } catch(e){ const box = document.getElementById('docWABox'); if (box) box.innerHTML = '✗ No se pudo hacer el PDF (' + escapeHTML(e.message) + '). Usa 📄 PDF para imprimirlo.'; }
 }
 function nunDocWAUrl(){ const W = window._nunDocWA || {}, cl = (State.data.clientes||[]).find(c => nunCliExacto(c.razon_social, W.cliente)) || {};

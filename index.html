@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v5.02 · Sistema NUN ✓</span>
+    <span class="rwd-version">v5.03 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -2214,7 +2214,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
 <div class="dialog-backdrop" id="confirmBackdrop">
   <div class="dialog">
     <h3 id="confirmTitle">¿Confirmar?</h3>
-    <p id="confirmMsg"></p>
+    <p id="confirmMsg" style="white-space:pre-line"></p>
     <div class="dialog-actions">
       <button class="btn btn-secondary" onclick="confirmResolve(false)">Cancelar</button>
       <button class="btn btn-primary" id="confirmOk" onclick="confirmResolve(true)">Confirmar</button>
@@ -2922,12 +2922,30 @@ function abrirDrawer(opts) {
   $('#drawer').classList.toggle('xwide', !!opts.xwide); // v4.21 — casi pantalla completa (ficha del cliente)
   $('#drawerBackdrop').classList.add('show');
   $('#drawer').classList.add('show');
+  try { const t = nunZArriba($('#drawer')); if (t >= 90) { $('#drawerBackdrop').style.zIndex = t + 1; $('#drawer').style.zIndex = t + 2; } } catch(e){} // v5.03 la ficha sale encima de la ventana abierta
 }
 function cerrarDrawer() {
   $('#drawer').classList.remove('show');
   $('#drawerBackdrop').classList.remove('show');
+  try { $('#drawer').style.zIndex = ''; $('#drawerBackdrop').style.zIndex = ''; } catch(e){}
   drawerCtx = null;
 }
+// v5.03 (auditoría 16 nov) — CAPAS: toda ventana nueva (id "modal…" o .modal-backdrop) y la ficha salen ENCIMA de lo que ya está abierto.
+// Antes cada ventana tenía su número fijo (120–160 o 9000) y una que se abría desde otra más alta quedaba escondida detrás (parecía trabado).
+// Las preguntas (confirmDialog), los avisos y el letrero "⏳" van aparte, siempre encima de todo (z ≥ 99999), y no cuentan aquí.
+function nunZArriba(excepto){
+  let z = 0;
+  document.querySelectorAll('body > *').forEach(el => { if (el === excepto) return;
+    const cs = getComputedStyle(el); if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden') return;
+    if (el.id === 'drawer' && !el.classList.contains('show')) return; if (el.id === 'drawerBackdrop' && !el.classList.contains('show')) return;
+    const zi = parseInt(cs.zIndex, 10) || 0; if (zi < 99000) z = Math.max(z, zi); });
+  return z;
+}
+try { new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => {
+  if (n.nodeType !== 1 || n.parentNode !== document.body) return;
+  if (!/^modal/.test(n.id || '') && !(n.classList && n.classList.contains('modal-backdrop'))) return;
+  const top = nunZArriba(n), z = parseInt(getComputedStyle(n).zIndex, 10) || 0; if (z <= top) n.style.zIndex = top + 1;
+}))).observe(document.body, { childList: true }); } catch(e){}
 function drawerCambiarTab(key) {
   if (!drawerCtx || !drawerCtx.tabs) return;
   $$('.drawer-tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === key));
@@ -8877,6 +8895,26 @@ async function nunGuardarSeguro(tabla, item, intentos){
   return false;
 }
 // v3.80 — al cancelar una remisión/factura su cobro también se cancela (antes el saldo seguía abierto)
+// v5.03 (auditoría 16 nov: R0031 se canceló con $9,000 cobrados para hacer pedido + factura nuevos → el pago y la salida de inventario quedaron
+// DOS veces). Antes de cancelar una remisión o factura cuyo cobro ya tiene pagos: remisión/factura sin timbrar = NO se deja (se explica qué hacer);
+// factura timbrada = aviso fuerte (cancelar ante el SAT a veces es necesario, ej. sustitución) y hay que confirmar que los pagos se van a pasar.
+async function nunPuedeCancelarDoc(tabla, doc){
+  if (tabla !== 'remisiones' && tabla !== 'facturas') return true;
+  if (tabla === 'facturas' && /^(R\d{4,}|REM )/.test(String(doc.pedido_origen||''))) return true; // su cobro es el de la remisión
+  if (tabla === 'facturas' && /Cobro en [^·(]*\(id /.test(String(doc.notas||''))) return true; // se cobra en el pedido: el cobro sigue vivo con el pedido
+  let cob = State.data.cobranza || []; try { cob = await nunListarFresco('cobranza'); } catch(e){}
+  const c = nunCobranzaDeDoc(doc, cob); if (!c || /cancel/i.test(c.estatus||'')) return true;
+  const pagado = +c.cobrado || 0; if (pagado <= 0.005) return true;
+  const nombre = (tabla === 'remisiones' ? 'la remisión ' : 'la factura ') + (doc.folio||'');
+  const queHacer = 'Si es para FACTURARLA: no la canceles, usa 🧾 Facturar remisión (el pago se queda donde está).\n' +
+    'Si de verdad se cancela (devolución): primero cancela o pasa su pago en Cobranza → ' + (c.numero||'') + ' → Pagos. Ojo: la mercancía no regresa sola al inventario.';
+  if (tabla === 'remisiones' || !doc.uuid_sat) {
+    await confirmDialog({ title:'⚠ No se puede cancelar ' + nombre, message: nombre.charAt(0).toUpperCase() + nombre.slice(1) + ' ya tiene ' + fmtFull(pagado) + ' cobrados. Si se cancela, ese pago y la salida de inventario se quedan y se cuentan dos veces si haces otro documento.\n\n' + queHacer, ok:'Entendido' });
+    return false;
+  }
+  return await confirmDialog({ title:'⚠ ' + nombre.charAt(0).toUpperCase() + nombre.slice(1) + ' ya tiene ' + fmtFull(pagado) + ' cobrados', message:'Si la cancelas ante el SAT, su pago se queda en Cobranza (' + (c.numero||'') + ') y lo tienes que pasar a la factura nueva o cancelarlo; si no, se cuenta dos veces.\n\n¿Seguro que quieres cancelarla?', ok:'Sí, cancelar ante el SAT', danger:true });
+}
+window.nunPuedeCancelarDoc = nunPuedeCancelarDoc;
 async function nunCancelarCobranzaDoc(tabla, doc){
   if (tabla !== 'remisiones' && tabla !== 'facturas') return;
   if (tabla === 'facturas' && /^(R\d{4,}|REM )/.test(String(doc.pedido_origen||''))) return; // el cobro es de la remisión: la venta sigue viva
@@ -10456,6 +10494,7 @@ async function guardarDoc(tabla, id, opts) {
   // v3.80 — factura ya timbrada: no se cambian productos, totales, cliente ni estatus (para cancelar: "Cancelar ante SAT").
   // Solo se guardan notas/vendedor, y nunca se pierden el "Facturama ID" ni los complementos (REP) de las notas.
   const _previo = id ? (State.data[tabla]||[]).find(d => String(d.id) === String(id)) : null;
+  if (_previo && /cancel/i.test(item.estatus||'') && !/cancel/i.test(_previo.estatus||'')) { nunOcupado(''); if (!(await nunPuedeCancelarDoc(tabla, _previo))) return; nunOcupado('Guardando…'); } // v5.03
   if (_previo && /^(pedidos|remisiones|facturas|cotizaciones)$/.test(tabla) && _previo.items_json === undefined) { toast('Espera un momento: todavía no terminan de cargar los productos de este documento. Vuelve a abrirlo en unos segundos.', { type:'error', duration:8000 }); return; } // v4.05 — nunca guardar sin sus productos
   if (_previo && (tabla === 'facturas' || tabla === 'notascredito') && _previo.uuid_sat) { // v3.81 también notas de crédito timbradas
     let _fresco = _previo; try { _fresco = (await nunListarFresco(tabla)).find(d => String(d.id) === String(id)) || _previo; } catch(e){}
@@ -10581,6 +10620,7 @@ async function nunLiberarApartado(idPedido){
 async function eliminarDoc(tabla, id) {
   const doc = (State.data[tabla]||[]).find(d => String(d.id) === String(id)) || { id };
   if (doc.uuid_sat) { toast('Es una factura timbrada: usa "Cancelar ante SAT"', { type:'error', duration:6000 }); return; }
+  if (!(await nunPuedeCancelarDoc(tabla, doc))) return; // v5.03
   const ok = await confirmDialog({ title:'¿Cancelar documento?', message:'Se marca como CANCELADO (no se borra) y su cobro en Cobranza también se cancela.', ok:'Cancelar documento', danger:true });
   if (!ok) return;
   const est = /^(remisiones|facturas|notascredito)$/.test(tabla) ? 'cancelada' : 'cancelado';
@@ -13572,10 +13612,15 @@ function nunCuentasRellenar(){
     sel.insertAdjacentHTML('beforeend', (State.data.cuentas||[]).map(c => `<option value="${escapeHTML(c.nombre)}">${escapeHTML(c.nombre)}</option>`).join('')); if (v) sel.value = v; });
 }
 function nunCuentasSiFaltan(){ if (!(State.data.cuentas||[]).length) setTimeout(() => cargarCuentas(), 50); }
+// v5.03 (auditoría: a quien no es administrador el servidor le negaba usuarios/bitácora en CADA arranque, tardando hasta 7 s) — solo se piden si eres
+// administrador, y si el servidor dice "No autorizado" ya no se vuelven a pedir en esa sesión.
+function _nunNoAutorizado(k, d){ if (d && !d.ok && /no autorizado/i.test(String(d.error||''))) { try { sessionStorage.setItem('nun_noaut_' + k, '1'); } catch(e){} } }
+function _nunYaNegado(k){ try { return sessionStorage.getItem('nun_noaut_' + k) === '1'; } catch(e){ return false; } }
 async function cargarUsuarios() {
+  if (!nunEsAdmin() || _nunYaNegado('usuarios')) return;
   try {
     const d = await api({ accion:'listar_usuarios', codigo_admin:State.sesion.codigo });
-    if (d.ok) State.data.usuarios = d.usuarios || [];
+    if (d.ok) State.data.usuarios = d.usuarios || []; else _nunNoAutorizado('usuarios', d);
   } catch(e){}
 }
 async function cargarEmpresaConfig() {
@@ -13588,9 +13633,10 @@ async function cargarEmpresaConfig() {
   } catch(e){}
 }
 async function cargarBitacoraData() {
+  if (!nunEsAdmin() || _nunYaNegado('bitacora')) return; // v5.03
   try {
     const d = await api({ accion:'listar_bitacora', codigo_admin:State.sesion.codigo });
-    if (d.ok) State.data.bitacora = d.items || [];
+    if (d.ok) State.data.bitacora = d.items || []; else _nunNoAutorizado('bitacora', d);
   } catch(e){}
 }
 
@@ -17842,6 +17888,7 @@ async function facturaCancelar(idFactura, tabla){
   if (!doc) return;
   if (!doc.uuid_sat){ toast('Esta factura no está timbrada', { type:'error' }); return; }
   if (doc.estatus === 'cancelada'){ toast('Esta factura ya está cancelada', { type:'info' }); return; }
+  if (!(await nunPuedeCancelarDoc(tabla, doc))) return; // v5.03
   // Motivo de cancelación (catálogo SAT)
   const motivo = prompt(
     'Motivo de cancelación (SAT):\n\n'+

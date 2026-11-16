@@ -378,6 +378,13 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   otra del cliente con el mismo total en 45 días pregunta "¿Es otra venta?" (`nunDocParecido`); esa pregunta salía DETRÁS del letrero "⏳ Creando…" (`nunOcupado`,
   z 99999) y se trababa sin llegar al servidor. Ahora `.dialog-backdrop` z 100050 y toasts z 100100 (encima de todo) y el letrero se pone después de preguntar.
   Prueba `prueba_v502_factura_pregunta_visible.js` (Playwright; con la versión anterior reproduce la traba).
+- **v5.03 (16 nov, auditoría completa pedida por Rafa)**: (1) CAPAS: toda ventana nueva ("modal…" o .modal-backdrop, MutationObserver) y la ficha (abrirDrawer)
+  salen ENCIMA de lo abierto (`nunZArriba`); antes una ventana/ficha abierta desde otra de z 9000 quedaba escondida. Preguntas/avisos/letrero van aparte (≥99999).
+  (2) No se cancela una remisión (ni factura sin timbrar) cuyo cobro ya tiene pagos (`nunPuedeCancelarDoc` en eliminarDoc, guardarDoc y facturaCancelar): explica
+  "para facturarla usa 🧾 Facturar remisión; si se cancela, primero pasa/cancela su pago"; factura timbrada con pagos = pregunta fuerte antes de cancelar ante el SAT.
+  Caso real: R0031 cancelada con $9,000 cobrados + P0083/FT0020 nuevos → pago e inventario contados dos veces. (3) usuarios/bitácora solo se piden si eres
+  administrador (a Yazmín el servidor se los negaba en cada arranque, hasta 7 s). Recorrido con datos reales (52 pantallas, 200 fichas): 0 errores.
+  Pruebas `prueba_v503_capas.js` (Playwright), `prueba_v503_no_cancelar_con_pagos.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

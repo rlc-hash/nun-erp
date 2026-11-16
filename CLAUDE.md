@@ -374,6 +374,10 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - App v2.1.30 (15 nov, auditoría de Edgar): el estado de cuenta de la app contaba DOS veces una factura que está en 2 pedidos (pedido_origen "1171, 1338");
   ahora `datosEC` la cuenta en el pedido más viejo y el otro dice "comparte factura: el saldo de X va en Y" (igual que el sistema). Prueba `prueba_v2130_crm_ec_factura_compartida.js`.
   Las pruebas viejas aceptan ya v5.xx y v2.1.3x en el letrero.
+- v5.02 (16 nov, Yazmín: "la factura de Miguel Ángel se quedó en ese estatus"): al hacer factura/remisión desde el pedido (`nunDesdePedidosCrear`), si ya hay
+  otra del cliente con el mismo total en 45 días pregunta "¿Es otra venta?" (`nunDocParecido`); esa pregunta salía DETRÁS del letrero "⏳ Creando…" (`nunOcupado`,
+  z 99999) y se trababa sin llegar al servidor. Ahora `.dialog-backdrop` z 100050 y toasts z 100100 (encima de todo) y el letrero se pone después de preguntar.
+  Prueba `prueba_v502_factura_pregunta_visible.js` (Playwright; con la versión anterior reproduce la traba).
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

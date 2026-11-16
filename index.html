@@ -842,7 +842,7 @@ body.sidenav-collapsed .rwd-sidenav-toggle svg {
 
 /* === TOAST === */
 .toast-container {
-  position:fixed; bottom:24px; right:24px; z-index:10100; /* v4.97 los avisos encima de todo */
+  position:fixed; bottom:24px; right:24px; z-index:100100; /* v4.97/v5.02 los avisos encima de todo (también del letrero de espera) */
   display:flex; flex-direction:column; gap:8px; pointer-events:none;
 }
 .toast {
@@ -921,7 +921,7 @@ body.sidenav-collapsed .rwd-sidenav-toggle svg {
 .dialog-backdrop {
   position:fixed; inset:0; background:rgba(10,12,15,0.32);
   display:none; align-items:center; justify-content:center; padding:20px;
-  z-index:10050; /* v4.97 encima de las ventanas (z 9000): antes "¿Registrar este pago?" salía detrás y parecía que no hacía nada */
+  z-index:100050; /* v5.02 encima también del letrero "⏳ …" (nunOcupado z 99999): la pregunta salía detrás y se quedaba trabado · v4.97 encima de las ventanas (z 9000): antes "¿Registrar este pago?" salía detrás y parecía que no hacía nada */
 }
 .dialog-backdrop.show { display:flex; }
 .dialog {
@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v5.01 · Sistema NUN ✓</span>
+    <span class="rwd-version">v5.02 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -17643,7 +17643,7 @@ async function nunDesdePedidosCrear(dest){
     if (!_facA) errs.push('Escribe a nombre de quién va la factura');
     else if (!(State.data.clientes||[]).some(c => nunMismoCliente(c.razon_social, _facA) && String(c.razon_social||'').trim().toUpperCase() === _facA.toUpperCase())) errs.push(_facA + ' no está dado de alta en Clientes (sin su RFC no se puede timbrar)'); }
   if (errs.length) { err.textContent = '⚠ ' + errs.join('\n⚠ '); return; }
-  btn.disabled = true; btn.textContent = 'Creando…'; nunOcupado('Creando ' + (destino === 'facturas' ? 'factura' : 'remisión') + '…');
+  btn.disabled = true; btn.textContent = 'Creando…';
   try {
     const sinIva = destino === 'remisiones' && nunEsVerdad(peds[0].sin_iva);
     const t = nunCalcDoc(lineas, sinIva);
@@ -17657,6 +17657,7 @@ async function nunDesdePedidosCrear(dest){
       if (_dup && !(await confirmDialog({ title:'¿Es otra venta?', message:'Ya existe ' + (destino === 'facturas' ? 'la factura ' : 'la remisión ') + _dup.folio + ' de ' + (_dup.cliente||'') + ' por ' + fmtFull(_dup.total) + ' del ' + fmtFecha(_dup.fecha) + (_dup.pedido_origen ? ' (pedido ' + _dup.pedido_origen + ')' : ' (sin pedido)') + '. Si es la misma, cancela y usa "🔗 Ligar remisiones" en el pedido. ¿Crear otra de todos modos?', ok:'Sí, es otra venta' }))) {
         nunOcupado(''); btn.disabled = false; btn.textContent = btn.id === 'dpBoton' ? '🧾 Hacer factura' : '📦 Hacer remisión'; return; }
     }
+    nunOcupado('Creando ' + (destino === 'facturas' ? 'factura' : 'remisión') + '…'); // v5.02 después de la pregunta "¿Es otra venta?" (antes la tapaba y se quedaba trabado)
     // v4.14 — si el pedido ya es venta (tiene su cobro), la factura NO crea otro cobro: se cobra en el del pedido
     if (destino === 'remisiones' && peds.some(p => !nunPedidoViejoRemisionable(p))) throw new Error('Este pedido no lleva remisión (borrador sin confirmar, cancelado o venta directa)'); // v4.30
     // v4.41 — pedido del flujo nuevo con su cobro: la remisión se lleva ese cobro (no se cobra doble)

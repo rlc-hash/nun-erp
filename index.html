@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v5.03 · Sistema NUN ✓</span>
+    <span class="rwd-version">v5.04 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -4465,7 +4465,8 @@ async function _nunHtmlAPdf(html, nombre, margen){
     const op = w.JSON.parse(JSON.stringify({ margin: margen || [12, 14, 12, 14], image: { type: 'jpeg', quality: 0.95 }, html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
       jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' }, pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', '.totales-wrap', '.party', '.notas'] } }));
     const blob = await w.html2pdf().set(op).from(doc.body).outputPdf('blob');
-    return new File([blob], nombre, { type: 'application/pdf' });
+    const bytes = new Uint8Array(await blob.arrayBuffer()); // v5.04 copia en ESTA página: el archivo hecho en la ventanita oculta (que se cierra) el teléfono lo rechazaba al compartir ("Permission denied")
+    return new File([bytes], nombre, { type: 'application/pdf' });
   } finally { f.remove(); }
 }
 function nunBajarArchivo(f){ if (!f) return; const u = URL.createObjectURL(f), a = document.createElement('a'); a.href = u; a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 60000); toast('📥 ' + f.name + ' · revisa Descargas'); }
@@ -4492,28 +4493,26 @@ async function nunLigaArchivo(f){
 function nunWaTel(cliente){ const cl = (State.data.clientes || []).find(c => nunCliExacto(c.razon_social, cliente)) || {};
   let tel = String(cl.telefono || cl.celular || '').replace(/\D/g, ''); if (tel.length === 10) tel = '52' + tel; return tel.length >= 12 ? tel : ''; }
 const _nunWA = {};
+// v5.04 (Rafa 17 nov: "quiero que se mande el PDF por WhatsApp, no un link") — 💬 Enviar por WhatsApp comparte el ARCHIVO PDF (eliges WhatsApp y el chat).
+// Si el teléfono no deja compartir: el PDF se guarda en Descargas y sale 💬 Abrir chat de WhatsApp para adjuntarlo con 📎 → Documento. 📥 Guardar PDF solo lo baja.
+// (La liga de v5.01 ya no se usa.)
 async function nunWaPanel(boxId, f, cliente, txt, extra){
   const box = document.getElementById(boxId); if (!box) return;
-  const W = _nunWA[boxId] = { f, cliente, txt, tel: nunWaTel(cliente), urls: [], extra: extra || {} };
-  box.innerHTML = '<span style="font-size:12.5px;color:var(--mute)">⏳ Preparando la liga para WhatsApp…</span>';
-  let err = '';
-  try { W.urls.push(['📄 PDF', await nunLigaArchivo(f)]);
-    if (W.extra.xml) { try { W.urls.push(['📃 XML', await nunLigaArchivo(W.extra.xml)]); } catch(e){} } }
-  catch(e){ err = e.message || String(e); }
-  if (_nunWA[boxId] !== W) return; // se abrió otro
-  const msg = W.txt + W.urls.map(([t, u]) => '\n' + t + ': ' + u).join('');
-  W.wa = 'https://wa.me/' + W.tel + '?text=' + encodeURIComponent(msg);
-  let puede = false; try { puede = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [f] })); } catch(e){}
-  const b = document.getElementById(boxId); if (!b) return;
-  b.innerHTML = (W.urls.length ? `<a class="btn btn-primary" style="text-decoration:none" href="${escapeHTML(W.wa)}" target="_blank" rel="noopener" onclick="setTimeout(()=>toast('Se abrió WhatsApp con el mensaje y la liga del PDF'),300)">💬 Enviar por WhatsApp</a>`
-      : `<div style="font-size:12.5px;color:var(--red);margin-bottom:6px">⚠ No se pudo preparar la liga (${escapeHTML(err)}). Revisa la señal y vuelve a abrir, o usa Compartir / Guardar.</div>`)
-    + (puede ? ` <button class="btn btn-secondary" onclick="nunWaCompartir('${boxId}')">📤 Compartir archivo</button>` : '')
+  const W = _nunWA[boxId] = { f, cliente, txt, tel: nunWaTel(cliente), extra: extra || {} };
+  W.wa = 'https://wa.me/' + W.tel + '?text=' + encodeURIComponent(txt);
+  box.innerHTML = `<button class="btn btn-primary" onclick="nunWaCompartir('${boxId}')">💬 Enviar por WhatsApp</button>`
     + ` <button class="btn btn-secondary" onclick="nunBajarArchivo(_nunWA['${boxId}'].f)">📥 Guardar PDF</button>` + (W.extra.botones || '')
-    + (W.urls.length ? `<div style="font-size:12px;color:var(--mute);margin-top:8px">WhatsApp se abre ${W.tel ? 'en el chat de <b>' + escapeHTML(cliente || '') + '</b>' : 'para que elijas el chat (el cliente no tiene teléfono guardado)'} con el mensaje y la liga para ver el PDF.</div>` : '');
+    + `<div id="${boxId}_wa" style="font-size:12px;color:var(--mute);margin-top:8px">Se manda el archivo PDF${W.extra.xml ? ' (el XML se guarda en Descargas para adjuntarlo)' : ''}: elige WhatsApp y el chat.</div>`;
 }
 async function nunWaCompartir(boxId){ const W = _nunWA[boxId]; if (!W) return;
-  try { await navigator.share({ files: [W.f], text: W.txt }); }
-  catch(e){ if (e && e.name === 'AbortError') return; nunBajarArchivo(W.f); toast('Tu teléfono no dejó compartir el archivo (' + ((e && e.name) || e) + '). Se guardó en Descargas; usa 💬 Enviar por WhatsApp.', { type:'error', duration:9000 }); } }
+  if (W.extra.xml) { try { nunBajarArchivo(W.extra.xml); } catch(e){} } // Chrome no deja compartir .xml: se guarda (no gasta el permiso de compartir)
+  let puede = false; try { puede = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [W.f] })); } catch(e){}
+  const planB = motivo => { try { nunBajarArchivo(W.f); } catch(e){} const el = document.getElementById(boxId + '_wa');
+    if (el) el.innerHTML = '⚠ ' + escapeHTML(motivo) + '. El PDF se guardó en Descargas. <a class="btn btn-primary btn-sm" style="text-decoration:none" href="' + escapeHTML(W.wa) + '" target="_blank" rel="noopener">💬 Abrir chat de WhatsApp</a> y adjúntalo con 📎 → Documento.'; };
+  if (!puede) { if (nunEsTelefono()) planB('Este navegador no puede compartir archivos'); else { nunBajarArchivo(W.f); window.open(W.wa, '_blank'); toast('Se bajó el PDF: en WhatsApp adjúntalo con 📎', { duration:7000 }); } return; }
+  try { await navigator.share({ files: [W.f] }); }
+  catch(e){ if (e && e.name === 'AbortError') return; planB('Tu teléfono no dejó compartir el PDF (' + ((e && e.name) || e) + ')'); }
+}
 window.nunWaCompartir = nunWaCompartir; window.nunWaPanel = nunWaPanel;
 async function nunECWhatsApp(){
   const f = window._nunECArchivo;

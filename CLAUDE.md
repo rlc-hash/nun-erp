@@ -385,6 +385,12 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   Caso real: R0031 cancelada con $9,000 cobrados + P0083/FT0020 nuevos → pago e inventario contados dos veces. (3) usuarios/bitácora solo se piden si eres
   administrador (a Yazmín el servidor se los negaba en cada arranque, hasta 7 s). Recorrido con datos reales (52 pantallas, 200 fichas): 0 errores.
   Pruebas `prueba_v503_capas.js` (Playwright), `prueba_v503_no_cancelar_con_pagos.js`.
+- **v5.04 / app v2.1.31 (17 nov, Rafa: "que se mande el PDF por WhatsApp, no un link; Guardar que guarde el PDF")**: se QUITA la liga de v5.01 (el servidor
+  conserva `compartir_subir`, ya no se usa). 💬 Enviar por WhatsApp comparte el ARCHIVO PDF solo (navigator.share {files}, sin texto); el XML se guarda en
+  Descargas. Si el teléfono no deja: PDF a Descargas + botón 💬 Abrir chat de WhatsApp (wa.me del cliente). En compu: baja el PDF y abre WhatsApp.
+  Causa probable del "Permission denied": el PDF se hacía en un iframe que se borra y el archivo quedaba ligado a él; ahora `nunHtmlAPdf`/`htmlAPdf` copian
+  los bytes a la página (`new File([Uint8Array], …)`). ERP: `nunWaPanel`/`nunWaCompartir`; app: `compartirPDF`/`planBWA` en enviarWAYa, ecEnviar, enviarREP.
+  Pruebas `prueba_v485_estado_cuenta_whatsapp.js`, `prueba_v496_doc_whatsapp.js` (Playwright), `prueba_v215_crm_xml_qr.js`, `prueba_v2117…`, `prueba_v2128…`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

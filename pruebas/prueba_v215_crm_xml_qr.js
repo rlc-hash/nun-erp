@@ -19,7 +19,6 @@ const XML='<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante xmlns:cfdi="h
     if(b.accion==='login') r={ok:true,usuario:{nombre:'Edgar',rol:'vendedor',vendedor_asignado:'Edgar'},permisos:{agregar_pedidos:true,ver_todos_clientes:true}};
     else if(b.accion==='erp_listar') r={ok:true,items:DB[b.tabla]||[]};
     else if(b.accion==='listar_cuentas') r={ok:true,cuentas:[]};
-    else if(b.accion==='compartir_subir') r={ok:true,url:'https://x/nun?pdf='+(/xml$/.test(b.nombre)?'x':'p').repeat(32)}; // v2.1.29
     else if(b.accion==='cfdi_xml_get') r=b.uuid===UUID.toUpperCase()?{ok:true,xml:XML}:{ok:false,error:'no'}; // como Bind: solo en mayúsculas
     return {json:async()=>JSON.parse(JSON.stringify(r))}; }; }});
  const w=dom.window,d=w.document; await sleep(400);
@@ -40,13 +39,16 @@ const XML='<?xml version="1.0" encoding="UTF-8"?><cfdi:Comprobante xmlns:cfdi="h
  // v2.1.6 — Enviar por WhatsApp
  w.__bajadas.length=0; await w.eval("cerrarHoja(); pdfArchivo=async()=>new File(['%PDF'],'Factura_FT0001.pdf',{type:'application/pdf'}); enviarWA('facturas','f1')"); await sleep(150);
  r.wa={pdfSt:d.getElementById('wa_pdf_st').textContent, xmlSt:d.getElementById('wa_xml_st').textContent, txt:d.getElementById('wa_txt').checked};
- // v2.1.29 — ya no comparte archivos: suben al servidor y WhatsApp se abre con el mensaje y las LIGAS del PDF y XML (al chat del cliente)
- const subidos=env.filter(b=>b.accion==='compartir_subir').map(b=>b.nombre+'|'+b.mime); r.wa.subidos=subidos;
- if(subidos.join()!=='Factura_FT0001.pdf|application/pdf,Factura_FT0001.xml|application/xml') r.fallas.push('sube PDF y XML');
- if(!/Listo ✓/.test(d.getElementById('wa_pdf_st').textContent)||!/Listo ✓/.test(d.getElementById('wa_xml_st').textContent)) r.fallas.push('liga lista');
- let comp=null; w.navigator.canShare=()=>true; w.navigator.share=async x=>{ comp=x; };
- const n0=w.__abiertas.length; w.eval("enviarWAYa('facturas','f1')"); const wa=w.__abiertas[n0]; r.wa.abre=wa&&decodeURIComponent(wa.u);
- if(!wa||!/^https:\/\/wa\.me\/525512345678\?text=\*Factura FT0001\* · NUN/.test(r.wa.abre)||!r.wa.abre.includes('📄 PDF: https://x/nun?pdf='+'p'.repeat(32))||!r.wa.abre.includes('📃 XML: https://x/nun?pdf='+'x'.repeat(32))||comp) r.fallas.push('waLigas');
+ // v2.1.31 (Rafa: "que se mande el PDF, no un link") — se comparte el ARCHIVO PDF; el XML se guarda en Descargas (Chrome no deja compartir .xml); nada se sube
+ r.wa.subidos=env.filter(b=>b.accion==='compartir_subir').length; if(r.wa.subidos) r.fallas.push('no se sube nada (sin liga)');
+ let comp=null; w.navigator.canShare=()=>true; w.navigator.share=async x=>{ comp={files:x.files.map(f=>f.name),texto:!!x.text}; };
+ const n0=w.__abiertas.length; await w.eval("enviarWAYa('facturas','f1')"); await sleep(50); r.wa.compartido=comp; r.wa.xmlBajado=w.__bajadas.some(b=>b.name==='Factura_FT0001.xml');
+ if(!comp||comp.files.join()!=='Factura_FT0001.pdf'||comp.texto||!r.wa.xmlBajado||w.__abiertas.length!==n0) r.fallas.push('waArchivos');
+ // si el teléfono no deja: Descargas + botón para abrir el chat
+ await w.eval("enviarWA('facturas','f1')"); await sleep(150); w.navigator.share=async()=>{ throw Object.assign(new Error('Permission denied'),{name:'NotAllowedError'}); };
+ w.__bajadas.length=0; await w.eval("enviarWAYa('facturas','f1')"); await sleep(50);
+ r.wa.planB=(d.getElementById('hoja')||{}).textContent||''; if(!/no dejó compartir el PDF \(NotAllowedError\)/.test(r.wa.planB)||!/Abrir chat de WhatsApp/.test(r.wa.planB)||!w.__bajadas.some(b=>b.name==='Factura_FT0001.pdf')) r.fallas.push('plan B');
+ w.navigator.share=async x=>{ comp=x; };
  // solo mensaje: abre WhatsApp con el teléfono del cliente
  await w.eval("enviarWA('facturas','f1')"); await sleep(150); d.getElementById('wa_pdf').checked=false; d.getElementById('wa_xml').checked=false; d.getElementById('wa_txt').checked=true;
  const n=w.__abiertas.length; await w.eval("enviarWAYa('facturas','f1')"); const ab=w.__abiertas[n]; r.wa.soloTexto=ab&&ab.u.slice(0,40);

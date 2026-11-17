@@ -1,6 +1,6 @@
 // v4.96 (Rafa 12 nov) — 💬 WhatsApp en la ficha de cotizaciones y pedidos: se hace el PDF del documento (el mismo de 📄 PDF).
-// v5.01: el PDF se sube (compartir_subir) y 💬 Enviar por WhatsApp es liga a wa.me con el cliente, el mensaje y la liga del PDF; 📤 Compartir archivo
-// de reserva (si el teléfono no deja → Descargas). El PDF ya es todo blanco con líneas (sin bloques negros) y "juego" sale como "set".
+// v5.04 (Rafa: "que se mande el PDF, no un link"): 💬 Enviar por WhatsApp comparte el ARCHIVO PDF (nada se sube al servidor); si el teléfono no deja →
+// Descargas + botón 💬 Abrir chat de WhatsApp (wa.me con el teléfono del cliente). El PDF ya es todo blanco con líneas (sin bloques negros) y "juego" sale como "set".
 // Navegador real (Playwright), generador de PDF simulado, datos inventados, sin red.
 const { chromium, devices } = require('playwright'); const path = require('path');
 const FAKE_PDF = 'window.html2pdf=function(){const o={set(){return o},from(){return o},outputPdf(){return Promise.resolve(new Blob(["%PDF-1.4 prueba"],{type:"application/pdf"}))}};return o};';
@@ -23,11 +23,10 @@ async function correr(b, falla){
   const r = { errs };
   for (const [t, id] of [['cotizaciones', 'q1'], ['pedidos', 'p1']]) {
     await p.evaluate(([t, id]) => abrirDoc(t, id), [t, id]); await p.waitForTimeout(400);
-    await p.click('#drawer button:has-text("💬 WhatsApp")'); await p.waitForSelector('#docWABox a:has-text("Enviar por WhatsApp")', { timeout: 15000 });
-    const href = await p.$eval('#docWABox a.btn', a => a.href);
-    const [pg] = await Promise.all([ctx.waitForEvent('page', { timeout: 5000 }).catch(() => null), p.click('#docWABox a.btn')]);
-    const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 4000 }).catch(() => null), p.click('#docWABox button:has-text("Compartir archivo")')]); await p.waitForTimeout(300);
-    r[t] = { href: decodeURIComponent(href), abrio: !!pg, comp: await p.evaluate(() => window.__comp.slice(-1)[0] || null), bajo: !!dl, subidos: sub.slice() };
+    await p.click('#drawer button:has-text("💬 WhatsApp")'); await p.waitForSelector('#docWABox button:has-text("Enviar por WhatsApp")', { timeout: 15000 });
+    const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 4000 }).catch(() => null), p.click('#docWABox button:has-text("Enviar por WhatsApp")')]); await p.waitForTimeout(300);
+    r[t] = { comp: await p.evaluate(() => window.__comp.slice(-1)[0] || null), bajo: !!dl, subidos: sub.slice(),
+      planB: await p.evaluate(() => { const a = document.querySelector('#docWABox_wa a'); return a ? decodeURIComponent(a.href) : null; }) };
     await p.evaluate(() => { const m = document.getElementById('modalDocWA'); if (m) m.remove(); cerrarDrawer(); });
   }
   r.html = await p.evaluate(() => imprimirDocumento('pedidos', 'p1', true));
@@ -39,11 +38,10 @@ async function correr(b, falla){
     b = await chromium.launch();
     const ok = await correr(b, false), no = await correr(b, true);
     r.ok = { cot: ok.cotizaciones, ped: ok.pedidos }; r.no = { cot: no.cotizaciones };
-    const liga = 'https://x/nun?pdf=' + 'a'.repeat(32);
-    if (!(ok.cotizaciones.abrio && ok.cotizaciones.href.startsWith('https://wa.me/525512345678?text=Cotización C0099 de CLIENTE DOC por $8,250.00.') && ok.cotizaciones.href.includes(liga) && ok.cotizaciones.subidos.includes('Cotizacion_C0099.pdf'))) r.fallas.push('whatsapp cotización (liga)');
-    if (!(ok.pedidos.abrio && ok.pedidos.href.includes('Pedido P0099') && ok.pedidos.subidos.includes('Pedido_P0099.pdf'))) r.fallas.push('whatsapp pedido (liga)');
-    if (!(ok.cotizaciones.comp && /^Cotizacion_C0099\.pdf$/.test(ok.cotizaciones.comp.nombre) && !ok.cotizaciones.bajo)) r.fallas.push('compartir de reserva');
-    if (!(no.cotizaciones.abrio && no.cotizaciones.bajo && !no.cotizaciones.comp)) r.fallas.push('si el teléfono no deja compartir: liga sí, compartir → Descargas');
+    if (!(ok.cotizaciones.comp && /^Cotizacion_C0099\.pdf$/.test(ok.cotizaciones.comp.nombre) && !ok.cotizaciones.bajo && !ok.cotizaciones.planB)) r.fallas.push('cotización: comparte el archivo PDF');
+    if (!(ok.pedidos.comp && /^Pedido_P0099\.pdf$/.test(ok.pedidos.comp.nombre))) r.fallas.push('pedido: comparte el archivo PDF');
+    if (ok.pedidos.subidos.length || no.cotizaciones.subidos.length) r.fallas.push('no se sube nada (sin liga)');
+    if (!(no.cotizaciones.bajo && !no.cotizaciones.comp && /^https:\/\/wa\.me\/525512345678\?text=Cotización C0099 de CLIENTE DOC por \$8,250\.00\.$/.test(no.cotizaciones.planB || ''))) r.fallas.push('si el teléfono no deja: Descargas + abrir chat');
     // colores: sin fondos negros; "juego" → "set" (también si el renglón no trae unidad: la del producto)
     // v4.98: solo el encabezado va negro (logo blanco); lo demás blanco con líneas, y la hoja se declara "solo clara" (el modo oscuro del teléfono no la oscurece)
     const h = ok.html; r.negros = (h.match(/background:\s*(#0a0c0f|linear-gradient\(135deg,#0a0c0f)/g) || []).length;

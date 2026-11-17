@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v5.05 · Sistema NUN ✓</span>
+    <span class="rwd-version">v5.06 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3270,6 +3270,7 @@ const SCHEMAS = {
       { key:'razon_social', label:'Razón social' },
       { key:'contacto', label:'Contacto', render:r=>escapeHTML(r.contacto||'—') },
       { key:'telefono', label:'Teléfono', render:r=>escapeHTML(r.telefono||'—') },
+      { key:'whatsapp', label:'WhatsApp', render:r=>r.whatsapp ? escapeHTML(nunWATelBonito(r.whatsapp) || r.whatsapp) : '—' }, // v5.06
       { key:'vendedor', label:'Vendedor', render:r=>r.vendedor ? `<span class="tag">${escapeHTML(r.vendedor)}</span>` : '—' },
       { key:'limite_credito', label:'Límite', right:true, render:r=>fmt(r.limite_credito||0) },
       { key:'_ec', label:'', render:r=>`<button class="btn btn-secondary btn-sm" style="white-space:nowrap" onclick="event.stopPropagation();nunEstadoCuentaAbrir(${escapeHTML(JSON.stringify(String(r.id)))})">📄 Estado de cuenta</button>` } // v4.84 (Rafa)
@@ -3281,6 +3282,7 @@ const SCHEMAS = {
       { key:'contacto', label:'Contacto' },
       { key:'email', label:'Email', type:'email' },
       { key:'telefono', label:'Teléfono' },
+      { key:'whatsapp', label:'WhatsApp (cobranza)', wa:true, placeholder:'+52 55 1234 5678' }, // v5.06
       { key:'vendedor', label:'Vendedor asignado', type:'select', vacio:true, options:['EDGAR','LUIS','ESTEBAN','YADAH','RAFA','CASA'] }, // v3.72
       { key:'direccion', label:'Dirección', full:true },
       { key:'ciudad', label:'Ciudad' },
@@ -3822,7 +3824,9 @@ function buildFormHTML(schema, item) {
       const t = f.type || 'text';
       const extra = f.maxlength ? ` maxlength="${f.maxlength}"` : '';
       const style = f.style ? ` style="${f.style}"` : '';
-      input = `<input type="${t}" id="f_${f.key}" value="${escapeHTML(val)}"${extra}${style}>`;
+      if (f.wa && val) val = nunWATelBonito(val) || val; // v5.06 se ve como +52 55 1234 5678
+      const ph = f.placeholder ? ` placeholder="${escapeHTML(f.placeholder)}"` : '';
+      input = `<input type="${f.wa ? 'tel' : t}" id="f_${f.key}" value="${escapeHTML(val)}"${extra}${style}${ph}>` + (f.wa ? '<div style="font-size:11px;color:var(--mute);margin-top:3px">10 dígitos (se le pone +52 solo) o con la lada del país. A este número le llegan estados de cuenta y avisos de pago.</div>' : '');
     }
     return `<div class="field ${f.full?'full':''}"><label>${escapeHTML(f.label)}${f.required?' *':''}</label>${input}</div>`;
   }).join('') + '</div>';
@@ -3837,6 +3841,7 @@ function readForm(schema) {
     else { v = el.value; }
     if (f.type === 'number') v = parseFloat(v) || 0;
     if (f.maxlength === 13 && typeof v === 'string') v = v.toUpperCase().trim();
+    if (f.wa) { const t = nunWATel(v); if (String(v||'').trim() && !t) item._waMal = String(v).trim(); v = t; } // v5.06 WhatsApp: 52 + 10 dígitos
     if (f.key === 'activo' && f.type !== 'switch') v = v === 'true' || v === true;
     item[f.key] = v;
   });
@@ -3987,7 +3992,7 @@ function abrirDetalleCliente(id, _opts) {
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${cli.telefono ? `<a class="btn btn-secondary" href="tel:${escapeHTML(cli.telefono)}">📞 Llamar ${escapeHTML(cli.telefono)}</a>` : ''}
           ${cli.email ? `<a class="btn btn-secondary" href="mailto:${escapeHTML(cli.email)}">✉ Email</a>` : ''}
-          ${cli.telefono ? `<button class="btn btn-secondary" onclick="abrirWhatsAppCliente('${escapeHTML(cli.razon_social||'')}')">💬 WhatsApp</button>` : ''}
+          ${cli.whatsapp || cli.telefono ? `<button class="btn btn-secondary" onclick="abrirWhatsAppCliente('${escapeHTML(cli.razon_social||'')}')">💬 WhatsApp</button>` : ''}
           ${cli.direccion ? `<a class="btn btn-secondary" href="https://maps.google.com/?q=${encodeURIComponent((cli.direccion||'')+' '+(cli.ciudad||'')+' '+(cli.estado||''))}" target="_blank">🗺 Ver en mapa</a>` : ''}
         </div>
       </div>
@@ -4551,7 +4556,7 @@ const NUN_WA_KEY = 'nun_whatsapp';
 const NUN_WA_DIAS = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
 function nunWAConfig(){
   let o = {}; try { o = JSON.parse(localStorage.getItem(NUN_WA_KEY) || '{}') || {}; } catch(e){}
-  return Object.assign({ cuentas:'', dia:1, hora:'10:00', solo_saldo:true, avisar_pagos:true, aprobar:true, conectado:false, nombre:'NUN Cobranza' }, o);
+  return Object.assign({ cuentas:'', dia:1, hora:'10:00', solo_saldo:true, avisar_pagos:true, aprobar:true, conectado:false, nombre:'NUN Cobranza', modo_prueba:true }, o); // v5.06 modo_prueba
 }
 async function nunWAGuardarConfig(o){
   try { localStorage.setItem(NUN_WA_KEY, JSON.stringify(o)); } catch(e){}
@@ -4586,10 +4591,11 @@ function nunWAEstatusNuevo(dst){
   if (dst.pausa) return 'pausado';
   if (!dst.tel) return 'sin_whatsapp';
   if (!cfg.conectado) return 'esperando_conexion';
+  if (cfg.modo_prueba !== false && !(dst.cli && _nunEsPrueba(dst.cli.razon_social))) return 'retenido_prueba'; // v5.06 en pruebas solo sale al cliente de prueba (Rafa)
   return cfg.aprobar ? 'por_aprobar' : 'por_enviar';
 }
 const NUN_WA_EST = { esperando_conexion:['Esperando conexión','amber'], por_aprobar:['Por aprobar ✅','amber'], por_enviar:['Por enviar',''], enviado:['Enviado','green'],
-  entregado:['Entregado','green'], leido:['Leído','green'], fallo:['Falló','red'], sin_whatsapp:['Falta su WhatsApp','red'], pausado:['No mandar (pausado)',''], cancelado:['Cancelado',''] };
+  entregado:['Entregado','green'], leido:['Leído','green'], fallo:['Falló','red'], sin_whatsapp:['Falta su WhatsApp','red'], retenido_prueba:['Retenido (modo prueba)',''], pausado:['No mandar (pausado)',''], cancelado:['Cancelado',''] };
 const NUN_WA_TIPO = { pago:'💵 Pago recibido', complemento:'🧾 Pago + complemento', estado_cuenta:'📄 Estado de cuenta', recordatorio:'⏰ Recordatorio' };
 function nunWADatos(m){ try { return JSON.parse(m.datos_json || '{}') || {}; } catch(e){ return {}; } }
 async function nunWACrear(row){
@@ -4732,6 +4738,7 @@ function renderWhatsApp(){
     <div class="page-title"><div><h1>📲 WhatsApp cobranza</h1><div class="sub">Estados de cuenta cada semana, aviso de cada pago (con su complemento) y pláticas con los que deben</div></div></div>
     ${cfg.conectado ? '' : `<div class="card" style="padding:12px 14px;margin-bottom:14px;background:#fff7e6;border:1px solid #f0d9a8;font-size:13px">⏳ <b>Todavía no está conectada la línea de WhatsApp.</b>
       Todo lo que se prepare aquí (avisos de pago y estados de cuenta) queda guardado como <b>esperando conexión</b> y sale cuando se conecte${cfg.aprobar ? ', después de tu ✅' : ''}. Mientras, captura los WhatsApp de tus clientes y las cuentas para depositar.</div>`}
+    ${cfg.modo_prueba !== false ? `<div class="card" style="padding:10px 14px;margin-bottom:14px;font-size:13px">🧪 <b>Modo prueba</b>: cuando se conecte WhatsApp, solo le llegan mensajes al cliente de prueba <b>${escapeHTML(((State.data.clientes||[]).find(c => _nunEsPrueba(c.razon_social)) || {}).razon_social || 'RAFAEL LANIADO CATTAN')}</b>${(c => c && nunWATel(c.whatsapp) ? ' (' + escapeHTML(nunWATelBonito(c.whatsapp)) + ')' : ' — <span style="color:var(--red)">falta su WhatsApp</span>')((State.data.clientes||[]).find(c => _nunEsPrueba(c.razon_social)))}. Lo demás se queda retenido. Se quita en ⚙️ Ajustes.</div>` : ''}
     ${String(cfg.cuentas||'').trim() ? '' : `<div class="card" style="padding:10px 14px;margin-bottom:14px;font-size:13px">⚠ Faltan las <b>cuentas para depositar</b> (van en los mensajes). <button class="btn btn-sm btn-secondary" onclick="nunWATab('ajustes')">Ponerlas</button></div>`}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">${tabs.map(([k, l]) => `<button class="btn ${_nunWAU.tab === k ? 'btn-primary' : 'btn-secondary'}" onclick="nunWATab('${k}')">${l}${k === 'mensajes' && pend ? ' (' + pend + ')' : ''}</button>`).join('')}</div>
     ${cuerpo}`;
@@ -4857,7 +4864,7 @@ function nunWAMensajesHTML(){
       return `<tr><td style="white-space:nowrap">${fmtFecha(m.creado)}</td><td>${esc(NUN_WA_TIPO[m.tipo] || m.tipo)}</td><td>${esc(m.cliente)}</td><td style="white-space:nowrap">${m.telefono ? esc(nunWATelBonito(m.telefono)) : '<span style="color:var(--red)">falta</span>'}</td>
       <td style="font-size:12px">${esc(resumen(m))}</td><td><span class="tag ${e2[1]}">${esc(e2[0])}</span>${m.error ? `<div style="font-size:11px;color:var(--red)">${esc(m.error)}</div>` : ''}</td>
       <td style="white-space:nowrap"><button class="btn btn-sm btn-secondary" onclick="nunWAVerMsg(${id(m)})">💬</button> <button class="btn btn-sm btn-secondary" onclick="nunWAPdfMsg(${id(m)})">📄</button>
-        ${/esperando_conexion|por_aprobar|por_enviar|sin_whatsapp|fallo/.test(m.estatus||'') ? ` <button class="btn btn-sm btn-secondary" title="No mandar este mensaje (no se borra)" onclick="nunWACancelar(${id(m)})">✕</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--mute)">Todavía no hay mensajes. Se crean solos al registrar pagos, o en Estados de cuenta.</td></tr>'}
+        ${/esperando_conexion|por_aprobar|por_enviar|sin_whatsapp|retenido_prueba|fallo/.test(m.estatus||'') ? ` <button class="btn btn-sm btn-secondary" title="No mandar este mensaje (no se borra)" onclick="nunWACancelar(${id(m)})">✕</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--mute)">Todavía no hay mensajes. Se crean solos al registrar pagos, o en Estados de cuenta.</td></tr>'}
     </tbody></table></div></div>`;
 }
 function nunWAVerMsg(id){ const m = (State.data.whatsapp||[]).find(x => String(x.id) === String(id)); if (m) nunWAMostrarTexto(m); }
@@ -4888,7 +4895,8 @@ function nunWAAjustesHTML(){
       <div style="margin-top:10px">
         ${chk('solo_saldo', 'Estado de cuenta solo a los que deben')}
         ${chk('avisar_pagos', 'Avisar al cliente cada pago que se registre (con su complemento si lo lleva)')}
-        ${chk('aprobar', 'Antes de que salga cualquier mensaje, que yo lo apruebe ✅')}</div>
+        ${chk('aprobar', 'Antes de que salga cualquier mensaje, que yo lo apruebe ✅')}
+        ${chk('modo_prueba', '🧪 Modo prueba: solo se manda al cliente de prueba (RAFAEL LANIADO CATTAN); lo de los demás clientes se queda retenido')}</div>
       <div class="field" style="margin-top:10px"><label>Nombre que ven los clientes en WhatsApp</label><input id="waCfg_nombre" style="${inp}" value="${esc(cfg.nombre)}"></div>
       <div style="margin-top:10px;font-size:12.5px;color:var(--mute)">Conexión con WhatsApp: ${cfg.conectado ? '<b style="color:var(--green)">✓ conectada</b>' : '<b>falta</b> (se conecta cuando llegue la línea y esté Meta Business)'}</div>
       <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn btn-primary" onclick="nunWAGuardarAjustes()">💾 Guardar</button></div></div>`;
@@ -4896,7 +4904,7 @@ function nunWAAjustesHTML(){
 async function nunWAGuardarAjustes(){
   const g = k => document.getElementById('waCfg_' + k), cfg = nunWAConfig();
   const o = Object.assign({}, cfg, { cuentas: String(g('cuentas').value||'').trim(), dia: +g('dia').value, hora: g('hora').value || '10:00', nombre: String(g('nombre').value||'').trim() || 'NUN Cobranza',
-    solo_saldo: g('solo_saldo').checked, avisar_pagos: g('avisar_pagos').checked, aprobar: g('aprobar').checked });
+    solo_saldo: g('solo_saldo').checked, avisar_pagos: g('avisar_pagos').checked, aprobar: g('aprobar').checked, modo_prueba: g('modo_prueba').checked });
   const ok = await nunWAGuardarConfig(o);
   toast(ok ? '✓ Ajustes de WhatsApp guardados' : '⚠ Se guardó en esta computadora pero no en el servidor. Vuelve a intentar.', { type: ok ? 'success' : 'error' });
   renderCurrent();
@@ -5097,11 +5105,11 @@ setTimeout(async () => { try { const v = await nunVersionServidor(); const el = 
   if (el && !document.getElementById('nunVerSrv')) el.insertAdjacentHTML('afterend', `<span id="nunVerSrv" class="rwd-version" style="opacity:.75;margin-left:6px">servidor ${v[0]||v[1]||v[2] ? 'v' + v.join('.') : '?'}</span>`); } catch(e){} }, 4000);
 function abrirWhatsAppCliente(cliRS) {
   const cli = (State.data.clientes||[]).find(c => (c.razon_social||'').trim() === cliRS.trim());
-  if (!cli || !cli.telefono) return;
+  if (!cli || !(cli.whatsapp || cli.telefono)) return;
   const saludo = cli.contacto ? `Hola ${cli.contacto.split(' ')[0]}` : 'Hola, buen día';
   const msg = `${saludo}, te escribo de NUN. ¿Cómo puedo ayudarte?\n\n— Equipo NUN`;
-  const tel = (cli.telefono||'').replace(/\D/g,'');
-  window.open(`https://wa.me/52${tel}?text=${encodeURIComponent(msg)}`, '_blank');
+  const tel = nunWATel(cli.whatsapp) || nunWATel(cli.telefono) || ('52' + String(cli.telefono||'').replace(/\D/g,'')); // v5.06 primero el WhatsApp de cobranza
+  window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
 }
 function crearDocParaCliente(tabla, clienteRS) {
   cerrarDrawer();
@@ -5123,6 +5131,8 @@ async function guardarGenerico(modKey, id) {
   const schema = SCHEMAS[modKey];
   const item = readForm(schema);
   if (item.vendedor) item.vendedor = String(item.vendedor).toUpperCase().trim(); // v3.73
+  if (item._waMal) { toast('El WhatsApp "' + item._waMal + '" no sirve: pon los 10 dígitos (ej. 55 1234 5678) o la lada del país si es de fuera.', { type:'error', duration:7000 }); return; } // v5.06
+  delete item._waMal;
   const req = schema.fields.filter(f => f.required);
   for (const f of req) {
     if (!item[f.key]) { toast(f.label + ' requerido', { type:'error' }); return; }

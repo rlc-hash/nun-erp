@@ -14,6 +14,8 @@
 | Textos de los mensajes (plantillas) | ✅ listos abajo; falta darlos de alta en Meta y que los aprueben |
 | Forma de contestar del agente | ✅ borrador en `AGENTE_COBRANZA.md`, falta el OK de Rafa |
 | Línea (SIM) | ✅ Rafa ya la tiene |
+| WhatsApp de cada cliente (ficha del cliente o 📲 → Contactos) | ✅ v5.06; el cliente de prueba (Rafa) ya tiene su número |
+| Modo prueba: solo sale al cliente de prueba RAFAEL LANIADO CATTAN | ✅ v5.06, prendido de entrada (se quita en ⚙️ Ajustes) |
 | Meta Business verificado + app de WhatsApp + número dado de alta | ⏳ lo hace Rafa (pasos abajo) |
 | Servidor: mandar por Meta, recibir respuestas, platicar con Claude | ⏳ se hace en cuanto haya número de prueba en Meta (necesita sus claves para probar de verdad) |
 | Clave de Claude (Anthropic) | ⏳ Rafa la saca; se escribe en el formulario seguro, nunca en el chat |

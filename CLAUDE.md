@@ -403,6 +403,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   sin número = `sin_whatsapp` y al capturar el número se libera. **Estado de cuenta semanal**: solo principales que deben, PDF = el de 📄 Estado de
   cuenta (`nunWAECHTML`, formato v4.82), id `wa_ec_<cliId>_<lunes>` (no se repite en la semana). Textos = plantillas (`nunWATexto`). Estado de la
   pantalla en `_nunWAU` (`_nunWA` es del botón manual v5.01). Prueba `prueba_v505_whatsapp.js`.
+- v5.06 (17 nov, Rafa): campo **WhatsApp (cobranza)** en el formulario/ficha del cliente y columna en la lista (`wa:true` en SCHEMAS: se ve
+  +52 55 1234 5678, se guarda 52 + 10 dígitos con `nunWATel`; número malo no se guarda). El botón 💬 WhatsApp de la ficha usa primero ese número.
+  **Modo prueba** (kv nun_whatsapp.modo_prueba, prendido de entrada): con WhatsApp conectado, solo sale lo del cliente de prueba RAFAEL LANIADO CATTAN
+  (`_nunEsPrueba`); lo demás queda `retenido_prueba`. Su WhatsApp ya está capturado (lo puso Claude el 17 nov con autorización de Rafa, en la hoja Clientes).
+  Prueba `prueba_v506_whatsapp_cliente.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

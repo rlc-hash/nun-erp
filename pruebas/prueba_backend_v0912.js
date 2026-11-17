@@ -44,5 +44,5 @@ r.fallas=[];
 if(r.primera.items!==1||!r.segunda.desdeMemoria) r.fallas.push('memoria');
 if(r.trasCambio.total!==20||r.trasCambio.desdeMemoria) r.fallas.push('invalidar');
 if(r.get.items!==1||r.trasEditarHoja.desdeMemoria) r.fallas.push('getYhoja');
-if(!/v0\.9\.1[2-9]/.test(r.version)) r.fallas.push('version');
+if(!/v0\.9\.(1[2-9]|[2-9]\d)/.test(r.version)) r.fallas.push('version');
 console.log(JSON.stringify(r,null,1));

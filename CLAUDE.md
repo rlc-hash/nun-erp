@@ -391,6 +391,18 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   Causa probable del "Permission denied": el PDF se hacía en un iframe que se borra y el archivo quedaba ligado a él; ahora `nunHtmlAPdf`/`htmlAPdf` copian
   los bytes a la página (`new File([Uint8Array], …)`). ERP: `nunWaPanel`/`nunWaCompartir`; app: `compartirPDF`/`planBWA` en enviarWAYa, ecEnviar, enviarREP.
   Pruebas `prueba_v485_estado_cuenta_whatsapp.js`, `prueba_v496_doc_whatsapp.js` (Playwright), `prueba_v215_crm_xml_qr.js`, `prueba_v2117…`, `prueba_v2128…`.
+- **v5.05 / servidor v0.9.21 (17 nov, Rafa) 📲 WhatsApp cobranza** (menú Ventas, ver_operacion). Plan, plantillas de Meta y pasos para conectar:
+  `whatsapp/PLAN_Y_PLANTILLAS.md`; cómo platica el agente: `whatsapp/AGENTE_COBRANZA.md` (borrador para el OK de Rafa).
+  Se PREPARA en el ERP; todavía NO sale nada (falta Meta Business / WhatsApp Cloud API y su conexión en el servidor): mensajes `esperando_conexion`.
+  Tabla nueva `whatsapp` (un renglón por mensaje: tipo pago|complemento|estado_cuenta|recordatorio, cliente, telefono, plantilla, datos_json, estatus;
+  nada se borra: se cancela) y en Clientes `whatsapp` (52 + 10 dígitos, `nunWATel`) y `whatsapp_pausa`. El botón manual de WhatsApp (v5.01, `nunWaTel`/
+  `nunDocWAUrl`/`nunECWaUrl`) usa primero `whatsapp`. Ajustes en kv `nun_whatsapp` (cuentas para depositar — van como DATO de la plantilla en una línea con ·, así
+  se renuevan sin volver a aprobar —, día/hora, solo_saldo, avisar_pagos, aprobar, conectado). **Aviso de pago**: `api()` llama `nunWADespues` en cada
+  capturar_pago_cliente que sale bien (cualquier pantalla); pagos del mismo cliente y fecha en 4 s = un mensaje; si antes se timbró un complemento
+  (facturama_timbrar CfdiType P) y las notas dicen "con complemento" → tipo complemento con su folio CP/uuid. Va al cliente PRINCIPAL (`nunWADestino`);
+  sin número = `sin_whatsapp` y al capturar el número se libera. **Estado de cuenta semanal**: solo principales que deben, PDF = el de 📄 Estado de
+  cuenta (`nunWAECHTML`, formato v4.82), id `wa_ec_<cliId>_<lunes>` (no se repite en la semana). Textos = plantillas (`nunWATexto`). Estado de la
+  pantalla en `_nunWAU` (`_nunWA` es del botón manual v5.01). Prueba `prueba_v505_whatsapp.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

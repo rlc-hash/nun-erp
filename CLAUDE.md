@@ -408,6 +408,9 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   **Modo prueba** (kv nun_whatsapp.modo_prueba, prendido de entrada): con WhatsApp conectado, solo sale lo del cliente de prueba RAFAEL LANIADO CATTAN
   (`_nunEsPrueba`); lo demás queda `retenido_prueba`. Su WhatsApp ya está capturado (lo puso Claude el 17 nov con autorización de Rafa, en la hoja Clientes).
   Prueba `prueba_v506_whatsapp_cliente.js`.
+- App v2.1.32 (18 nov, Rafa: "que Edgar pueda ver a todos los clientes"): el vendedor con "ver a todos" (Edgar; servidor `todos`) ve TODOS los clientes en
+  Clientes y en los buscadores de Cotizar/Registrar pago aunque esté en "Lo mío" (`misClientes`); Inicio/Pedidos/Cobranza siguen con "Lo mío / Todos" (su comisión
+  = lo suyo). Luis/Esteban solo los suyos. Prueba `prueba_v2132_crm_edgar_todos_clientes.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

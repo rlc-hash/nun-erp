@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-2.8'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-2.9'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -194,6 +194,12 @@ function avisoOficina(body: any, j: any, quien: string){
   if (a === 'cancelar_pedido_venta') return { titulo: '✕ ' + q + ' canceló un pedido', cuerpo: String(body.motivo || ''), url: ir('pedidos', { id: body.id }), tag: 'cped_' + body.id };
   if (a === 'erp_upsert_batch' && NOMBRE_DOC[t]){ const n = (body.items || []).filter((i: any) => /cancel/i.test(String(i && i.estatus || ''))).length;
     if (n) return { titulo: '✕ ' + q + ' canceló ' + (n > 1 ? n + ' documentos (' + t + ')' : NOMBRE_DOC[t]), cuerpo: (body.items || []).slice(0, 3).map((i: any) => i.id).join(', '), url: ir(t, { id: n === 1 ? ((body.items || []).find((i: any) => /cancel/i.test(String(i && i.estatus || ''))) || {}).id : '' }), tag: 'cdoc_' + Date.now() }; }
+  // supabase-2.9 (Rafa 18 nov: "cuando Yazmín o alguien más modifique un pedido, que me llegue notificación") — cambio de productos/precios/total
+  if ((a === 'erp_upsert_batch' || a === 'erp_actualizar') && /^(cotizaciones|pedidos|remisiones|facturas)$/.test(t)){
+    const L = (a === 'erp_actualizar' ? [body.item || {}] : (body.items || [])).filter((i: any) => i && !/cancel/i.test(String(i.estatus || '')) && (i.items_json !== undefined || i.total !== undefined));
+    if (L.length){ const i = L[0];
+      return { titulo: '✏️ ' + q + ' modificó ' + (L.length > 1 ? L.length + ' documentos (' + t + ')' : NOMBRE_DOC[t] + ' ' + (i.folio || '')), cuerpo: [i.cliente, i.total !== undefined ? 'total ' + pesos(i.total) : ''].filter(Boolean).join(' · '),
+        url: ir(t, { id: L.length === 1 ? i.id : '' }), tag: 'mod_' + (i.id || Date.now()) }; } }
   return null;
 }
 async function avisarRafa(datos: any, quienCodigo: string){

@@ -421,6 +421,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   de la factura no tiene ningún pago la parcialidad sale 1 sola, y los avisos de esa ventana bajan a la vista + toast. En ⏳ Pagos por confirmar, si el documento
   YA está pagado (se registró por otro lado) sale **✔ Ya estaba registrado** (`nunPVYaRegistrado`: verificado con motivo, sin capturar_pago_cliente) y no el de timbrar.
   Prueba `prueba_v507_pv_factura_bind.js`.
+- v5.08 / servidor supabase-2.9 (18 nov, Rafa: cambió el precio de P0075 y el saldo seguía con el total anterior): guardar un pedido con otro total mueve su cobro
+  propio (`cob_<id>`, tipo Pedido, factura_origen = id) lo mismo que cambió el total (`nunSyncCobroPedido`, total de antes en `_totalAntes`; respeta lo que ya restó una
+  remisión parcial). Antes nunSyncCobranzaDoc solo hacía remisiones/facturas. Se corrigió el cobro de P0075. Servidor: aviso a Rafa "✏️ X modificó el pedido …" cuando
+  alguien de la oficina cambia productos/total de una cotización/pedido/remisión/factura (erp_upsert_batch/erp_actualizar con items_json o total). El aviso rojo
+  "El servidor no respondió" ya no sale solo por usuarios/bitácora. Pruebas `prueba_v508_pedido_cobro.js`, `prueba_v476_avisos_oficina.js` (modifica-pedido).
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

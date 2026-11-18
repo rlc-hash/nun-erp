@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v5.07 · Sistema NUN ✓</span>
+    <span class="rwd-version">v5.08 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -9319,7 +9319,8 @@ async function nunCancelarCobranzaDoc(tabla, doc){
   if (!ok) toast('⚠ No se pudo cancelar el cobro ' + (c.numero||'') + ' en Cobranza. Cancélalo a mano.', { type:'error', duration:10000 });
   try { await cargarTabla('cobranza'); } catch(e){}
 }
-async function nunSyncCobranzaDoc(tabla, doc){
+async function nunSyncCobranzaDoc(tabla, doc, totalAntes){
+  if (tabla === 'pedidos') return nunSyncCobroPedido(doc, totalAntes); // v5.08
   if (tabla !== 'remisiones' && tabla !== 'facturas') return;
   if (tabla === 'facturas' && /^(R\d{4,}|REM )/.test(String(doc.pedido_origen||''))) return; // la venta está en la remisión
   const cob = await nunListarFresco('cobranza');
@@ -9329,6 +9330,17 @@ async function nunSyncCobranzaDoc(tabla, doc){
   const cobrado = +c.cobrado || 0;
   await api({ accion:'erp_upsert_batch', tabla:'cobranza', items:[{ id: c.id, total, pendiente: nunR2(total - cobrado) }] });
   toast('Cobranza actualizada: ' + (c.numero||doc.folio) + ' ahora ' + fmtFull(total) + ' (antes ' + fmtFull(c.total) + ')', { duration:6000 });
+}
+// v5.08 (Rafa 18 nov: cambió el precio de un pedido confirmado y el saldo seguía con el total anterior) — el cobro PROPIO del pedido
+// (cob_<id>, tipo Pedido, factura_origen = id del pedido) sube o baja lo mismo que cambió el total del pedido (si una remisión parcial ya le restó, se respeta).
+async function nunSyncCobroPedido(doc, totalAntes){
+  const dif = nunR2((+doc.total || 0) - (+totalAntes || 0)); if (totalAntes == null || isNaN(totalAntes) || Math.abs(dif) < 0.005) return;
+  const cob = await nunListarFresco('cobranza');
+  const c = (cob || []).find(x => String(x.id) === 'cob_' + doc.id && String(x.factura_origen) === String(doc.id) && /pedido/i.test(String(x.tipo || '')) && !/cancel/i.test(String(x.estatus || '')));
+  if (!c) return;
+  const total = nunR2((+c.total || 0) + dif), cobrado = +c.cobrado || 0, pendiente = nunR2(total - cobrado);
+  await api({ accion:'erp_upsert_batch', tabla:'cobranza', items:[{ id: c.id, total, pendiente }] });
+  toast('Cobranza actualizada: ' + (c.numero || doc.folio) + ' ahora ' + fmtFull(total) + ' (antes ' + fmtFull(c.total) + ')' + (pendiente < -0.5 ? ' · ⚠ ya le pagaron más que el nuevo total' : ''), { duration:7000 });
 }
 // Remisión → Factura desde la remisión abierta: primero guarda lo que cambiaste
 async function nunFacturarRemisionDesdeDrawer(id){
@@ -10888,6 +10900,7 @@ async function guardarDoc(tabla, id, opts) {
   // v3.80 — factura ya timbrada: no se cambian productos, totales, cliente ni estatus (para cancelar: "Cancelar ante SAT").
   // Solo se guardan notas/vendedor, y nunca se pierden el "Facturama ID" ni los complementos (REP) de las notas.
   const _previo = id ? (State.data[tabla]||[]).find(d => String(d.id) === String(id)) : null;
+  const _totalAntes = _previo ? +_previo.total : null; // v5.08 (más abajo _previo se pone al día con lo nuevo)
   if (_previo && /cancel/i.test(item.estatus||'') && !/cancel/i.test(_previo.estatus||'')) { nunOcupado(''); if (!(await nunPuedeCancelarDoc(tabla, _previo))) return; nunOcupado('Guardando…'); } // v5.03
   if (_previo && /^(pedidos|remisiones|facturas|cotizaciones)$/.test(tabla) && _previo.items_json === undefined) { toast('Espera un momento: todavía no terminan de cargar los productos de este documento. Vuelve a abrirlo en unos segundos.', { type:'error', duration:8000 }); return; } // v4.05 — nunca guardar sin sus productos
   if (_previo && (tabla === 'facturas' || tabla === 'notascredito') && _previo.uuid_sat) { // v3.81 también notas de crédito timbradas
@@ -10976,7 +10989,7 @@ async function guardarDoc(tabla, id, opts) {
   else if (!id && NUN_PREF_FOLIO[tabla] && idGuardado) folio = await nunResolverFolioDuplicado(tabla, idGuardado, folio);
   // v3.80 — si algo de Cobranza falla, se avisa (antes decía "✓ Creado" aunque el cobro no existiera)
   if (id && /cancel/i.test(item.estatus||'') && _previo && !/cancel/i.test(_previo.estatus||'')) { await nunCancelarCobranzaDoc(tabla, Object.assign({}, _previo, item, { id, folio })); if (tabla === 'pedidos') await nunLiberarApartado(id); } // v3.82
-  else if (id && tabla !== 'cotizaciones') { try { await nunSyncCobranzaDoc(tabla, Object.assign({}, _previo||{}, item, { id, folio })); await cargarTabla('cobranza'); } catch(e){ toast('⚠ Se guardó el documento pero no se pudo actualizar Cobranza: ' + e.message, { type:'error', duration:9000 }); } } // v3.72
+  else if (id && tabla !== 'cotizaciones') { try { await nunSyncCobranzaDoc(tabla, Object.assign({}, _previo||{}, item, { id, folio }), _totalAntes); await cargarTabla('cobranza'); } catch(e){ toast('⚠ Se guardó el documento pero no se pudo actualizar Cobranza: ' + e.message, { type:'error', duration:9000 }); } } // v3.72
   if (!id && (tabla === 'remisiones' || tabla === 'facturas')) { try { const _r = await nunAltaCobranza(tabla, Object.assign({}, item, { id: idGuardado, folio }), true); if (_r === false) throw new Error('el servidor no confirmó'); cargarTabla('cobranza').catch(()=>{}); } catch(e){ toast('⚠ Se creó ' + folio + ' pero NO su renglón de Cobranza (' + e.message + '). Avísame o créalo a mano.', { type:'error', duration:12000 }); } } // v3.69
   await cargarTabla(tabla);
   // v3.47 — flujo "Guardar y Facturar": después de guardar, timbrar sin cerrar
@@ -13856,7 +13869,7 @@ function nunIdb(){
 async function nunCopiaGet(tabla){ const db = await nunIdb(); if (!db) return null; return new Promise(res => { try { const rq = db.transaction('tablas','readonly').objectStore('tablas').get(tabla); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => res(null); } catch(e){ res(null); } }); }
 async function nunCopiaSet(tabla, items){ const db = await nunIdb(); if (!db) return; try { db.transaction('tablas','readwrite').objectStore('tablas').put({ t: Date.now(), items }, tabla); } catch(e){} }
 function nunAvisoCopia(){
-  const malas = Object.keys(State._cargaOk||{}).filter(k => State._cargaOk[k] === false);
+  const malas = Object.keys(State._cargaOk||{}).filter(k => State._cargaOk[k] === false && !/^(usuarios|bitacora)$/.test(k)); // v5.08 usuarios/bitácora no son de la operación
   let el = document.getElementById('nunAvisoCopia');
   if (!malas.length) { if (el) el.remove(); if (_nunReintento.timer) { clearTimeout(_nunReintento.timer); _nunReintento.timer = null; } _nunReintento.n = 0; return; }
   if (!_nunReintento.timer && !_nunReintento.corriendo && _nunReintento.n < 4) { const espera = [15, 30, 60, 120][_nunReintento.n++] * 1000; _nunReintento.timer = setTimeout(() => { _nunReintento.timer = null; nunReintentarListas(); }, espera); } // v4.74 se reintenta sola
@@ -13875,7 +13888,7 @@ async function nunTurnoLectura(fn){
 const _nunReintento = { n: 0, timer: null, corriendo: false };
 async function nunReintentarListas(manual){
   if (_nunReintento.corriendo) return; _nunReintento.corriendo = true;
-  const malas = Object.keys(State._cargaOk||{}).filter(k => State._cargaOk[k] === false);
+  const malas = Object.keys(State._cargaOk||{}).filter(k => State._cargaOk[k] === false && !/^(usuarios|bitacora)$/.test(k)); // v5.08 usuarios/bitácora no son de la operación
   const el = document.getElementById('nunAvisoCopia'); if (el) el.textContent = '↻ Volviendo a pedir ' + (malas.length > 3 ? malas.length + ' listas' : malas.join(', ')) + '…';
   try { for (const t of malas) { try { await cargarTabla(t, { ttl:0 }); } catch(e){} } } finally { _nunReintento.corriendo = false; }
   const siguen = Object.keys(State._cargaOk||{}).filter(k => State._cargaOk[k] === false);

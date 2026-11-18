@@ -416,6 +416,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   creado_por = quien la subió, nota "Subida por EDGAR a nombre de LUIS", comisión del vendedor elegido; el cliente nuevo queda a nombre de ese vendedor. Quien la subió
   la puede corregir/cancelar (`esQuienSubio`) y el vendedor también. Aviso "Cotización nueva … · EDGAR (a nombre de LUIS)". Pruebas `prueba_servidor_vendedores.js`
   (a-nombre-de-otro), `prueba_v2133_crm_a_nombre_de_otro.js`.
+- v5.07 (18 nov, Rafa: "no le deja a Yazmín timbrar" el complemento de un pago reportado): la factura era de Bind sin complementos → "Pago y complemento"
+  pide Saldo anterior y **Número de parcialidad**; la parcialidad venía vacía y el aviso "Falta el número de parcialidad" quedaba escondido abajo. Ahora si el cobro
+  de la factura no tiene ningún pago la parcialidad sale 1 sola, y los avisos de esa ventana bajan a la vista + toast. En ⏳ Pagos por confirmar, si el documento
+  YA está pagado (se registró por otro lado) sale **✔ Ya estaba registrado** (`nunPVYaRegistrado`: verificado con motivo, sin capturar_pago_cliente) y no el de timbrar.
+  Prueba `prueba_v507_pv_factura_bind.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

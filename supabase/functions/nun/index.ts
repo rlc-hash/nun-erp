@@ -11,7 +11,7 @@ import CODIGO from './codigo.js';
 import { compilar, atender } from './emulador.js';
 import { crearVapid, enviar } from './push.js'; // v4.65 avisos push
 
-const VERSION = 'supabase-2.7'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
+const VERSION = 'supabase-2.8'; // v4.63 vendedores: cada uno recibe solo lo suyo · v4.64 lecturas trabadas se cortan y reintentan
 const GOOGLE = 'https://script.google.com/macros/s/AKfycbw9_MR7axRi0a6pHpLuKB-rRUgOc3UOfOwKil3eZMpjci8JbYTNc8A3U5-wzJZ-Dt2A/exec';
 // v4.18 — conexiones: primero por el pooler de Supabase (modo transacción, aguanta muchas); si no conecta, directo con 1 conexión.
 // Antes (max 4 directas por pedazo del servidor) se acabaron las 60 conexiones de la base al abrir la página (≈30 listas a la vez).
@@ -212,6 +212,11 @@ function enSegundoPlano(p: Promise<unknown>){ try { (globalThis as any).EdgeRunt
 const pesos = (n: unknown) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // Revisa (y ajusta) lo que un vendedor quiere hacer. Regresa un error o null.
+// supabase-2.8 (Rafa 18 nov: "Edgar quiere subir un pedido de Luis y que diga que Luis lo vendió") — el vendedor que ve a todos puede subir la
+// cotización (y el cliente nuevo) a nombre de otro vendedor; creado_por sigue siendo él y la comisión es del vendedor elegido.
+const VEND_VALIDOS = ['EDGAR', 'LUIS', 'ESTEBAN', 'YADAH'];
+function vendedorPedido(it: any, se: any){ const pide = norm(it && it.vendedor); return (se.todos && VEND_VALIDOS.includes(pide)) ? pide : se.vend; }
+const esQuienSubio = (r: any, se: any) => !!se.todos && [se.vend, norm(se.nombre)].filter(Boolean).includes(norm(r && r.creado_por));
 async function revisarVend(body: any, se: any, m: Map<string, any>){
   const a = String(body.accion || ''), t = String(body.tabla || '');
   if (!A_VEND.test(a)) return 'Eso no está permitido desde la app de vendedores';
@@ -220,8 +225,9 @@ async function revisarVend(body: any, se: any, m: Map<string, any>){
     const it = body.item = { ...(body.item || {}) }; delete it._vaciar; delete it._sin_inventario;
     if (t === 'cotizaciones'){
       if (!se.cotiza) return 'Tu usuario no puede subir cotizaciones (pídeselo a Rafa)';
-      it.vendedor = se.vend; it.estatus = 'enviada'; it.creado_por = se.nombre || se.vend;
-    } else if (t === 'clientes'){ it.vendedor = se.vend; }
+      it.vendedor = vendedorPedido(it, se); it.estatus = 'enviada'; it.creado_por = se.nombre || se.vend;
+      if (it.vendedor !== se.vend) it.notas = (it.notas ? String(it.notas) + ' · ' : '') + 'Subida por ' + se.vend + ' a nombre de ' + it.vendedor;
+    } else if (t === 'clientes'){ it.vendedor = vendedorPedido(it, se); }
     else if (t === 'pagosverificar'){
       if (!(+it.monto > 0)) return 'El monto debe ser mayor a $0';
       it.vendedor = se.vend; it.estatus = 'por_verificar'; it.creado_por = se.nombre || se.vend;
@@ -237,7 +243,7 @@ async function revisarVend(body: any, se: any, m: Map<string, any>){
     const rows = JSON.parse(await lectura(() => ejecutar('post', JSON.stringify(b), b, m, false))).items || [];
     for (const it of items){
       const r = rows.find((x: any) => String(x.id) === String(it && it.id));
-      if (!r || norm(r.vendedor) !== se.vend) return 'Solo puedes cambiar lo tuyo';
+      if (!r || (norm(r.vendedor) !== se.vend && !(t === 'cotizaciones' && esQuienSubio(r, se)))) return 'Solo puedes cambiar lo tuyo';
       const ks = Object.keys(it).filter(k => k !== 'id');
       // v4.91 (Rafa 12 nov) — el vendedor puede CORREGIR su cotización mientras no se confirme (productos, cantidades, precios, cliente, envío, notas).
       // El servidor (Codigo.gs v0.9.20) libera lo apartado viejo y aparta lo nuevo. Nunca cambia folio, fecha, vendedor ni estatus.
@@ -487,7 +493,7 @@ async function atenderPeticion(req: Request) {
       if (body.accion === 'erp_listar' && j.ok && Array.isArray(j.items)) j.items = await filtrarVend(String(body.tabla), j.items, se, m);
       // v4.65 — aviso a la oficina (sin esperar: el vendedor no se queda esperando)
       if (j.ok && !j.ya_existia && body.accion === 'erp_crear' && body.tabla === 'cotizaciones'){ const it = j.item || body.item;
-        enSegundoPlano(avisar({ titulo: '🧾 Cotización nueva ' + (it.folio || '') + ' · ' + se.vend, cuerpo: (it.cliente || '') + ' · ' + pesos(it.total) + ' · tócala para confirmarla', url: './?ir=cotizaciones&id=' + encodeURIComponent(String(it.id || '')), tag: 'cot_' + it.id })); }
+        enSegundoPlano(avisar({ titulo: '🧾 Cotización nueva ' + (it.folio || '') + ' · ' + se.vend + (norm(it.vendedor) && norm(it.vendedor) !== se.vend ? ' (a nombre de ' + norm(it.vendedor) + ')' : ''), cuerpo: (it.cliente || '') + ' · ' + pesos(it.total) + ' · tócala para confirmarla', url: './?ir=cotizaciones&id=' + encodeURIComponent(String(it.id || '')), tag: 'cot_' + it.id })); }
       // v4.91 — el vendedor corrigió su cotización: aviso a la oficina con liga a esa cotización
       if (j.ok && se.rol === 'vendedor' && body.accion === 'erp_upsert_batch' && body.tabla === 'cotizaciones')
         for (const it of (body.items || []).filter((i: any) => i && i.estatus === undefined))

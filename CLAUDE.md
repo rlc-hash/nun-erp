@@ -411,6 +411,11 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
 - App v2.1.32 (18 nov, Rafa: "que Edgar pueda ver a todos los clientes"): el vendedor con "ver a todos" (Edgar; servidor `todos`) ve TODOS los clientes en
   Clientes y en los buscadores de Cotizar/Registrar pago aunque esté en "Lo mío" (`misClientes`); Inicio/Pedidos/Cobranza siguen con "Lo mío / Todos" (su comisión
   = lo suyo). Luis/Esteban solo los suyos. Prueba `prueba_v2132_crm_edgar_todos_clientes.js`.
+- App v2.1.33 / servidor supabase-2.8 (18 nov, Rafa: "Edgar quiere subir un pedido de Luis y que diga que Luis lo vendió"): en Cotizar, quien ve a todos (Edgar)
+  tiene "¿Quién lo vendió?" (VENDEDORES; él por default). El servidor (`vendedorPedido`, VEND_VALIDOS) solo acepta otro vendedor si la sesión tiene `todos`;
+  creado_por = quien la subió, nota "Subida por EDGAR a nombre de LUIS", comisión del vendedor elegido; el cliente nuevo queda a nombre de ese vendedor. Quien la subió
+  la puede corregir/cancelar (`esQuienSubio`) y el vendedor también. Aviso "Cotización nueva … · EDGAR (a nombre de LUIS)". Pruebas `prueba_servidor_vendedores.js`
+  (a-nombre-de-otro), `prueba_v2133_crm_a_nombre_de_otro.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

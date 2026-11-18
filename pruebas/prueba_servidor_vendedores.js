@@ -131,6 +131,21 @@ process.removeAllListeners('warning'); process.on('warning', () => {});
   r.editar.cancelar = await edt({ estatus: 'cancelada' }); r.editar.alCancelar = await apt(); r.editar.yaCancelada = await edt({ total: 3 });
   ok('editar-cotizacion', r.editar.creada && r.editar.antes === 2 && r.editar.ok && r.editar.despues === 5 && r.editar.aviso && r.editar.guardado && !r.editar.folio && !r.editar.convertir &&
     !r.editar.clienteAjeno && !r.editar.deOtro && !r.editar.sinProductos && r.editar.cancelar && r.editar.alCancelar === 0 && !r.editar.yaCancelada);
+  // supabase-2.8 (Rafa 18 nov) — Edgar (ve a todos) sube una cotización A NOMBRE DE LUIS: vendedor LUIS, creado_por Edgar, nota; la puede corregir/cancelar
+  // (y Luis también); Luis (no ve a todos) no puede subir a nombre de otro; un vendedor inventado se ignora
+  const fila2 = async id => (await post({ accion: 'erp_listar', tabla: 'cotizaciones', codigo: D })).items.find(x => x.id === id) || {};
+  const items1 = JSON.stringify([{ sku: 'RL001', cantidad: 1, precio_unitario: 1000 }]);
+  await post({ accion: 'erp_crear', tabla: 'cotizaciones', item: { id: 'q5', folio: '', cliente: 'Cliente de Luis', vendedor: 'LUIS', total: 1000, items_json: items1 }, codigo: 'EDGAR-1' });
+  await post({ accion: 'erp_crear', tabla: 'cotizaciones', item: { id: 'q6', folio: '', cliente: 'Cliente de Luis', vendedor: 'EDGAR', total: 1000, items_json: items1 }, codigo: 'LUIS-1' });
+  await post({ accion: 'erp_crear', tabla: 'cotizaciones', item: { id: 'q7', folio: '', cliente: 'Cliente de Luis', vendedor: 'PEDRO', total: 1000, items_json: items1 }, codigo: 'EDGAR-1' });
+  const q5 = await fila2('q5'), q6 = await fila2('q6'), q7 = await fila2('q7');
+  r.aNombre = { q5: [q5.vendedor, q5.creado_por, /Subida por EDGAR a nombre de LUIS/.test(q5.notas || '')], q6: q6.vendedor, q7: q7.vendedor,
+    edgarCorrige: (await post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q5', notas: 'corregida por Edgar' }], codigo: 'EDGAR-1' })).ok,
+    luisCorrige: (await post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q5', notas: 'corregida por Luis' }], codigo: 'LUIS-1' })).ok,
+    edgarCancela: (await post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q5', estatus: 'cancelada' }], codigo: 'EDGAR-1' })).ok,
+    edgarNoAjena: !(await post({ accion: 'erp_upsert_batch', tabla: 'cotizaciones', items: [{ id: 'q6', notas: 'x' }], codigo: 'EDGAR-1' })).ok };
+  ok('a-nombre-de-otro', r.aNombre.q5[0] === 'LUIS' && /^edgar$/i.test(r.aNombre.q5[1]) && r.aNombre.q5[2] && r.aNombre.q6 === 'LUIS' && r.aNombre.q7 === 'EDGAR' &&
+    r.aNombre.edgarCorrige && r.aNombre.luisCorrige && r.aNombre.edgarCancela && r.aNombre.edgarNoAjena);
   // Pago reportado: queda por verificar y NO toca Cobranza
   const pv = await post({ accion: 'erp_crear', tabla: 'pagosverificar', item: { id: 'v1', cobro_id: 'k1', cliente: 'Cliente de Luis', monto: 40, estatus: 'verificado', fecha: '2026-11-03', cuenta: 'BBVA' }, codigo: 'LUIS-1' });
   const k1 = (await post({ accion: 'erp_listar', tabla: 'cobranza', codigo: D })).items.find(x => x.id === 'k1');

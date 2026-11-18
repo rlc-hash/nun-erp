@@ -79,7 +79,7 @@ label.l{display:block;font-size:12.5px;color:var(--mute);margin:12px 0 5px}
 // ============================================================
 // NUN Vendedores v2.0
 // ============================================================
-const VERSION = 'v2.1.32';
+const VERSION = 'v2.1.33';
 const URL_API = 'https://vlqbzfotjltarelwenvu.supabase.co/functions/v1/nun';
 const K_SES = 'nunv_sesion', K_CACHE = 'nunv_cache_', K_DEV = 'nunv_device';
 const TABLAS = ['clientes','productos','cotizaciones','pedidos','facturas','remisiones','cobranza','ingresos','pagosverificar'];
@@ -532,7 +532,7 @@ function abrirDoc(tabla, id){
       ${tabla === 'facturas' && d.uuid_sat ? `<button class="btn" onclick="xmlDoc('${esc(d.uuid_sat)}','${esc(d.folio)}')">📃 XML</button>` : ''}
       <button class="btn" onclick="enviarWA('${tabla}','${esc(d.id)}')">💬 Enviar por WhatsApp</button>
       ${c && (+c.pendiente || 0) >= 1 ? `<button class="btn p" onclick="abrirPago('${esc(c.id)}')">💵 Registrar pago</button>` : ''}
-      ${tabla === 'cotizaciones' && d.estatus === 'enviada' && (!esVendedor() || norm(d.vendedor) === miVendedor()) ? `<button class="btn p" onclick="editarCot('${esc(d.id)}')">✏️ Editar cotización</button><button class="btn" style="color:var(--bad)" onclick="cancelarCot('${esc(d.id)}')">Cancelar cotización</button>` : ''}
+      ${tabla === 'cotizaciones' && d.estatus === 'enviada' && (!esVendedor() || norm(d.vendedor) === miVendedor() || (veTodos() && norm(d.creado_por) === miVendedor())) ? `<button class="btn p" onclick="editarCot('${esc(d.id)}')">✏️ Editar cotización</button><button class="btn" style="color:var(--bad)" onclick="cancelarCot('${esc(d.id)}')">Cancelar cotización</button>` : ''}
     </div>`);
 }
 function textoDoc(tabla, id){
@@ -849,7 +849,8 @@ function vCotizar(){
   const C = S.cot, its = C.lineas.map(l => ({ cantidad: l.cantidad, precio_unitario: l.precio })), t = calcDoc(its, !C.conIva);
   return `<h2>${C.editId ? 'Editar cotización ' + esc(C.folio || '') : 'Nueva cotización'}</h2>${C.editId ? `<div class="sub" style="margin:-4px 0 10px">Corriges la misma cotización (no se sube otra). <a href="#" onclick="salirEdicion();return false">Salir sin guardar</a></div>` : ''}
   <div class="card">
-    <label class="l" style="margin-top:0">Cliente</label>
+    ${esVendedor() && veTodos() && !C.editId ? `<label class="l" style="margin-top:0">¿Quién lo vendió?</label><select class="in" onchange="S.cot.vend=this.value;pintar()">${VENDEDORES.map(v => `<option ${(C.vend || miVendedor()) === v ? 'selected' : ''}>${v}</option>`).join('')}</select>${(C.vend || miVendedor()) !== miVendedor() ? `<div class="sub" style="margin-top:4px">Se sube a nombre de <b>${esc(C.vend)}</b> (la comisión es suya); queda que la subiste tú.</div>` : ''}` : ''}
+    <label class="l" ${esVendedor() && veTodos() && !C.editId ? '' : 'style="margin-top:0"'}>Cliente</label>
     ${C.cliente && !C.nuevo ? `<div style="display:flex;gap:8px;align-items:center"><b style="flex:1">${esc(C.cliente)}</b><button class="btn s" onclick="S.cot.cliente='';pintar()">Cambiar</button></div>`
       : `<input id="ctCli" class="in" placeholder="Buscar cliente" value="${esc(C.nuevo ? C.cliente : (S.qCtCli || ''))}" oninput="${C.nuevo ? 'S.cot.cliente=this.value' : 'S.qCtCli=this.value;buscarCli()'}" autocomplete="off">
          ${C.nuevo ? `<input class="in" style="margin-top:6px" placeholder="Teléfono (opcional)" inputmode="tel" value="${esc(C.tel)}" oninput="S.cot.tel=this.value"><div class="sub" style="margin-top:6px">Cliente nuevo: queda a tu nombre. <a href="#" onclick="S.cot.nuevo=false;S.cot.cliente='';pintar();return false">Buscar uno que ya existe</a></div>`
@@ -919,7 +920,7 @@ async function subirCot(){
   C.id = C.id || ('app_cot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)); // reintento = mismo id, no se duplica
   try {
     if (C.nuevo && !(S.d.clientes || []).some(c => norm(c.razon_social) === norm(cliente))) {
-      const jc = await api({ accion: 'erp_crear', tabla: 'clientes', item: { id: 'cli_app_' + C.id, razon_social: cliente.toUpperCase(), telefono: C.tel || '', activo: true, fecha_alta: hoy(), notas: 'Alta desde la app de vendedores' } });
+      const jc = await api({ accion: 'erp_crear', tabla: 'clientes', item: { id: 'cli_app_' + C.id, razon_social: cliente.toUpperCase(), vendedor: C.vend || miVendedor() || '', telefono: C.tel || '', activo: true, fecha_alta: hoy(), notas: 'Alta desde la app de vendedores' } });
       if (!jc.ok && !jc.ya_existia) throw new Error(jc.error || 'no se dio de alta el cliente');
     }
     const items = C.lineas.map(l => { const set = (l.ps || 1) > 1 && l.modo !== 'pz'; // se guarda en piezas (inventario y apartado van en piezas); la descripción dice los sets
@@ -928,7 +929,7 @@ async function subirCot(){
       if (set) x.pz_caja = l.ps; // v2.1.14 el PDF lo muestra por caja (cantidad en cajas, precio de la caja)
       return x; });
     const t = calcDoc(items, !C.conIva);
-    const item = { id: C.id, folio: '', fecha: hoy(), cliente: C.nuevo ? cliente.toUpperCase() : cliente, subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: !C.conIva,
+    const item = { id: C.id, folio: '', fecha: hoy(), cliente: C.nuevo ? cliente.toUpperCase() : cliente, subtotal: t.subtotal, iva: t.iva, total: t.total, sin_iva: !C.conIva, vendedor: C.vend || miVendedor() || '', // v2.1.33 ¿quién lo vendió?
       envio: String(C.envio || '').trim(), items_json: JSON.stringify(items), notas: (C.notas ? C.notas + ' · ' : '') + (C.conIva ? '' : 'SIN IVA · ') + 'Cotización desde la app de vendedores' };
     const j = await api({ accion: 'erp_crear', tabla: 'cotizaciones', item });
     if (!j.ok && !j.ya_existia) throw new Error(j.error || 'no se guardó');

@@ -426,6 +426,8 @@ cfdi_xml_get(uuid) / cfdi_xml_guardar · bind_proxy · listar_cuentas · obtener
   remisión parcial). Antes nunSyncCobranzaDoc solo hacía remisiones/facturas. Se corrigió el cobro de P0075. Servidor: aviso a Rafa "✏️ X modificó el pedido …" cuando
   alguien de la oficina cambia productos/total de una cotización/pedido/remisión/factura (erp_upsert_batch/erp_actualizar con items_json o total). El aviso rojo
   "El servidor no respondió" ya no sale solo por usuarios/bitácora. Pruebas `prueba_v508_pedido_cobro.js`, `prueba_v476_avisos_oficina.js` (modifica-pedido).
+- v5.09 (19 nov, Rafa: "estos pagos me salen en remisión y deben ser facturas"): en Ingresos, el pago de una factura PUE que se cobra en el cobro de su remisión
+  (comentario "Pago de la factura FT…", como FT0014/FT0016/FT0024 de pagos de Carlos Alarcón) se ve como "🧾 FT… (cobro R…)". Prueba `prueba_v509_ingreso_factura.js`.
 - v4.38 Pagos de la ficha con estatus y botón Cancelar · v4.39 el cliente de factura no suma doble (cuenta en el principal) · v4.40 la ficha se pone al día sola.
 
 ## Cuadre de clientes (v4.20–v4.29, 12 oct 2026)

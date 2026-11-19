@@ -1817,7 +1817,7 @@ button[onclick*="Bind"], button[onclick*="rwdSync"], .rwd-sync-bar { display:non
       <span class="brand-label-main">NUN</span>
       <span class="brand-label-sub">ERP CLOUD</span>
     </div>
-    <span class="rwd-version">v5.08 · Sistema NUN ✓</span>
+    <span class="rwd-version">v5.09 · Sistema NUN ✓</span>
   </div>
 
   <!-- Centro: tabs (Ventas, Compras, Finanzas) + search central -->
@@ -3384,7 +3384,8 @@ const SCHEMAS = {
     listColumns:[
       { key:'fecha', label:'Fecha', render:r=>fmtFecha(r.fecha) },
       { key:'cliente', label:'Cliente / Origen' },
-      { key:'factura', label:'Referencia', render:r=>`<span class="mono">${escapeHTML(r.factura||'—')}</span>` },
+      { key:'factura', label:'Referencia', render:r=>{ const ft = (String(r.comentarios||'').match(/Pago de la factura (FT\d+)/)||[])[1]; // v5.09 pago de factura PUE que se cobra en su remisión: se ve la factura
+        return ft ? `<span class="mono">🧾 ${escapeHTML(ft)}</span> <span class="mono" style="color:var(--ink-4);font-size:11px">(cobro ${escapeHTML(String(r.factura||''))})</span>` : `<span class="mono">${escapeHTML(r.factura||'—')}</span>`; } },
       { key:'cuenta', label:'Cuenta' },
       { key:'tipo', label:'Tipo', render:r=>r.tipo?`<span class="tag">${escapeHTML(r.tipo)}</span>`:'—' },
       { key:'monto', label:'Monto', right:true, render:r=>`<span class="col-amount paid">${fmtFull(r.monto||0)}</span>` }
